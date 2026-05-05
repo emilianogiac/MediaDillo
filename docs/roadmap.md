@@ -14,7 +14,7 @@ Track epics and their GitHub issues here. Update status as work progresses.
 | # | Epic | GitHub Issue | Status | Notes |
 |---|------|-------------|--------|-------|
 | 0 | **Docs** | [#1](https://github.com/emilianogiac/MediaDillo/issues/1) | `[x]` | `./docs/specs.md` + `./docs/roadmap.md` |
-| 1 | **Foundation** | [#2](https://github.com/emilianogiac/MediaDillo/issues/2) | `[ ]` | Docker Compose, DB schema, Prisma, Fastify skeleton, React shell |
+| 1 | **Foundation** | [#2](https://github.com/emilianogiac/MediaDillo/issues/2) | `[~]` | PR #14 open — pending merge |
 | 2 | **Scanner** | [#3](https://github.com/emilianogiac/MediaDillo/issues/3) | `[ ]` | Multi-root NAS walk, ffprobe extraction, scan logs |
 | 3 | **Metadata** | [#4](https://github.com/emilianogiac/MediaDillo/issues/4) | `[ ]` | TMDB/TVDB integration, matching engine, completeness flags |
 | 4 | **Artwork Manager** | [#5](https://github.com/emilianogiac/MediaDillo/issues/5) | `[ ]` | Download missing art, TMDB image search, health badges |

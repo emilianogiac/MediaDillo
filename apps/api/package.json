@@ -16,6 +16,7 @@
     "@fastify/static": "^7.0.4",
     "@mediadillo/db": "workspace:*",
     "fastify": "^5.0.0",
+    "pino-pretty": "^11.3.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
