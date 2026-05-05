@@ -1,0 +1,46 @@
+import Fastify from 'fastify'
+import cors from '@fastify/cors'
+import staticPlugin from '@fastify/static'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { healthRoutes } from './routes/health.js'
+import { config } from './config.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+export async function buildApp() {
+  const app = Fastify({
+    logger:
+      config.NODE_ENV !== 'production'
+        ? {
+            level: 'debug',
+            transport: { target: 'pino-pretty', options: { colorize: true } },
+          }
+        : { level: 'info' },
+  })
+
+  await app.register(cors, {
+    origin: config.NODE_ENV === 'development' ? true : false,
+  })
+
+  // Serve static frontend in production
+  if (config.NODE_ENV === 'production') {
+    const publicDir = path.join(__dirname, '..', 'public')
+    await app.register(staticPlugin, {
+      root: publicDir,
+      prefix: '/',
+    })
+  }
+
+  // API routes
+  await app.register(healthRoutes, { prefix: '/api' })
+
+  // SPA fallback in production
+  if (config.NODE_ENV === 'production') {
+    app.setNotFoundHandler((_req, reply) => {
+      reply.sendFile('index.html')
+    })
+  }
+
+  return app
+}

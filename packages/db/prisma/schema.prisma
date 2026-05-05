@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Scan infrastructure
+// ---------------------------------------------------------------------------
+
+model ScanRoot {
+  id        String       @id @default(cuid())
+  path      String       @unique
+  label     String
+  type      ScanRootType
+  enabled   Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  movies    Movie[]
+  scanLogs  ScanLog[]
+}
+
+enum ScanRootType {
+  movies
+  tv
+}
+
+model ScanLog {
+  id              String      @id @default(cuid())
+  startedAt       DateTime    @default(now())
+  finishedAt      DateTime?
+  rootsScanned    String[]
+  filesAdded      Int         @default(0)
+  filesChanged    Int         @default(0)
+  filesRemoved    Int         @default(0)
+  staleFilesFound Int         @default(0)
+  staleFiles      StaleFile[]
+  scanRoot        ScanRoot?   @relation(fields: [scanRootId], references: [id])
+  scanRootId      String?
+}
+
+model StaleFile {
+  id        String    @id @default(cuid())
+  path      String
+  scanLogId String
+  scanLog   ScanLog   @relation(fields: [scanLogId], references: [id], onDelete: Cascade)
+  reason    String?
+  resolved  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// Movies
+// ---------------------------------------------------------------------------
+
+model Movie {
+  id                 String      @id @default(cuid())
+  tmdbId             Int?        @unique
+  imdbId             String?
+  title              String
+  year               Int?
+  genres             String[]
+  runtime            Int?
+  rating             Float?
+  overview           String?
+  tagline            String?
+  posterUrl          String?
+  backdropUrl        String?
+  posterDownloaded   Boolean     @default(false)
+  backdropDownloaded Boolean     @default(false)
+  status             MovieStatus @default(owned)
+  scanRootId         String?
+  scanRoot           ScanRoot?   @relation(fields: [scanRootId], references: [id])
+  files              MovieFile[]
+  credits            Credit[]
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([title])
+  @@index([status])
+  @@index([scanRootId])
+}
+
+enum MovieStatus {
+  owned
+  wanted
+}
+
+model MovieFile {
+  id               String   @id @default(cuid())
+  movieId          String
+  movie            Movie    @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  path             String   @unique
+  sizeBytes        BigInt?
+  durationS        Int?
+  videoCodec       String?
+  videoResolution  String?
+  videoQualityTier String?
+  hdr              Boolean  @default(false)
+  audioCodec       String?
+  audioChannels    String?
+  audioQualityTier String?
+  scannedAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([movieId])
+}
+
+// ---------------------------------------------------------------------------
+// TV Shows
+// ---------------------------------------------------------------------------
+
+model TvShow {
+  id                 String       @id @default(cuid())
+  tmdbId             Int?         @unique
+  tvdbId             Int?
+  title              String
+  year               Int?
+  status             TvShowStatus @default(continuing)
+  totalEpisodes      Int          @default(0)
+  ownedEpisodes      Int          @default(0)
+  posterUrl          String?
+  backdropUrl        String?
+  posterDownloaded   Boolean      @default(false)
+  backdropDownloaded Boolean      @default(false)
+  seasons            Season[]
+  credits            Credit[]
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@index([title])
+}
+
+enum TvShowStatus {
+  continuing
+  ended
+}
+
+model Season {
+  id           String    @id @default(cuid())
+  showId       String
+  show         TvShow    @relation(fields: [showId], references: [id], onDelete: Cascade)
+  seasonNumber Int
+  episodeCount Int       @default(0)
+  episodes     Episode[]
+
+  @@unique([showId, seasonNumber])
+  @@index([showId])
+}
+
+model Episode {
+  id            String        @id @default(cuid())
+  seasonId      String
+  season        Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  episodeNumber Int
+  title         String?
+  airDate       DateTime?
+  status        EpisodeStatus @default(missing)
+  files         EpisodeFile[]
+
+  @@unique([seasonId, episodeNumber])
+  @@index([seasonId])
+  @@index([status])
+}
+
+enum EpisodeStatus {
+  owned
+  missing
+  not_yet_aired
+  ignored
+}
+
+model EpisodeFile {
+  id               String   @id @default(cuid())
+  episodeId        String
+  episode          Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  path             String   @unique
+  sizeBytes        BigInt?
+  durationS        Int?
+  videoCodec       String?
+  videoResolution  String?
+  videoQualityTier String?
+  hdr              Boolean  @default(false)
+  audioCodec       String?
+  audioChannels    String?
+  audioQualityTier String?
+  scannedAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([episodeId])
+}
+
+// ---------------------------------------------------------------------------
+// People & Credits
+// ---------------------------------------------------------------------------
+
+model Person {
+  id         String   @id @default(cuid())
+  tmdbId     Int?     @unique
+  name       String
+  profileUrl String?
+  credits    Credit[]
+}
+
+model Credit {
+  id        String     @id @default(cuid())
+  personId  String
+  person    Person     @relation(fields: [personId], references: [id])
+  mediaType MediaType
+  movieId   String?
+  movie     Movie?     @relation(fields: [movieId], references: [id], onDelete: Cascade)
+  showId    String?
+  show      TvShow?    @relation(fields: [showId], references: [id], onDelete: Cascade)
+  role      CreditRole
+  character String?
+  order     Int?
+
+  @@index([personId])
+  @@index([movieId])
+  @@index([showId])
+}
+
+enum MediaType {
+  movie
+  tv
+}
+
+enum CreditRole {
+  cast
+  director
+  writer
+}

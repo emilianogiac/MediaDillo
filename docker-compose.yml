@@ -1,0 +1,36 @@
+services:
+  app:
+    build: .
+    ports:
+      - "7731:7731"
+    volumes:
+      - /mnt/nas:/mnt/nas:rw
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://mediadillo:${DB_PASSWORD:-changeme}@db:5432/mediadillo
+      - PORT=7731
+      - NODE_ENV=production
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "7732:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: mediadillo
+      POSTGRES_USER: mediadillo
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediadillo"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
