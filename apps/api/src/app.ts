@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { healthRoutes } from './routes/health.js'
 import { scanRoutes } from './routes/scan.js'
+import { metadataRoutes } from './routes/metadata.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -36,6 +37,7 @@ export async function buildApp() {
   // API routes
   await app.register(healthRoutes, { prefix: '/api' })
   await app.register(scanRoutes, { prefix: '/api' })
+  await app.register(metadataRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {
