@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Generated
+packages/db/src/generated/
+
+# Logs
+*.log
+logs/
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Testing
+coverage/
+
+# Temp
+tmp/

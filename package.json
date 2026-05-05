@@ -1,0 +1,32 @@
+{
+  "name": "mediadillo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"pnpm --filter @mediadillo/api dev\" \"pnpm --filter @mediadillo/web dev\"",
+    "build": "pnpm --filter @mediadillo/db db:generate && pnpm --filter @mediadillo/api build && pnpm --filter @mediadillo/web build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "db:generate": "pnpm --filter @mediadillo/db db:generate",
+    "db:migrate": "pnpm --filter @mediadillo/db db:migrate",
+    "db:studio": "pnpm --filter @mediadillo/db db:studio"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "esbuild", "prisma"]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.9.0",
+    "@typescript-eslint/eslint-plugin": "^8.3.0",
+    "@typescript-eslint/parser": "^8.3.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "concurrently": "^9.0.0",
+    "eslint": "^9.9.0",
+    "globals": "^15.9.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.0"
+  }
+}
