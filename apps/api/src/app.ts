@@ -32,6 +32,11 @@ export async function buildApp() {
         : { level: 'info' },
   })
 
+  // Serialize BigInt as string — Prisma uses BigInt for sizeBytes fields
+  app.addHook('preSerialization', async (_req, _reply, payload) => {
+    return JSON.parse(JSON.stringify(payload, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)))
+  })
+
   await app.register(cors, {
     origin: config.NODE_ENV === 'development' ? true : false,
   })
