@@ -1,10 +1,118 @@
+import { useState, useEffect } from 'react'
+import type { JellyfinStatus } from '../api/jellyfin.js'
+import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
+
+function StatusDot({ ok }: { ok: boolean }) {
+  return (
+    <span
+      className={`inline-block w-2.5 h-2.5 rounded-full ${ok ? 'bg-green-500' : 'bg-red-500'}`}
+    />
+  )
+}
+
+function JellyfinCard() {
+  const [status, setStatus] = useState<JellyfinStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshMsg, setRefreshMsg] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchJellyfinStatus()
+      .then(setStatus)
+      .catch(() => setStatus({ configured: false, connected: false }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function manualRefresh() {
+    setRefreshing(true)
+    setRefreshMsg(null)
+    try {
+      await triggerJellyfinRefresh()
+      setRefreshMsg('Library refresh triggered.')
+    } catch (e) {
+      setRefreshMsg(e instanceof Error ? e.message : 'Refresh failed')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Jellyfin</h2>
+
+      {loading && <p className="text-sm text-gray-500">Checking connection…</p>}
+
+      {!loading && status && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            {status.configured ? (
+              <>
+                <StatusDot ok={status.connected} />
+                <span className="text-sm text-gray-300">
+                  {status.connected
+                    ? `Connected — ${status.serverName ?? 'Jellyfin'} v${status.version ?? '?'}`
+                    : `Not reachable — ${status.error ?? 'unknown error'}`}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-600" />
+                <span className="text-sm text-gray-500">
+                  Not configured — set <code className="text-xs bg-gray-800 px-1 rounded">JELLYFIN_URL</code> and{' '}
+                  <code className="text-xs bg-gray-800 px-1 rounded">JELLYFIN_API_KEY</code> in your environment.
+                </span>
+              </>
+            )}
+          </div>
+
+          {status.configured && status.connected && (
+            <>
+              <button
+                onClick={manualRefresh}
+                disabled={refreshing}
+                className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
+              >
+                {refreshing ? 'Refreshing…' : 'Trigger library refresh'}
+              </button>
+              {refreshMsg && (
+                <p className="text-xs text-gray-400">{refreshMsg}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function SettingsPage() {
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Settings</h1>
-      <p className="text-gray-500">
-        Scan roots, API keys, Jellyfin config, and exports — coming in Epic 12.
-      </p>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Settings</h1>
+
+      <JellyfinCard />
+
+      <div className="bg-surface-raised border border-gray-700 rounded-lg p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
+          Scan Roots
+        </h2>
+        <p className="text-sm text-gray-500">
+          Configure scan roots via the{' '}
+          <code className="text-xs bg-gray-800 px-1 rounded">SCAN_ROOTS</code> environment
+          variable. Full configuration UI coming in Epic 12.
+        </p>
+      </div>
+
+      <div className="bg-surface-raised border border-gray-700 rounded-lg p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
+          API Keys
+        </h2>
+        <p className="text-sm text-gray-500">
+          Set <code className="text-xs bg-gray-800 px-1 rounded">TMDB_API_KEY</code> and
+          optionally <code className="text-xs bg-gray-800 px-1 rounded">TVDB_API_KEY</code>{' '}
+          in your environment. Full configuration UI coming in Epic 12.
+        </p>
+      </div>
     </div>
   )
 }
