@@ -16,33 +16,37 @@ export interface ArtworkPresence {
   hasBackdrop: boolean
 }
 
-export async function detectLocalArtwork(folderPath: string): Promise<ArtworkPresence> {
-  let files: string[]
+async function listFolder(folderPath: string): Promise<string[]> {
   try {
-    files = await readdir(folderPath)
+    return await readdir(folderPath)
   } catch {
-    return { hasPoster: false, hasBackdrop: false }
+    return []
   }
+}
 
-  let hasPoster = false
-  let hasBackdrop = false
+export async function detectLocalArtwork(folderPath: string): Promise<ArtworkPresence> {
+  const { posterPath, backdropPath } = await findArtworkPaths(folderPath)
+  return { hasPoster: posterPath !== null, hasBackdrop: backdropPath !== null }
+}
+
+export async function findArtworkPaths(folderPath: string): Promise<{ posterPath: string | null; backdropPath: string | null }> {
+  const files = await listFolder(folderPath)
+  let posterPath: string | null = null
+  let backdropPath: string | null = null
 
   for (const file of files) {
     const ext = path.extname(file).toLowerCase()
     if (!IMAGE_EXTS.has(ext)) continue
-
     const base = path.basename(file, ext).toLowerCase()
 
-    if (!hasPoster && (POSTER_NAMES.has(base) || POSTER_SUFFIXES.some(s => base.endsWith(s)))) {
-      hasPoster = true
+    if (!posterPath && (POSTER_NAMES.has(base) || POSTER_SUFFIXES.some(s => base.endsWith(s)))) {
+      posterPath = path.join(folderPath, file)
     }
-
-    if (!hasBackdrop && (BACKDROP_NAMES.has(base) || BACKDROP_SUFFIXES.some(s => base.endsWith(s)))) {
-      hasBackdrop = true
+    if (!backdropPath && (BACKDROP_NAMES.has(base) || BACKDROP_SUFFIXES.some(s => base.endsWith(s)))) {
+      backdropPath = path.join(folderPath, file)
     }
-
-    if (hasPoster && hasBackdrop) break
+    if (posterPath && backdropPath) break
   }
 
-  return { hasPoster, hasBackdrop }
+  return { posterPath, backdropPath }
 }

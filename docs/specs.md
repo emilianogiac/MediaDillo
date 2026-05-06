@@ -69,11 +69,15 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - Multiple configurable scan roots with category labels
 - Each root has a `type` (movies or tv) and a `label` (e.g. "4K Films", "Cartoons")
 - Recursively walks each root, detects video files by extension (`.mkv`, `.mp4`, `.avi`, `.m4v`, etc.)
-- Parses filename to extract title + year (movies) or show + S/E (TV)
+- Parses filename to extract title + year (movies) or show + S/E (TV); supports both `S01E01` and `01x01` episode naming conventions
+- Scan root `type` (`movies` | `tv`) is ground truth for routing files — not filename parser alone
 - Matches to TMDB/TVDB entry (confidence score, manual fallback)
 - Extracts technical metadata via **ffprobe**:
   - Video: codec (H.264, H.265/HEVC, AV1, etc.), resolution/quality tier (SD/720p/1080p/4K), HDR flag
   - Audio: codec (AAC, AC3, DTS, TrueHD, etc.), quality tier, channel layout (2.0, 5.1, 7.1, Atmos)
+- **Existing artwork detection**: detects posters and backdrops already on disk — Jellyfin standard names (`poster.jpg`, `backdrop.jpg`, `fanart.jpg`, `folder.jpg`) and TinyMediaManager suffixes (`-poster`, `-fanart`, `-landscape`, `-background`, etc.)
+- **NFO sidecar import**: reads existing Kodi/TMM `.nfo` XML files during scan to pre-populate title, year, TMDB/IMDB IDs, overview, genres, cast, and directors without an API call
+- **Live scan progress**: `GET /api/scan/progress` exposes files found / processed / current file; dashboard polls every 2s while scanning
 - Incremental scan: only processes new/changed files (mtime tracking)
 - **Completeness check**: flags items missing poster, backdrop, metadata fields, or matched TMDB ID
 
@@ -86,6 +90,7 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - **Artwork management**:
   - Artwork stored as URLs (lazy-loaded) by default
   - Download option: fetches and saves to `{SCAN_ROOT}/{item_folder}/` (poster.jpg, backdrop.jpg)
+  - **Local artwork serving**: `GET /api/artwork/movies/:id/poster|backdrop` and `GET /api/artwork/shows/:id/poster|backdrop` stream files directly from the NAS — the UI uses local endpoints when `posterDownloaded=true`
   - Artwork search: for any item with missing art, query TMDB image API and let user pick from results
   - Missing art highlighted with warning badge; accessible from `/health` and item detail
 

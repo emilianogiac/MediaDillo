@@ -19,9 +19,11 @@ Self-hosted media library manager for Jellyfin — scan, match, rename, and trac
 
 ## Features
 
-- **Multi-root library scanner** — index movies and TV shows across multiple NAS directories; extracts technical metadata via ffprobe (codec, resolution, bitrate, audio tracks)
+- **Multi-root library scanner** — index movies and TV shows across multiple NAS directories; extracts technical metadata via ffprobe (codec, resolution, bitrate, audio tracks); live progress counter while scanning
+- **Existing artwork detection** — automatically detects posters and backdrops already present on disk (Jellyfin standard names and TinyMediaManager suffixes like `-poster`, `-fanart`, `-landscape`)
+- **NFO sidecar import** — reads existing Kodi/TMM `.nfo` files during scan to pre-populate metadata without an API call
 - **TMDB / TVDB metadata matching** — search and match titles against TMDB and TVDB with local result caching to minimize API calls
-- **Artwork manager** — download missing posters and backdrops from TMDB; search and replace artwork per title
+- **Artwork manager** — streams locally saved artwork directly from the NAS; download missing posters and backdrops from TMDB; search and replace artwork per title
 - **Missing content tracker** — episode diff against TMDB for TV shows; movie wishlist for tracking titles you want to acquire
 - **File manager** — Jellyfin-standard rename preview and apply, plus stale file cleanup (leftover `.tbn`, `.xml`, TMM sidecar files)
 - **Health dashboard** — per-library completeness score; bulk artwork and metadata refresh
@@ -157,6 +159,7 @@ MediaDillo enforces the **Jellyfin standard** naming convention so your files ar
 - Title case; only `()`, `-`, and spaces are allowed in file and folder names
 - Year is always the 4-digit release year in parentheses
 - Multi-part episodes: `S01E01E02`
+- Both `S01E01` and `01x01` episode naming conventions are recognised during scanning
 - Optional quality suffix: `Show Name - S01E01 - Episode Title [1080p].mkv`
 - All renames are **preview-only** until you explicitly apply them — no files are moved or renamed without your confirmation
 
