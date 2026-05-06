@@ -7,6 +7,8 @@ import { healthRoutes } from './routes/health.js'
 import { scanRoutes } from './routes/scan.js'
 import { metadataRoutes } from './routes/metadata.js'
 import { artworkRoutes } from './routes/artwork.js'
+import { moviesRoutes } from './routes/movies.js'
+import { scanRootsRoutes } from './routes/scan-roots.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -40,6 +42,8 @@ export async function buildApp() {
   await app.register(scanRoutes, { prefix: '/api' })
   await app.register(metadataRoutes, { prefix: '/api' })
   await app.register(artworkRoutes, { prefix: '/api' })
+  await app.register(moviesRoutes, { prefix: '/api' })
+  await app.register(scanRootsRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {

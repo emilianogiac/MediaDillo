@@ -31,11 +31,11 @@ vi.stubGlobal('fetch', mockFetch)
 
 import { prisma } from '@mediadillo/db'
 
-const movieMock = prisma.movie as ReturnType<typeof vi.fn> & {
+const movieMock = prisma.movie as unknown as {
   findUnique: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
 }
-const showMock = prisma.tvShow as ReturnType<typeof vi.fn> & {
+const showMock = prisma.tvShow as unknown as {
   findUnique: ReturnType<typeof vi.fn>
   update: ReturnType<typeof vi.fn>
 }
