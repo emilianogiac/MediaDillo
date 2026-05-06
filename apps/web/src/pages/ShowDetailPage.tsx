@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow } from '../api/shows.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
+import { MatchModal } from '../components/MatchModal.js'
 
 function completenessBar(owned: number, total: number) {
   if (total === 0) return null
@@ -26,6 +27,7 @@ export function ShowDetailPage() {
   const [show, setShow] = useState<ShowDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showMatchModal, setShowMatchModal] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
@@ -110,9 +112,17 @@ export function ShowDetailPage() {
 
           {completenessBar(show.ownedEpisodes, show.totalEpisodes)}
 
-          {show.tmdbId && (
-            <p className="text-xs text-gray-500">TMDB #{show.tmdbId}</p>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            {show.tmdbId && (
+              <p className="text-xs text-gray-500">TMDB #{show.tmdbId}</p>
+            )}
+            <button
+              onClick={() => setShowMatchModal(true)}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+            >
+              {show.tmdbId ? 'Re-match' : '⚠ Match to TMDB'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -189,6 +199,19 @@ export function ShowDetailPage() {
         }}
         onUpdated={load}
       />
+
+      {showMatchModal && (
+        <MatchModal
+          mediaType="show"
+          id={show.id}
+          currentTitle={show.title}
+          currentTmdbId={show.tmdbId}
+          fetchCandidates={fetchShowCandidates}
+          onMatch={matchShow}
+          onClose={() => setShowMatchModal(false)}
+          onMatched={() => { setShowMatchModal(false); load() }}
+        />
+      )}
     </div>
   )
 }

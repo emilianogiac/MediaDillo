@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { MovieDetail } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie } from '../api/movies.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
+import { MatchModal } from '../components/MatchModal.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -23,6 +24,7 @@ export function MovieDetailPage() {
   const [movie, setMovie] = useState<MovieDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [showMatchModal, setShowMatchModal] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
@@ -119,14 +121,22 @@ export function MovieDetailPage() {
             </p>
           )}
 
-          {/* External links */}
-          <div className="flex gap-3 text-xs">
-            {movie.tmdbId && (
-              <span className="text-gray-500">TMDB #{movie.tmdbId}</span>
-            )}
-            {movie.imdbId && (
-              <span className="text-gray-500">IMDb {movie.imdbId}</span>
-            )}
+          {/* External links + match button */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex gap-3 text-xs">
+              {movie.tmdbId && (
+                <span className="text-gray-500">TMDB #{movie.tmdbId}</span>
+              )}
+              {movie.imdbId && (
+                <span className="text-gray-500">IMDb {movie.imdbId}</span>
+              )}
+            </div>
+            <button
+              onClick={() => setShowMatchModal(true)}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+            >
+              {movie.tmdbId ? 'Re-match' : '⚠ Match to TMDB'}
+            </button>
           </div>
         </div>
       </div>
@@ -197,6 +207,19 @@ export function MovieDetailPage() {
         }}
         onUpdated={load}
       />
+
+      {showMatchModal && (
+        <MatchModal
+          mediaType="movie"
+          id={movie.id}
+          currentTitle={movie.title}
+          currentTmdbId={movie.tmdbId}
+          fetchCandidates={fetchMovieCandidates}
+          onMatch={matchMovie}
+          onClose={() => setShowMatchModal(false)}
+          onMatched={() => { setShowMatchModal(false); load() }}
+        />
+      )}
     </div>
   )
 }

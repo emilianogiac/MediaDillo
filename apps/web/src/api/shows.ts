@@ -1,5 +1,5 @@
 import { apiFetch } from './client.js'
-import type { ShowSummary, ShowDetail, SeasonDetail, ImageCandidate } from './types.js'
+import type { ShowSummary, ShowDetail, SeasonDetail, ImageCandidate, MovieCandidate } from './types.js'
 
 export interface ShowsFilter {
   search?: string
@@ -45,5 +45,16 @@ export async function selectShowImage(
   await apiFetch(`/artwork/shows/${id}/select`, {
     method: 'POST',
     body: JSON.stringify({ filePath, artworkType }),
+  })
+}
+
+export async function fetchShowCandidates(id: string): Promise<{ show: { id: string; title: string; year: number | null }; candidates: MovieCandidate[] }> {
+  return apiFetch(`/metadata/shows/${id}/candidates`)
+}
+
+export async function matchShow(id: string, tmdbId: number): Promise<void> {
+  await apiFetch(`/metadata/shows/${id}/match`, {
+    method: 'POST',
+    body: JSON.stringify({ tmdbId }),
   })
 }

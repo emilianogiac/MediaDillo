@@ -51,3 +51,14 @@ export async function selectMovieImage(
     body: JSON.stringify({ filePath, artworkType }),
   })
 }
+
+export async function fetchMovieCandidates(id: string): Promise<{ movie: { id: string; title: string; year: number | null }; candidates: import('./types.js').MovieCandidate[] }> {
+  return apiFetch(`/metadata/movies/${id}/candidates`)
+}
+
+export async function matchMovie(id: string, tmdbId: number): Promise<void> {
+  await apiFetch(`/metadata/movies/${id}/match`, {
+    method: 'POST',
+    body: JSON.stringify({ tmdbId }),
+  })
+}
