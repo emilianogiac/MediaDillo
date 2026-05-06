@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import type { MovieDetail } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie } from '../api/movies.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -21,10 +21,23 @@ function formatDuration(seconds: number | null): string {
 
 export function MovieDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [movie, setMovie] = useState<MovieDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete() {
+    if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
+    setDeleting(true)
+    try {
+      await deleteMovie(id)
+      navigate('/movies')
+    } catch {
+      setDeleting(false)
+    }
+  }
 
   const load = useCallback(() => {
     if (!id) return
@@ -176,7 +189,17 @@ export function MovieDetailPage() {
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Files</h2>
         {movie.files.length === 0 ? (
-          <p className="text-sm text-gray-500">No files found for this movie.</p>
+          <div className="space-y-3">
+            <p className="text-sm text-red-400 font-medium">⚠ No video file attached to this record.</p>
+            <p className="text-sm text-gray-500">This is a stale record — the file was likely deleted or moved without re-scanning. You can safely remove it.</p>
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-sm px-3 py-1.5 rounded border border-red-700/60 text-red-400 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+            >
+              {deleting ? 'Deleting…' : 'Delete this record'}
+            </button>
+          </div>
         ) : (
           <div className="space-y-2">
             {movie.files.map((file) => (

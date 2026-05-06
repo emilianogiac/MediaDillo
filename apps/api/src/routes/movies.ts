@@ -4,7 +4,7 @@ import { prisma } from '@mediadillo/db'
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
 export async function moviesRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide
+  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide&missingFile=true
   app.get<{
     Querystring: {
       scanRootId?: string
@@ -14,9 +14,10 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       unmatched?: string
       search?: string
       duplicates?: string
+      missingFile?: string
     }
   }>('/movies', async (req, reply) => {
-    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates } = req.query
+    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile } = req.query
 
     // Find tmdbIds that appear more than once (multiple editions/versions)
     const dupGroups = duplicates
@@ -42,6 +43,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
           ? { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }
           : {}),
         ...(unmatched === 'true' ? { tmdbId: null } : {}),
+        ...(missingFile === 'true' ? { files: { none: {} } } : {}),
         ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
         ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
         ...(search ? { title: { contains: search, mode: 'insensitive' } } : {}),
@@ -89,6 +91,14 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     await prisma.movie.deleteMany({ where: { id: { in: ids } } })
 
     return reply.send({ deleted: ids.length })
+  })
+
+  // DELETE /api/movies/:id — remove a stale record with no files
+  app.delete<{ Params: { id: string } }>('/movies/:id', async (req, reply) => {
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!movie) return reply.code(404).send({ error: 'Movie not found' })
+    await prisma.movie.delete({ where: { id: req.params.id } })
+    return reply.code(204).send()
   })
 
   // GET /api/movies/:id — full detail with files + credits

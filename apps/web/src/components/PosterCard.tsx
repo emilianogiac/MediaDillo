@@ -8,6 +8,7 @@ interface Props {
 
 export function PosterCard({ movie }: Props) {
   const qualityTier = movie.files[0]?.videoQualityTier
+  const missingFile = movie.files.length === 0
   const missingPoster = !movie.posterDownloaded
   const missingBackdrop = !movie.backdropDownloaded
   const unmatched = !movie.tmdbId
@@ -34,14 +35,19 @@ export function PosterCard({ movie }: Props) {
       </div>
 
       {/* Health badges — top-right overlay */}
-      {(unmatched || missingPoster || missingBackdrop || movie.isDuplicate) && (
+      {(missingFile || unmatched || missingPoster || missingBackdrop || movie.isDuplicate) && (
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
-          {unmatched && (
+          {missingFile && (
+            <span className="bg-red-700/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
+              Missing file
+            </span>
+          )}
+          {!missingFile && unmatched && (
             <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
               Unmatched
             </span>
           )}
-          {!unmatched && (missingPoster || missingBackdrop) && (
+          {!missingFile && !unmatched && (missingPoster || missingBackdrop) && (
             <span className="bg-yellow-500/90 text-yellow-900 text-xs px-1.5 py-0.5 rounded font-medium">
               Art missing
             </span>
