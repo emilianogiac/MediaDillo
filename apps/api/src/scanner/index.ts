@@ -62,10 +62,22 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
 
         try {
           let result: 'added' | 'changed' | 'unchanged'
-          if (parsed.type === 'movie') {
-            result = await syncMovieFile(scannedFile, scanRoot.id)
-          } else {
+          if (rootConfig.type === 'tv') {
+            // TV scan root: always route to episode sync. If the filename parser
+            // couldn't find an S/E pattern the file is unrecognised — skip it
+            // rather than letting it pollute the Movie table.
+            if (parsed.type !== 'tv') {
+              console.warn(`Skipping unrecognised TV file (no S/E pattern): ${walkedFile.path}`)
+              continue
+            }
             result = await syncEpisodeFile(scannedFile)
+          } else {
+            // Movies scan root: only sync files the parser classified as movies.
+            if (parsed.type !== 'movie') {
+              console.warn(`Skipping unexpected TV file in movies root: ${walkedFile.path}`)
+              continue
+            }
+            result = await syncMovieFile(scannedFile, scanRoot.id)
           }
 
           if (result === 'added') added++
