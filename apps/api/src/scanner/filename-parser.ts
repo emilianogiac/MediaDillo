@@ -8,6 +8,9 @@ const TV_SE_RE = /(?:[Ss](\d{1,2})[Ee](\d{1,2})(?:[Ee](\d{1,2}))*|(\d{1,2})x(\d{
 const NOISE_RE =
   /\s*[[(]?(4k|2160p|1080p|720p|480p|bluray|blu-ray|bdrip|webrip|web-dl|hdtv|dvdrip|h\.?264|h\.?265|hevc|x264|x265|avc|xvid|divx|remux|proper|repack|extended|theatrical|directors\.cut|unrated)[)\]]?\s*$/i
 
+// Trailing disc/part suffix on multi-disc movies: "- cd1", "disc 2", "part1", "pt2", etc.
+const DISC_SUFFIX_RE = /\s*[-–]?\s*(?:cd|disc|disk|part|pt)\.?\s*\d+\s*$/i
+
 export function parseFilename(filePath: string): ParsedFilename {
   const base = path.basename(filePath, path.extname(filePath))
   const normalized = normalizeDelimiters(base)
@@ -33,7 +36,8 @@ function parseTvFilename(normalized: string, match: RegExpExecArray): ParsedEpis
   const beforeSE = normalized.slice(0, match.index).trim().replace(/[-–_\s]+$/, '').trim()
   const afterSE = normalized.slice(match.index + full.length).trim().replace(/^[-–_\s]+/, '').trim()
 
-  const showParsed = extractYearFromTitle(beforeSE)
+  // Use extractYearFromTvTitle which handles both "(2005)" and bare "2005" at end of show name
+  const showParsed = extractYearFromTvTitle(beforeSE)
   const episodeTitle = afterSE ? stripNoise(afterSE) : null
 
   return {
@@ -47,9 +51,11 @@ function parseTvFilename(normalized: string, match: RegExpExecArray): ParsedEpis
 }
 
 function parseMovieFilename(normalized: string): ParsedMovie {
-  // Strip noise tags before extracting year — e.g. "Title (Year) [1080p]" → "Title (Year)"
+  // Strip noise tags, then disc suffix, before extracting year
+  // e.g. "Title (Year) [1080p] - cd1" → "Title (Year)"
   const noNoise = stripNoise(normalized)
-  const { title, year } = extractYearFromTitle(noNoise)
+  const noDisc = noNoise.replace(DISC_SUFFIX_RE, '').trim()
+  const { title, year } = extractYearFromTitle(noDisc)
   return { type: 'movie', title, year }
 }
 
@@ -61,6 +67,28 @@ function extractYearFromTitle(str: string): { title: string; year: number | null
     const year = parseInt(yearMatch[1], 10)
     const title = str.slice(0, yearMatch.index).trim()
     return { title, year }
+  }
+  return { title: str.trim(), year: null }
+}
+
+// Like extractYearFromTitle but also handles bare trailing years used in TV filenames:
+// "Show Name 2005 S01E01" → after beforeSE extraction → "Show Name 2005"
+// We strip the trailing 4-digit year so all episodes of the same show normalise to the same title.
+// Guard: only strip if a non-empty title remains (prevents "1883" → "").
+function extractYearFromTvTitle(str: string): { title: string; year: number | null } {
+  // Parenthesised year first (higher confidence)
+  const parenMatch = /\((\d{4})\)\s*$/.exec(str)
+  if (parenMatch?.[1]) {
+    return { title: str.slice(0, parenMatch.index).trim(), year: parseInt(parenMatch[1], 10) }
+  }
+  // Bare trailing year: "Show Name 2005" — only when preceded by a space so "1883" is left alone
+  const bareMatch = /\s(\d{4})$/.exec(str)
+  if (bareMatch?.[1]) {
+    const y = parseInt(bareMatch[1], 10)
+    if (y >= 1900 && y <= 2100) {
+      const title = str.slice(0, bareMatch.index).trim()
+      if (title.length > 0) return { title, year: y }
+    }
   }
   return { title: str.trim(), year: null }
 }
