@@ -7,6 +7,7 @@ import {
   applyEpisodeRenames,
   deleteToTrash,
 } from '../files/rename.js'
+import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 
 export async function filesRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/files/rename-preview?type=movies|episodes&ids=id1,id2,...
@@ -38,6 +39,10 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
       type === 'episodes'
         ? await applyEpisodeRenames(fileIds)
         : await applyMovieRenames(fileIds)
+
+    if (result.renamed > 0) {
+      triggerLibraryRefresh(app.log).catch(() => {})
+    }
 
     return reply.send(result)
   })

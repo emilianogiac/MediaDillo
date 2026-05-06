@@ -5,6 +5,7 @@ import { searchMovieImages, searchTvImages, tmdbImageUrl } from '../artwork/sear
 import { runBulkArtworkDownload, isBulkArtworkRunning } from '../artwork/index.js'
 import { saveImage } from '../artwork/downloader.js'
 import { config } from '../config.js'
+import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import path from 'node:path'
 
 export async function artworkRoutes(app: FastifyInstance): Promise<void> {
@@ -33,6 +34,9 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
         rawType === 'poster' || rawType === 'backdrop' ? rawType : 'all'
 
       const result = await downloadMovieArtwork(req.params.id, type)
+      if (result.posterSaved || result.backdropSaved) {
+        triggerLibraryRefresh(app.log).catch(() => {})
+      }
       return reply.send(result)
     },
   )
@@ -46,6 +50,9 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
         rawType === 'poster' || rawType === 'backdrop' ? rawType : 'all'
 
       const result = await downloadShowArtwork(req.params.id, type)
+      if (result.posterSaved || result.backdropSaved) {
+        triggerLibraryRefresh(app.log).catch(() => {})
+      }
       return reply.send(result)
     },
   )
