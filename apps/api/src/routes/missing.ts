@@ -80,9 +80,9 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
     const { title, year, tmdbId, overview, posterUrl, rating, genres } = req.body
     if (!title) return reply.code(400).send({ error: 'title is required' })
 
-    // If tmdbId supplied, check for duplicate
+    // If tmdbId supplied, check for duplicate wanted/owned entry
     if (tmdbId) {
-      const existing = await prisma.movie.findUnique({ where: { tmdbId } })
+      const existing = await prisma.movie.findFirst({ where: { tmdbId } })
       if (existing) {
         return reply.code(409).send({
           error: existing.status === 'owned'
