@@ -1,0 +1,53 @@
+import { apiFetch } from './client.js'
+import type { MovieSummary, MovieDetail, ScanRoot, ImageCandidate } from './types.js'
+
+export interface MoviesFilter {
+  scanRootId?: string
+  genre?: string
+  qualityTier?: string
+  missingArtwork?: boolean
+  unmatched?: boolean
+  search?: string
+}
+
+export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSummary[]> {
+  const params = new URLSearchParams()
+  if (filter.scanRootId) params.set('scanRootId', filter.scanRootId)
+  if (filter.genre) params.set('genre', filter.genre)
+  if (filter.qualityTier) params.set('qualityTier', filter.qualityTier)
+  if (filter.missingArtwork) params.set('missingArtwork', 'true')
+  if (filter.unmatched) params.set('unmatched', 'true')
+  if (filter.search) params.set('search', filter.search)
+  const qs = params.toString()
+  return apiFetch<MovieSummary[]>(`/movies${qs ? `?${qs}` : ''}`)
+}
+
+export async function fetchMovie(id: string): Promise<MovieDetail> {
+  return apiFetch<MovieDetail>(`/movies/${id}`)
+}
+
+export async function fetchScanRoots(): Promise<ScanRoot[]> {
+  return apiFetch<ScanRoot[]>('/scan-roots')
+}
+
+export async function triggerMovieDownload(
+  id: string,
+  type: 'poster' | 'backdrop' | 'all',
+): Promise<void> {
+  await apiFetch(`/artwork/movies/${id}/download?type=${type}`, { method: 'POST' })
+}
+
+export async function fetchMovieImages(id: string): Promise<{ posters: ImageCandidate[]; backdrops: ImageCandidate[] }> {
+  return apiFetch(`/artwork/movies/${id}/images`)
+}
+
+export async function selectMovieImage(
+  id: string,
+  filePath: string,
+  artworkType: 'poster' | 'backdrop',
+): Promise<void> {
+  await apiFetch(`/artwork/movies/${id}/select`, {
+    method: 'POST',
+    body: JSON.stringify({ filePath, artworkType }),
+  })
+}
