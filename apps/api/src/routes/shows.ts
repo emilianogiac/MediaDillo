@@ -1,5 +1,9 @@
+import path from 'node:path'
+import { readdir } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
+import { previewEpisodeRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
+import { detectStaleFiles } from '../scanner/stale-detector.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide
@@ -95,6 +99,88 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     }))
 
     return reply.send({ ...show, seasons })
+  })
+
+  // GET /api/shows/:id/organize — rename preview + stale file scan for this show
+  app.get<{ Params: { id: string } }>('/shows/:id/organize', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({
+      where: { id: req.params.id },
+      include: {
+        seasons: {
+          include: { episodes: { include: { files: { select: { path: true } } } } },
+        },
+      },
+    })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    // Derive show folder from first episode file (2 levels up)
+    const firstFilePath = show.seasons
+      .flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
+      .sort()[0]
+    if (!firstFilePath) return reply.send({ renames: [], removals: [] })
+
+    const showFolder = path.dirname(path.dirname(firstFilePath))
+
+    // Collect all DB-known video paths for this show
+    const knownPaths = new Set(
+      show.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path))),
+    )
+
+    // Walk show folder for stale detection
+    const removals: Array<{ path: string; reason: string }> = []
+    async function walkForStale(dir: string) {
+      let entries: string[]
+      try { entries = await readdir(dir) } catch { return }
+      const staleInDir = await detectStaleFiles(dir, knownPaths)
+      removals.push(...staleInDir)
+      for (const entry of entries) {
+        const full = path.join(dir, entry)
+        // Recurse into season subfolders only
+        if (!path.extname(entry)) {
+          await walkForStale(full)
+        }
+      }
+    }
+    await walkForStale(showFolder)
+
+    // Rename preview for this show
+    const allRenames = await previewEpisodeRenames([req.params.id])
+    const renames = allRenames.filter((r) => r.needsRename)
+
+    return reply.send({ renames, removals, showFolder })
+  })
+
+  // POST /api/shows/:id/organize/apply — rename selected files + trash selected files
+  app.post<{
+    Params: { id: string }
+    Body: { renames: string[]; trash: string[] }
+  }>('/shows/:id/organize/apply', async (req, reply) => {
+    const { renames, trash } = req.body
+
+    let renamed = 0
+    let trashed = 0
+    const errors: string[] = []
+
+    if (renames && renames.length > 0) {
+      // Separate show-folder items (type: 'show-folder') from file items
+      // by fetching the full preview and splitting
+      const allItems = await previewEpisodeRenames([req.params.id])
+      const showFolderItems = allItems.filter((i) => i.type === 'show-folder' && i.needsRename)
+      const result = await applyEpisodeRenames(renames, showFolderItems)
+      renamed = result.renamed
+      errors.push(...result.errors)
+    }
+
+    for (const filePath of (trash ?? [])) {
+      try {
+        await deleteToTrash(filePath)
+        trashed++
+      } catch (err) {
+        errors.push(`Trash failed for ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    return reply.send({ renamed, trashed, errors })
   })
 
   // GET /api/shows/:id/seasons/:seasonNumber — season detail with episodes + files

@@ -4,6 +4,7 @@ import type { ShowDetail } from '../api/types.js'
 import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow } from '../api/shows.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
+import { OrganizePanel } from '../components/OrganizePanel.js'
 
 function completenessBar(owned: number, total: number) {
   if (total === 0) return null
@@ -216,6 +217,9 @@ export function ShowDetailPage() {
           </div>
         </section>
       )}
+
+      {/* Organize */}
+      <OrganizePanel showId={show.id} onDone={load} />
 
       {/* Artwork */}
       <ArtworkManager

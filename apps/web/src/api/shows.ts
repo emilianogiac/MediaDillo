@@ -60,3 +60,37 @@ export async function matchShow(id: string, tmdbId: number): Promise<void> {
     body: JSON.stringify({ tmdbId }),
   })
 }
+
+export interface OrganizeRenameItem {
+  id: string
+  type: 'episode-file' | 'show-folder'
+  currentPath: string
+  proposedPath: string
+  needsRename: boolean
+}
+
+export interface OrganizeRemoval {
+  path: string
+  reason: string
+}
+
+export interface OrganizePreview {
+  renames: OrganizeRenameItem[]
+  removals: OrganizeRemoval[]
+  showFolder: string
+}
+
+export async function fetchOrganizePreview(showId: string): Promise<OrganizePreview> {
+  return apiFetch<OrganizePreview>(`/shows/${showId}/organize`)
+}
+
+export async function applyOrganize(
+  showId: string,
+  renames: string[],
+  trash: string[],
+): Promise<{ renamed: number; trashed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/organize/apply`, {
+    method: 'POST',
+    body: JSON.stringify({ renames, trash }),
+  })
+}
