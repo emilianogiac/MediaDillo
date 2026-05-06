@@ -55,7 +55,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>('/artwork/movies/:id/poster', async (req, reply) => {
     const movie = await prisma.movie.findUnique({
       where: { id: req.params.id },
-      include: { files: { take: 1 } },
+      include: { files: { orderBy: { path: 'asc' }, take: 1 } },
     })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]
@@ -67,7 +67,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { id: string } }>('/artwork/movies/:id/backdrop', async (req, reply) => {
     const movie = await prisma.movie.findUnique({
       where: { id: req.params.id },
-      include: { files: { take: 1 } },
+      include: { files: { orderBy: { path: 'asc' }, take: 1 } },
     })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]

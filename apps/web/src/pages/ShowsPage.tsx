@@ -1,14 +1,8 @@
-import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { useState } from 'react'
 import type { ShowSummary } from '../api/types.js'
 import { fetchShows } from '../api/shows.js'
-
-type Filter = {
-  search: string
-  qualityTier: string
-  missingArtwork: boolean
-  unmatched: boolean
-}
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
@@ -98,31 +92,56 @@ export function ShowsPage() {
   const [shows, setShows] = useState<ShowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>({
-    search: '',
-    qualityTier: '',
-    missingArtwork: false,
-    unmatched: false,
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Derive filter from URL — survives back-navigation
+  const filter = {
+    search: searchParams.get('q') ?? '',
+    qualityTier: searchParams.get('quality') ?? '',
+    missingArtwork: searchParams.has('missing'),
+    unmatched: searchParams.has('unmatched'),
+  }
+
+  function setPartial(partial: {
+    search?: string
+    qualityTier?: string
+    missingArtwork?: boolean
+    unmatched?: boolean
+  }) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if ('search' in partial) {
+          partial.search ? next.set('q', partial.search) : next.delete('q')
+        }
+        if ('qualityTier' in partial) {
+          partial.qualityTier ? next.set('quality', partial.qualityTier) : next.delete('quality')
+        }
+        if ('missingArtwork' in partial) {
+          partial.missingArtwork ? next.set('missing', '1') : next.delete('missing')
+        }
+        if ('unmatched' in partial) {
+          partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched')
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   useEffect(() => {
     setLoading(true)
     setError(null)
-    const f = filter
     const showFilter: import('../api/shows.js').ShowsFilter = {}
-    if (f.search) showFilter.search = f.search
-    if (f.qualityTier) showFilter.qualityTier = f.qualityTier
-    if (f.missingArtwork) showFilter.missingArtwork = true
-    if (f.unmatched) showFilter.unmatched = true
+    if (filter.search) showFilter.search = filter.search
+    if (filter.qualityTier) showFilter.qualityTier = filter.qualityTier
+    if (filter.missingArtwork) showFilter.missingArtwork = true
+    if (filter.unmatched) showFilter.unmatched = true
     fetchShows(showFilter)
       .then(setShows)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [filter])
-
-  function setPartial(partial: Partial<Filter>) {
-    setFilter((f) => ({ ...f, ...partial }))
-  }
+  }, [searchParams]) // re-run whenever URL changes
 
   const hasActiveFilter = filter.search || filter.qualityTier || filter.missingArtwork || filter.unmatched
 

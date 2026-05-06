@@ -17,6 +17,8 @@ import {
   fetchEpisodeFiles,
   remapEpisode,
 } from '../api/files.js'
+import { fetchScanRoots } from '../api/movies.js'
+import type { ScanRoot } from '../api/types.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +40,8 @@ function dirname(p: string) {
 
 function RenameTab() {
   const [type, setType] = useState<'movies' | 'episodes'>('movies')
+  const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
+  const [rootFilter, setRootFilter] = useState('')
   const [showFolderItems, setShowFolderItems] = useState<RenamePreviewItem[]>([])
   const [fileItems, setFileItems] = useState<RenamePreviewItem[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
@@ -45,6 +49,12 @@ function RenameTab() {
   const [applying, setApplying] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<{ renamed: number; errors: string[] } | null>(null)
+
+  useEffect(() => {
+    fetchScanRoots()
+      .then(setScanRoots)
+      .catch(() => {})
+  }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -66,6 +76,19 @@ function RenameTab() {
 
   useEffect(() => { load() }, [load])
 
+  // Reset root filter when switching type
+  useEffect(() => { setRootFilter('') }, [type])
+
+  const rootsForType = scanRoots.filter((r) => (type === 'movies' ? r.type === 'movies' : r.type === 'tv'))
+
+  // Client-side filter by scan root path prefix
+  const visibleFolders = rootFilter
+    ? showFolderItems.filter((i) => i.currentPath.startsWith(rootFilter))
+    : showFolderItems
+  const visibleFiles = rootFilter
+    ? fileItems.filter((i) => i.currentPath.startsWith(rootFilter))
+    : fileItems
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -76,21 +99,27 @@ function RenameTab() {
   }
 
   function toggleAll() {
-    if (selected.size === fileItems.length) {
-      setSelected(new Set())
-    } else {
-      setSelected(new Set(fileItems.map((i) => i.id)))
-    }
+    const visibleIds = visibleFiles.map((i) => i.id)
+    const allSelected = visibleIds.every((id) => selected.has(id))
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        visibleIds.forEach((id) => next.delete(id))
+      } else {
+        visibleIds.forEach((id) => next.add(id))
+      }
+      return next
+    })
   }
 
   async function apply() {
     const ids = [...selected]
-    if (ids.length === 0 && showFolderItems.length === 0) return
+    if (ids.length === 0 && visibleFolders.length === 0) return
     setApplying(true)
     setError(null)
     setResult(null)
     try {
-      const res = await applyRenames(type, ids, showFolderItems.length > 0 ? showFolderItems : undefined)
+      const res = await applyRenames(type, ids, visibleFolders.length > 0 ? visibleFolders : undefined)
       await load()
       setResult(res)
     } catch (e) {
@@ -100,12 +129,13 @@ function RenameTab() {
     }
   }
 
-  const totalPending = showFolderItems.length + fileItems.length
+  const visibleSelectedCount = visibleFiles.filter((i) => selected.has(i.id)).length
+  const totalPending = visibleFolders.length + visibleFiles.length
 
   return (
     <div className="space-y-4">
-      {/* Type toggle */}
-      <div className="flex items-center gap-3">
+      {/* Type + root filter row */}
+      <div className="flex flex-wrap items-center gap-3">
         <span className="text-sm text-gray-500">Library:</span>
         {(['movies', 'episodes'] as const).map((t) => (
           <button
@@ -119,6 +149,23 @@ function RenameTab() {
             {t === 'movies' ? 'Movies' : 'TV Episodes'}
           </button>
         ))}
+
+        {rootsForType.length > 1 && (
+          <>
+            <span className="text-gray-700">|</span>
+            <span className="text-sm text-gray-500">Root:</span>
+            <select
+              value={rootFilter}
+              onChange={(e) => setRootFilter(e.target.value)}
+              className="bg-surface-raised border border-gray-700 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-accent"
+            >
+              <option value="">All</option>
+              {rootsForType.map((r) => (
+                <option key={r.id} value={r.path}>{r.label}</option>
+              ))}
+            </select>
+          </>
+        )}
       </div>
 
       {loading && <div className="py-8 text-center text-gray-500">Scanning…</div>}
@@ -148,41 +195,42 @@ function RenameTab() {
             <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={fileItems.length > 0 && selected.size === fileItems.length}
+                checked={visibleFiles.length > 0 && visibleFiles.every((i) => selected.has(i.id))}
                 onChange={toggleAll}
                 className="accent-accent"
               />
-              {selected.size}/{fileItems.length} files selected
-              {showFolderItems.length > 0 && (
-                <span className="text-yellow-500 ml-1">+ {showFolderItems.length} folder rename{showFolderItems.length !== 1 ? 's' : ''} (always applied)</span>
+              {visibleSelectedCount}/{visibleFiles.length} files selected
+              {visibleFolders.length > 0 && (
+                <span className="text-yellow-500 ml-1">+ {visibleFolders.length} folder rename{visibleFolders.length !== 1 ? 's' : ''} (always applied)</span>
               )}
             </label>
             <button
               onClick={apply}
-              disabled={applying || (selected.size === 0 && showFolderItems.length === 0)}
+              disabled={applying || (visibleSelectedCount === 0 && visibleFolders.length === 0)}
               className="px-4 py-1.5 text-sm rounded bg-accent hover:bg-accent-hover text-white disabled:opacity-40 transition-colors"
             >
-              {applying ? 'Applying…' : `Apply ${selected.size + showFolderItems.length} rename${(selected.size + showFolderItems.length) !== 1 ? 's' : ''}`}
+              {applying ? 'Applying…' : `Apply ${visibleSelectedCount + visibleFolders.length} rename${(visibleSelectedCount + visibleFolders.length) !== 1 ? 's' : ''}`}
             </button>
           </div>
 
           <div className="space-y-2">
-            {/* Show folder renames always visible and non-deselectable */}
-            {showFolderItems.map((item) => (
+            {/* Show folder renames */}
+            {visibleFolders.map((item) => (
               <div
                 key={item.id}
-                className="flex items-start gap-3 bg-yellow-900/10 border border-yellow-700/40 rounded-lg p-3"
+                className="flex items-center gap-3 bg-yellow-900/10 border border-yellow-700/40 rounded-lg p-3"
               >
-                <span className="mt-0.5 text-xs px-1.5 py-0.5 rounded bg-yellow-700/40 text-yellow-300 font-medium flex-shrink-0">Folder</span>
-                <div className="min-w-0 space-y-1 flex-1 text-xs font-mono">
-                  <span className="text-red-400 line-through truncate block">{basename(item.currentPath)}</span>
-                  <span className="text-green-400 truncate block">{basename(item.proposedPath)}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded bg-yellow-700/40 text-yellow-300 font-medium flex-shrink-0">Folder</span>
+                <div className="min-w-0 flex-1 flex items-center gap-1.5 text-xs font-mono">
+                  <span className="text-red-400 truncate">{basename(item.currentPath)}</span>
+                  <span className="text-gray-500 flex-shrink-0">→</span>
+                  <span className="text-green-400 truncate">{basename(item.proposedPath)}</span>
                 </div>
               </div>
             ))}
 
-            {/* Individual file renames, selectable */}
-            {fileItems.map((item) => {
+            {/* Individual file renames */}
+            {visibleFiles.map((item) => {
               const currentDir = dirname(item.currentPath)
               const proposedDir = dirname(item.proposedPath)
               const dirChanged = currentDir !== proposedDir
@@ -200,15 +248,17 @@ function RenameTab() {
                   />
                   <div className="min-w-0 space-y-1 flex-1">
                     {dirChanged && (
-                      <div className="text-xs text-yellow-500">
-                        Folder: <span className="font-mono">{basename(currentDir)}</span>
-                        {' → '}
-                        <span className="font-mono">{basename(proposedDir)}</span>
+                      <div className="flex items-center gap-1.5 text-xs font-mono text-yellow-500/90">
+                        <span className="text-gray-500 text-[10px] flex-shrink-0 uppercase tracking-wide">dir</span>
+                        <span className="truncate">{basename(currentDir)}/</span>
+                        <span className="text-gray-500 flex-shrink-0">→</span>
+                        <span className="truncate">{basename(proposedDir)}/</span>
                       </div>
                     )}
-                    <div className="text-xs font-mono">
-                      <span className="text-red-400 line-through truncate block">{basename(item.currentPath)}</span>
-                      <span className="text-green-400 truncate block">{basename(item.proposedPath)}</span>
+                    <div className="flex items-center gap-1.5 text-xs font-mono">
+                      <span className="text-red-400 truncate">{basename(item.currentPath)}</span>
+                      <span className="text-gray-500 flex-shrink-0">→</span>
+                      <span className="text-green-400 truncate">{basename(item.proposedPath)}</span>
                     </div>
                   </div>
                 </label>
@@ -232,6 +282,7 @@ function StaleTab() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [search, setSearch] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -250,6 +301,14 @@ function StaleTab() {
 
   useEffect(() => { load() }, [load])
 
+  const filtered = search
+    ? items.filter(
+        (i) =>
+          i.path.toLowerCase().includes(search.toLowerCase()) ||
+          (i.reason ?? '').toLowerCase().includes(search.toLowerCase()),
+      )
+    : items
+
   function toggle(id: string) {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -260,10 +319,10 @@ function StaleTab() {
   }
 
   function toggleAll() {
-    if (selected.size === items.length) {
+    if (selected.size === filtered.length) {
       setSelected(new Set())
     } else {
-      setSelected(new Set(items.map((i) => i.id)))
+      setSelected(new Set(filtered.map((i) => i.id)))
     }
   }
 
@@ -314,18 +373,28 @@ function StaleTab() {
     <div className="space-y-4">
       {error && <p className="text-sm text-red-400">{error}</p>}
 
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-500">{total} unresolved stale file{total !== 1 ? 's' : ''}</span>
-        {items.length > 0 && (
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1">
+          <span className="text-sm text-gray-500 flex-shrink-0">{total} unresolved stale file{total !== 1 ? 's' : ''}</span>
+          <input
+            type="search"
+            placeholder="Filter by path or reason…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-surface-raised border border-gray-700 rounded px-3 py-1 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent w-64"
+          />
+          {search && <span className="text-xs text-gray-500">{filtered.length} shown</span>}
+        </div>
+        {filtered.length > 0 && (
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer select-none">
               <input
                 type="checkbox"
-                checked={selected.size === items.length}
+                checked={selected.size === filtered.length && filtered.length > 0}
                 onChange={toggleAll}
                 className="accent-accent"
               />
-              {selected.size}/{items.length}
+              {selected.size}/{filtered.length}
             </label>
             <button
               onClick={bulkDelete}
@@ -338,13 +407,15 @@ function StaleTab() {
         )}
       </div>
 
-      {items.length === 0 && (
-        <div className="py-12 text-center text-gray-500 text-sm">No stale files to review.</div>
+      {filtered.length === 0 && (
+        <div className="py-12 text-center text-gray-500 text-sm">
+          {search ? 'No matches.' : 'No stale files to review.'}
+        </div>
       )}
 
-      {items.length > 0 && (
+      {filtered.length > 0 && (
         <div className="space-y-2">
-          {items.map((item) => (
+          {filtered.map((item) => (
             <div
               key={item.id}
               className="flex items-start gap-3 bg-surface-raised border border-gray-700 rounded-lg p-3"
@@ -544,7 +615,6 @@ function EpisodeRemapTab() {
         episodeStart,
         ...(episodeEnd !== undefined ? { episodeEnd } : {}),
       })
-      // Update local state
       setFiles((prev) =>
         prev.map((f) => {
           if (f.id !== file.id) return f

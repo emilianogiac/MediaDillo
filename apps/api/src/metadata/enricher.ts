@@ -28,7 +28,7 @@ export async function enrichMovie(tmdbClient: TmdbClient, movieId: string, tmdbI
     },
   })
 
-  await syncCredits('movie', movieId, details.credits.cast, details.credits.crew)
+  await syncCredits('movie', movieId, details.credits?.cast ?? [], details.credits?.crew ?? [])
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +56,7 @@ export async function enrichTvShow(tmdbClient: TmdbClient, showId: string, tmdbI
     },
   })
 
-  await syncCredits('tv', showId, details.credits.cast, details.credits.crew)
+  await syncCredits('tv', showId, details.credits?.cast ?? [], details.credits?.crew ?? [])
 
   // Fetch all seasons and reconcile episodes
   for (let s = 1; s <= details.number_of_seasons; s++) {

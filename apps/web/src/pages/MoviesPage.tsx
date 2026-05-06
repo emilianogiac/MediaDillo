@@ -1,16 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
 import { fetchMovies, fetchScanRoots } from '../api/movies.js'
 import { PosterCard } from '../components/PosterCard.js'
-
-type Filter = {
-  scanRootId: string
-  search: string
-  genre: string
-  qualityTier: string
-  missingArtwork: boolean
-  unmatched: boolean
-}
+import { useState } from 'react'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
@@ -19,14 +12,52 @@ export function MoviesPage() {
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [filter, setFilter] = useState<Filter>({
-    scanRootId: '',
-    search: '',
-    genre: '',
-    qualityTier: '',
-    missingArtwork: false,
-    unmatched: false,
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  // Derive filter from URL — survives back-navigation
+  const filter = {
+    scanRootId: searchParams.get('root') ?? '',
+    search: searchParams.get('q') ?? '',
+    genre: searchParams.get('genre') ?? '',
+    qualityTier: searchParams.get('quality') ?? '',
+    missingArtwork: searchParams.has('missing'),
+    unmatched: searchParams.has('unmatched'),
+  }
+
+  function setPartial(partial: {
+    scanRootId?: string
+    search?: string
+    genre?: string
+    qualityTier?: string
+    missingArtwork?: boolean
+    unmatched?: boolean
+  }) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if ('scanRootId' in partial) {
+          partial.scanRootId ? next.set('root', partial.scanRootId) : next.delete('root')
+        }
+        if ('search' in partial) {
+          partial.search ? next.set('q', partial.search) : next.delete('q')
+        }
+        if ('genre' in partial) {
+          partial.genre ? next.set('genre', partial.genre) : next.delete('genre')
+        }
+        if ('qualityTier' in partial) {
+          partial.qualityTier ? next.set('quality', partial.qualityTier) : next.delete('quality')
+        }
+        if ('missingArtwork' in partial) {
+          partial.missingArtwork ? next.set('missing', '1') : next.delete('missing')
+        }
+        if ('unmatched' in partial) {
+          partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched')
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   useEffect(() => {
     fetchScanRoots()
@@ -48,17 +79,12 @@ export function MoviesPage() {
       .then(setMovies)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [filter])
+  }, [searchParams]) // re-run whenever URL changes
 
-  // Collect all genres from loaded movies for the genre dropdown
   const allGenres = useMemo(
     () => [...new Set(movies.flatMap((m) => m.genres))].sort(),
     [movies],
   )
-
-  function setPartial(partial: Partial<Filter>) {
-    setFilter((f) => ({ ...f, ...partial }))
-  }
 
   const hasActiveFilter =
     filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched
