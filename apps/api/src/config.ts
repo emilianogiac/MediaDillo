@@ -17,7 +17,7 @@ const ConfigSchema = z.object({
     .default('[]'),
   TMDB_API_KEY: z.string().optional(),
   TVDB_API_KEY: z.string().optional(),
-  JELLYFIN_URL: z.string().url().optional().or(z.literal('')),
+  JELLYFIN_URL: z.string().optional(),
   JELLYFIN_API_KEY: z.string().optional(),
 })
 
