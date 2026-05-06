@@ -4,8 +4,9 @@ import { runScan, isScanRunning, getScanProgress } from '../scanner/index.js'
 import { config } from '../config.js'
 
 export async function scanRoutes(app: FastifyInstance): Promise<void> {
-  // POST /api/scan — trigger a full library scan
-  app.post('/scan', async (_req, reply) => {
+  // POST /api/scan — trigger a full (or partial) library scan
+  // Optional body: { rootIds: string[] } — DB IDs of ScanRoot records to restrict the scan
+  app.post<{ Body?: { rootIds?: string[] } }>('/scan', async (req, reply) => {
     if (isScanRunning()) {
       return reply.code(409).send({ error: 'Scan already in progress' })
     }
@@ -14,16 +15,27 @@ export async function scanRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(422).send({ error: 'No scan roots configured. Set SCAN_ROOTS env var.' })
     }
 
-    // Fire scan in background and return immediately
+    // If caller specified rootIds, look them up and filter to matching config entries
+    let rootsToScan = config.SCAN_ROOTS
+    const requestedIds: string[] = req.body?.rootIds ?? []
+    if (requestedIds.length > 0) {
+      const dbRoots = await prisma.scanRoot.findMany({ where: { id: { in: requestedIds } } })
+      const allowedPaths = new Set(dbRoots.map((r) => r.path))
+      rootsToScan = config.SCAN_ROOTS.filter((r) => allowedPaths.has(r.path))
+      if (rootsToScan.length === 0) {
+        return reply.code(422).send({ error: 'None of the requested root IDs matched configured scan roots' })
+      }
+    }
+
     const startedAt = new Date().toISOString()
-    runScan(config.SCAN_ROOTS).catch((err: unknown) => {
+    runScan(rootsToScan).catch((err: unknown) => {
       app.log.error(err, 'Scan failed')
     })
 
     return reply.code(202).send({
       message: 'Scan started',
       startedAt,
-      roots: config.SCAN_ROOTS.map((r) => r.label),
+      roots: rootsToScan.map((r) => r.label),
     })
   })
 

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import type { LibraryStats } from '../api/stats.js'
 import { fetchStats, formatBytes } from '../api/stats.js'
 import { apiFetch } from '../api/client.js'
+import type { ScanRoot } from '../api/types.js'
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -26,7 +27,23 @@ function ScanButton() {
   const [triggered, setTriggered] = useState(false)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
+  const [roots, setRoots] = useState<ScanRoot[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    apiFetch<ScanRoot[]>('/scan-roots')
+      .then(setRoots)
+      .catch(() => {})
+  }, [])
+
+  function toggleRoot(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   function stopPolling() {
     if (pollRef.current) {
@@ -53,8 +70,12 @@ function ScanButton() {
     setTriggered(true)
     setMsg(null)
     setProgress(null)
+    const rootIds = selectedIds.size > 0 ? [...selectedIds] : null
     try {
-      await apiFetch('/scan', { method: 'POST' })
+      await apiFetch('/scan', {
+        method: 'POST',
+        ...(rootIds ? { body: JSON.stringify({ rootIds }) } : {}),
+      })
       pollRef.current = setInterval(() => { void pollProgress() }, 2000)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Failed')
@@ -66,19 +87,47 @@ function ScanButton() {
   useEffect(() => () => { stopPolling() }, [])
 
   const isScanning = triggered || progress?.scanning
+  const allSelected = selectedIds.size === 0
+  const scanLabel = allSelected
+    ? 'Scan all'
+    : `Scan ${selectedIds.size} root${selectedIds.size > 1 ? 's' : ''}`
 
   return (
-    <div className="flex flex-col gap-1.5 items-end">
+    <div className="flex flex-col gap-2 items-end">
+      {/* Root selector */}
+      {roots.length > 1 && (
+        <div className="flex flex-wrap gap-1.5 justify-end">
+          {roots.map((r) => {
+            const active = selectedIds.has(r.id)
+            return (
+              <button
+                key={r.id}
+                onClick={() => toggleRoot(r.id)}
+                disabled={!!isScanning}
+                className={`text-xs px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+                  active
+                    ? 'border-accent bg-accent/20 text-accent'
+                    : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {r.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <div className="flex items-center gap-3">
         <button
           onClick={trigger}
           disabled={!!isScanning}
           className="px-4 py-2 rounded bg-accent hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors"
         >
-          {isScanning ? 'Scanning…' : 'Trigger scan'}
+          {isScanning ? 'Scanning…' : scanLabel}
         </button>
         {msg && !isScanning && <span className="text-xs text-gray-400">{msg}</span>}
       </div>
+
       {progress?.scanning && (
         <div className="text-xs text-gray-400 text-right max-w-xs">
           <span className="font-medium text-accent">{progress.filesProcessed.toLocaleString()}</span>

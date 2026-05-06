@@ -103,10 +103,12 @@ export function SettingsPage() {
           API Keys
         </h2>
         <p className="text-sm text-gray-500">
-          Set <code className="text-xs bg-gray-800 px-1 rounded">TMDB_API_KEY</code> and
-          optionally <code className="text-xs bg-gray-800 px-1 rounded">TVDB_API_KEY</code>{' '}
-          in your environment. Full configuration UI coming in Epic 12.
+          API keys are configured via environment variables in your <code className="text-xs bg-gray-800 px-1 rounded">.env</code> file:
         </p>
+        <ul className="mt-2 space-y-1 text-sm text-gray-500">
+          <li><code className="text-xs bg-gray-800 px-1 rounded">TMDB_API_KEY</code> — required for metadata and artwork (v3 auth key from themoviedb.org)</li>
+          <li><code className="text-xs bg-gray-800 px-1 rounded">TVDB_API_KEY</code> — optional, used as fallback for TV episode numbering edge cases</li>
+        </ul>
       </div>
 
       <ExportCard />

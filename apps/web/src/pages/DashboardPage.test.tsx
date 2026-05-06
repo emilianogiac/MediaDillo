@@ -48,7 +48,10 @@ function renderPage() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mockApiFetch.mockResolvedValue({ message: 'Scan started' })
+  mockApiFetch.mockImplementation((path: string) => {
+    if (path === '/scan-roots') return Promise.resolve([])
+    return Promise.resolve({ message: 'Scan started' })
+  })
 })
 
 describe('DashboardPage', () => {
@@ -56,7 +59,7 @@ describe('DashboardPage', () => {
     mockFetchStats.mockResolvedValue(makeStats())
     renderPage()
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('Trigger scan')).toBeInTheDocument()
+    expect(screen.getByText('Scan all')).toBeInTheDocument()
   })
 
   it('shows loading state initially', () => {
@@ -109,7 +112,7 @@ describe('DashboardPage', () => {
     mockFetchStats.mockResolvedValue(makeStats())
     mockApiFetch.mockReturnValue(new Promise(() => {}))
     renderPage()
-    fireEvent.click(screen.getByText('Trigger scan'))
+    fireEvent.click(screen.getByText('Scan all'))
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledWith('/scan', expect.objectContaining({ method: 'POST' })))
     expect(screen.getByText('Scanning…')).toBeInTheDocument()
   })
