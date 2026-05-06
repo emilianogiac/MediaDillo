@@ -9,6 +9,10 @@ vi.mock('../api/files.js', () => ({
   deleteStaleFile: vi.fn(),
   resolveStaleFile: vi.fn(),
   bulkDeleteStaleFiles: vi.fn(),
+  fetchMultiPartMovies: vi.fn().mockResolvedValue([]),
+  fetchEpisodeFiles: vi.fn().mockResolvedValue([]),
+  mergeMovieParts: vi.fn(),
+  remapEpisode: vi.fn(),
 }))
 
 import {
@@ -57,6 +61,8 @@ describe('FilesPage', () => {
     render(<FilesPage />)
     expect(screen.getByText('File Manager')).toBeInTheDocument()
     expect(screen.getByText('Rename Queue')).toBeInTheDocument()
+    expect(screen.getByText('Multi-part')).toBeInTheDocument()
+    expect(screen.getByText('Episode Remap')).toBeInTheDocument()
     expect(screen.getByText('Stale Files')).toBeInTheDocument()
   })
 
@@ -91,9 +97,9 @@ describe('FilesPage', () => {
       mockApply.mockResolvedValue({ renamed: 1, errors: [] })
       render(<FilesPage />)
       await waitFor(() => expect(screen.getByText('batman.begins.mkv')).toBeInTheDocument())
-      fireEvent.click(screen.getByText(/Rename 1 file/))
-      await waitFor(() => expect(mockApply).toHaveBeenCalledWith('movies', ['file-1']))
-      expect(screen.getByText('1 file renamed.')).toBeInTheDocument()
+      fireEvent.click(screen.getByText(/Apply 1 rename/))
+      await waitFor(() => expect(mockApply).toHaveBeenCalledWith('movies', ['file-1'], undefined))
+      expect(screen.getByText('1 item renamed.')).toBeInTheDocument()
     })
 
     it('shows error message on rename failure', async () => {
@@ -101,7 +107,7 @@ describe('FilesPage', () => {
       mockApply.mockRejectedValue(new Error('Permission denied'))
       render(<FilesPage />)
       await waitFor(() => expect(screen.getByText('batman.begins.mkv')).toBeInTheDocument())
-      fireEvent.click(screen.getByText(/Rename 1 file/))
+      fireEvent.click(screen.getByText(/Apply 1 rename/))
       await waitFor(() =>
         expect(screen.getByText('Permission denied')).toBeInTheDocument(),
       )

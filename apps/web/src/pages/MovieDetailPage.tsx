@@ -123,12 +123,26 @@ export function MovieDetailPage() {
 
           {/* External links + match button */}
           <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex gap-3 text-xs">
+            <div className="flex gap-2 text-xs">
               {movie.tmdbId && (
-                <span className="text-gray-500">TMDB #{movie.tmdbId}</span>
+                <a
+                  href={`https://www.themoviedb.org/movie/${movie.tmdbId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-accent hover:underline"
+                >
+                  TMDB ↗
+                </a>
               )}
               {movie.imdbId && (
-                <span className="text-gray-500">IMDb {movie.imdbId}</span>
+                <a
+                  href={`https://www.imdb.com/title/${movie.imdbId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-accent hover:underline"
+                >
+                  IMDb ↗
+                </a>
               )}
             </div>
             <button

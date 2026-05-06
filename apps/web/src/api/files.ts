@@ -2,7 +2,7 @@ import { apiFetch } from './client.js'
 
 export interface RenamePreviewItem {
   id: string
-  type: 'movie-file' | 'episode-file'
+  type: 'movie-file' | 'episode-file' | 'show-folder'
   currentPath: string
   proposedPath: string
   needsRename: boolean
@@ -39,10 +39,11 @@ export async function fetchRenamePreview(
 export async function applyRenames(
   type: 'movies' | 'episodes',
   fileIds: string[],
+  showFolderItems?: RenamePreviewItem[],
 ): Promise<RenameResult> {
   return apiFetch<RenameResult>('/files/rename', {
     method: 'POST',
-    body: JSON.stringify({ type, fileIds }),
+    body: JSON.stringify({ type, fileIds, ...(showFolderItems ? { showFolderItems } : {}) }),
   })
 }
 
@@ -66,4 +67,56 @@ export async function bulkDeleteStaleFiles(ids: string[]): Promise<{ deleted: nu
     method: 'POST',
     body: JSON.stringify({ ids }),
   })
+}
+
+export interface MultiPartCandidate {
+  movieId: string
+  title: string
+  year: number | null
+  part1: { id: string; path: string; sizeBytes: string | null }
+  part2: { id: string; path: string; sizeBytes: string | null }
+}
+
+export async function fetchMultiPartMovies(): Promise<MultiPartCandidate[]> {
+  return apiFetch<MultiPartCandidate[]>('/files/multi-part')
+}
+
+export async function mergeMovieParts(movieId: string): Promise<{ outputPath: string } | { error: string }> {
+  return apiFetch('/files/merge-parts', {
+    method: 'POST',
+    body: JSON.stringify({ movieId }),
+  })
+}
+
+export interface EpisodeRemapRequest {
+  fileId: string
+  showId: string
+  seasonNumber: number
+  episodeStart: number
+  episodeEnd?: number
+}
+
+export async function remapEpisode(req: EpisodeRemapRequest): Promise<unknown> {
+  return apiFetch('/files/episode-remap', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export interface EpisodeFileRecord {
+  id: string
+  path: string
+  multiEpisodeEnd: number | null
+  episode: {
+    episodeNumber: number
+    title: string | null
+    season: {
+      seasonNumber: number
+      show: { id: string; title: string }
+    }
+  }
+}
+
+export async function fetchEpisodeFiles(): Promise<EpisodeFileRecord[]> {
+  return apiFetch<EpisodeFileRecord[]>('/files/episode-files')
 }

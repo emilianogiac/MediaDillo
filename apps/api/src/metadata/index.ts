@@ -29,15 +29,34 @@ export async function runMetadataScan(tmdbClient: TmdbClient): Promise<MetadataS
     // Process unmatched movies
     const unmatchedMovies = await prisma.movie.findMany({ where: { tmdbId: null } })
     for (const movie of unmatchedMovies) {
-      const candidates = await searchMovieCandidates(tmdbClient, movie.title, movie.year)
-      const best = bestAutoMatch(candidates)
-      if (best) {
-        await enrichMovie(tmdbClient, movie.id, best.tmdbId)
+      let matchedTmdbId: number | null = null
+
+      // Try direct IMDb→TMDB lookup first if we have an IMDb ID
+      if (movie.imdbId) {
+        try {
+          const found = await tmdbClient.findByImdbId(movie.imdbId)
+          const r = found.movie_results[0]
+          if (r) matchedTmdbId = r.id
+        } catch {
+          // non-fatal — fall through to title search
+        }
+        await delay(150)
+      }
+
+      // Fall back to title search if IMDb lookup didn't resolve
+      if (!matchedTmdbId) {
+        const candidates = await searchMovieCandidates(tmdbClient, movie.title, movie.year)
+        const best = bestAutoMatch(candidates)
+        if (best) matchedTmdbId = best.tmdbId
+        await delay(150)
+      }
+
+      if (matchedTmdbId) {
+        await enrichMovie(tmdbClient, movie.id, matchedTmdbId)
         moviesMatched++
       } else {
         moviesSkipped++
       }
-      await delay(150)
     }
 
     // Process unmatched TV shows

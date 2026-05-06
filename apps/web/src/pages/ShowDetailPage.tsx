@@ -113,9 +113,38 @@ export function ShowDetailPage() {
           {completenessBar(show.ownedEpisodes, show.totalEpisodes)}
 
           <div className="flex items-center gap-3 flex-wrap">
-            {show.tmdbId && (
-              <p className="text-xs text-gray-500">TMDB #{show.tmdbId}</p>
-            )}
+            <div className="flex gap-2 text-xs">
+              {show.tmdbId && (
+                <a
+                  href={`https://www.themoviedb.org/tv/${show.tmdbId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-accent hover:underline"
+                >
+                  TMDB ↗
+                </a>
+              )}
+              {show.tvdbId && (
+                <a
+                  href={`https://www.thetvdb.com/?tab=series&id=${show.tvdbId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-accent hover:underline"
+                >
+                  TVDB ↗
+                </a>
+              )}
+              {show.imdbId && (
+                <a
+                  href={`https://www.imdb.com/title/${show.imdbId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-accent hover:underline"
+                >
+                  IMDb ↗
+                </a>
+              )}
+            </div>
             <button
               onClick={() => setShowMatchModal(true)}
               className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"

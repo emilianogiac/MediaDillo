@@ -196,6 +196,7 @@ model EpisodeFile {
   audioCodec       String?
   audioChannels    String?
   audioQualityTier String?
+  multiEpisodeEnd  Int?
   scannedAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 

@@ -1,14 +1,14 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
-import { searchMovieCandidates, searchTvCandidates } from '../metadata/matcher.js'
+import { searchMovieCandidates, searchTvCandidates, type MovieCandidate } from '../metadata/matcher.js'
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
 import { config } from '../config.js'
 
 function getTmdbClient(): TmdbClient {
   if (!config.TMDB_API_KEY) throw new Error('TMDB_API_KEY is not configured')
-  return new TmdbClient(config.TMDB_API_KEY)
+  return new TmdbClient(config.TMDB_API_KEY, config.METADATA_LANGUAGE)
 }
 
 export async function metadataRoutes(app: FastifyInstance): Promise<void> {
@@ -52,12 +52,40 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // GET /api/metadata/movies/:id/candidates — search TMDB for manual selection
+  // If movie has imdbId, prepend the direct IMDb→TMDB lookup result as the first candidate
   app.get<{ Params: { id: string } }>('/metadata/movies/:id/candidates', async (req, reply) => {
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
 
     const client = getTmdbClient()
-    const candidates = await searchMovieCandidates(client, movie.title, movie.year)
+
+    let imdbCandidate: MovieCandidate | null = null
+    if (movie.imdbId) {
+      try {
+        const found = await client.findByImdbId(movie.imdbId)
+        const r = found.movie_results[0]
+        if (r) {
+          imdbCandidate = {
+            tmdbId: r.id,
+            title: r.title,
+            year: r.release_date ? parseInt(r.release_date.slice(0, 4), 10) : null,
+            overview: r.overview,
+            posterUrl: r.poster_path ? `https://image.tmdb.org/t/p/w500${r.poster_path}` : null,
+            score: 1.0,
+          }
+        }
+      } catch {
+        // IMDb lookup failure is non-fatal; fall through to title search
+      }
+    }
+
+    const searchResults = await searchMovieCandidates(client, movie.title, movie.year)
+    // Deduplicate: remove from search results if same tmdbId as IMDb result
+    const deduped = imdbCandidate
+      ? searchResults.filter((c) => c.tmdbId !== imdbCandidate!.tmdbId)
+      : searchResults
+    const candidates = imdbCandidate ? [imdbCandidate, ...deduped] : deduped
+
     return reply.send({ movie: { id: movie.id, title: movie.title, year: movie.year }, candidates })
   })
 

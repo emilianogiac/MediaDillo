@@ -86,37 +86,48 @@ export interface TmdbEpisode {
 // Client
 // ---------------------------------------------------------------------------
 
+export interface TmdbFindResult {
+  movie_results: TmdbMovieResult[]
+  tv_results: TmdbTvResult[]
+}
+
 export class TmdbClient {
   private readonly apiKey: string
+  private readonly language: string
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, language = 'en-US') {
     this.apiKey = apiKey
+    this.language = language
   }
 
   async searchMovies(query: string, year?: number | null): Promise<TmdbMovieResult[]> {
-    const params = new URLSearchParams({ query, language: 'en-US', page: '1' })
+    const params = new URLSearchParams({ query, language: this.language, page: '1' })
     if (year) params.set('year', String(year))
     const data = await this.get<{ results: TmdbMovieResult[] }>(`/search/movie?${params}`)
     return data.results
   }
 
   async searchTv(query: string, year?: number | null): Promise<TmdbTvResult[]> {
-    const params = new URLSearchParams({ query, language: 'en-US', page: '1' })
+    const params = new URLSearchParams({ query, language: this.language, page: '1' })
     if (year) params.set('first_air_date_year', String(year))
     const data = await this.get<{ results: TmdbTvResult[] }>(`/search/tv?${params}`)
     return data.results
   }
 
   async getMovie(tmdbId: number): Promise<TmdbMovieDetails> {
-    return this.get<TmdbMovieDetails>(`/movie/${tmdbId}?append_to_response=credits&language=en-US`)
+    return this.get<TmdbMovieDetails>(`/movie/${tmdbId}?append_to_response=credits&language=${this.language}`)
   }
 
   async getTv(tmdbId: number): Promise<TmdbTvDetails> {
-    return this.get<TmdbTvDetails>(`/tv/${tmdbId}?append_to_response=credits&language=en-US`)
+    return this.get<TmdbTvDetails>(`/tv/${tmdbId}?append_to_response=credits&language=${this.language}`)
   }
 
   async getTvSeason(tmdbId: number, seasonNumber: number): Promise<TmdbSeason> {
-    return this.get<TmdbSeason>(`/tv/${tmdbId}/season/${seasonNumber}?language=en-US`)
+    return this.get<TmdbSeason>(`/tv/${tmdbId}/season/${seasonNumber}?language=${this.language}`)
+  }
+
+  async findByImdbId(imdbId: string): Promise<TmdbFindResult> {
+    return this.get<TmdbFindResult>(`/find/${imdbId}?external_source=imdb_id&language=${this.language}`)
   }
 
   private async get<T>(path: string): Promise<T> {

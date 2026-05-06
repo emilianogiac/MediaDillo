@@ -10,7 +10,7 @@ import {
 
 export interface RenamePreviewItem {
   id: string
-  type: 'movie-file' | 'episode-file'
+  type: 'movie-file' | 'episode-file' | 'show-folder'
   currentPath: string
   proposedPath: string
   needsRename: boolean
@@ -79,11 +79,21 @@ export async function applyMovieRenames(fileIds: string[]): Promise<{ renamed: n
 
     if (file.path === proposedPath) continue
 
+    const oldFolder = path.dirname(file.path)
+    const newFolder = folderPath
+
     try {
-      await fs.mkdir(folderPath, { recursive: true })
+      await fs.mkdir(newFolder, { recursive: true })
       await fs.rename(file.path, proposedPath)
       await prisma.movieFile.update({ where: { id: file.id }, data: { path: proposedPath } })
       renamed++
+
+      // Migrate sidecars when the folder actually changed
+      if (oldFolder !== newFolder) {
+        await migrateSidecars(oldFolder, newFolder)
+        // Remove old folder if now empty
+        try { await fs.rmdir(oldFolder) } catch { /* non-empty or already gone */ }
+      }
     } catch (err) {
       errors.push(`${file.path}: ${err instanceof Error ? err.message : String(err)}`)
     }
@@ -111,6 +121,7 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
   })
 
   const items: RenamePreviewItem[] = []
+  const emittedShowFolders = new Set<string>() // showId → already emitted
 
   for (const episode of episodes) {
     const { season } = episode
@@ -118,8 +129,25 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
 
     for (const file of episode.files) {
       const ext = path.extname(file.path)
-      const currentDir = path.dirname(file.path)
-      const showDir = path.dirname(currentDir)
+      const currentSeasonDir = path.dirname(file.path)
+      const currentShowDir = path.dirname(currentSeasonDir)
+      const parentDir = path.dirname(currentShowDir)
+
+      // Emit a show-folder rename item once per show
+      if (!emittedShowFolders.has(show.id)) {
+        emittedShowFolders.add(show.id)
+        const canonicalShowDir = path.join(parentDir, canonicalMovieFolderName(show.title, show.year))
+        if (currentShowDir !== canonicalShowDir) {
+          items.push({
+            id: show.id,
+            type: 'show-folder',
+            currentPath: currentShowDir,
+            proposedPath: canonicalShowDir,
+            needsRename: true,
+          })
+        }
+      }
+
       const seasonFolder = canonicalSeasonFolderName(season.seasonNumber)
       const fileName = canonicalEpisodeFileName(
         show.title,
@@ -127,8 +155,9 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
         episode.episodeNumber,
         episode.title,
         ext,
+        file.multiEpisodeEnd ?? null,
       )
-      const proposedPath = path.join(showDir, seasonFolder, fileName)
+      const proposedPath = path.join(currentShowDir, seasonFolder, fileName)
 
       items.push({
         id: file.id,
@@ -143,7 +172,44 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
   return items
 }
 
-export async function applyEpisodeRenames(fileIds: string[]): Promise<{ renamed: number; errors: string[] }> {
+export async function applyEpisodeRenames(
+  fileIds: string[],
+  showFolderItems?: RenamePreviewItem[],
+): Promise<{ renamed: number; errors: string[] }> {
+  let renamed = 0
+  const errors: string[] = []
+
+  // Track show folder remaps so episode file paths can be corrected below
+  const showFolderMap = new Map<string, string>() // oldShowDir → newShowDir
+
+  // Step 1: rename show folders first
+  if (showFolderItems && showFolderItems.length > 0) {
+    for (const item of showFolderItems) {
+      if (item.currentPath === item.proposedPath) continue
+      try {
+        await fs.rename(item.currentPath, item.proposedPath)
+        showFolderMap.set(item.currentPath, item.proposedPath)
+        renamed++
+
+        // Migrate show-level sidecars (poster, backdrop, tvshow.nfo) — already moved by folder rename
+        // Update all EpisodeFile paths for this show in DB via prefix replacement
+        const showDirOld = item.currentPath
+        const showDirNew = item.proposedPath
+        const affectedFiles = await prisma.episodeFile.findMany({
+          where: { path: { startsWith: showDirOld + '/' } },
+          select: { id: true, path: true },
+        })
+        for (const ef of affectedFiles) {
+          const updatedPath = showDirNew + ef.path.slice(showDirOld.length)
+          await prisma.episodeFile.update({ where: { id: ef.id }, data: { path: updatedPath } })
+        }
+      } catch (err) {
+        errors.push(`folder ${item.currentPath}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
+  // Step 2: rename individual episode files
   const files = await prisma.episodeFile.findMany({
     where: { id: { in: fileIds } },
     include: {
@@ -153,17 +219,25 @@ export async function applyEpisodeRenames(fileIds: string[]): Promise<{ renamed:
     },
   })
 
-  let renamed = 0
-  const errors: string[] = []
-
   for (const file of files) {
     const { episode } = file
     const { season } = episode
     const { show } = season
 
-    const ext = path.extname(file.path)
-    const currentDir = path.dirname(file.path)
-    const showDir = path.dirname(currentDir)
+    // File path may have been updated in step 1 — re-read from DB
+    const currentPath = file.path
+    const ext = path.extname(currentPath)
+    const currentSeasonDir = path.dirname(currentPath)
+    // Determine actual show dir after any folder rename
+    let showDir = path.dirname(currentSeasonDir)
+    // Apply remapping if this show dir was renamed
+    for (const [old, updated] of showFolderMap) {
+      if (showDir === old || showDir.startsWith(old + '/')) {
+        showDir = updated + showDir.slice(old.length)
+        break
+      }
+    }
+
     const seasonFolder = canonicalSeasonFolderName(season.seasonNumber)
     const fileName = canonicalEpisodeFileName(
       show.title,
@@ -171,19 +245,20 @@ export async function applyEpisodeRenames(fileIds: string[]): Promise<{ renamed:
       episode.episodeNumber,
       episode.title,
       ext,
+      file.multiEpisodeEnd ?? null,
     )
     const seasonPath = path.join(showDir, seasonFolder)
     const proposedPath = path.join(seasonPath, fileName)
 
-    if (file.path === proposedPath) continue
+    if (currentPath === proposedPath) continue
 
     try {
       await fs.mkdir(seasonPath, { recursive: true })
-      await fs.rename(file.path, proposedPath)
+      await fs.rename(currentPath, proposedPath)
       await prisma.episodeFile.update({ where: { id: file.id }, data: { path: proposedPath } })
       renamed++
     } catch (err) {
-      errors.push(`${file.path}: ${err instanceof Error ? err.message : String(err)}`)
+      errors.push(`${currentPath}: ${err instanceof Error ? err.message : String(err)}`)
     }
   }
 
@@ -191,7 +266,7 @@ export async function applyEpisodeRenames(fileIds: string[]): Promise<{ renamed:
 }
 
 // ---------------------------------------------------------------------------
-// Stale file cleanup
+// Stale file cleanup + sidecar patterns
 // ---------------------------------------------------------------------------
 
 const KNOWN_FILENAMES = new Set([
@@ -207,6 +282,42 @@ const KNOWN_FILENAMES = new Set([
 const KNOWN_EXTENSIONS = new Set(['.nfo', '.srt', '.sub', '.ass', '.ssa'])
 
 const VIDEO_EXTENSIONS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.mpg', '.mpeg'])
+
+// TMM artwork suffix patterns
+const ARTWORK_SUFFIXES = [
+  '-poster', '_poster', '-fanart', '_fanart', '-landscape', '_landscape',
+  '-backdrop', '_backdrop', '-background', '_background', '-clearart', '_clearart',
+  '-discart', '_discart', '-logo', '_logo', '-banner', '_banner', '-thumb', '_thumb',
+]
+
+function isSidecarFile(filename: string): boolean {
+  const lower = filename.toLowerCase()
+  if (KNOWN_FILENAMES.has(lower)) return true
+  const ext = path.extname(lower)
+  if (KNOWN_EXTENSIONS.has(ext)) return true
+  const base = lower.slice(0, lower.length - ext.length)
+  if (ARTWORK_SUFFIXES.some((s) => base.endsWith(s))) return true
+  return false
+}
+
+async function migrateSidecars(oldFolder: string, newFolder: string): Promise<void> {
+  let entries: string[]
+  try {
+    entries = await fs.readdir(oldFolder)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (!isSidecarFile(entry)) continue
+    const src = path.join(oldFolder, entry)
+    const dst = path.join(newFolder, entry)
+    try {
+      await fs.rename(src, dst)
+    } catch {
+      // non-fatal per-file failure
+    }
+  }
+}
 
 export async function detectStaleFilesForMovie(movieId: string): Promise<string[]> {
   const movie = await prisma.movie.findUnique({

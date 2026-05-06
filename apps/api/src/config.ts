@@ -16,6 +16,7 @@ const ConfigSchema = z.object({
     .pipe(z.array(ScanRootSchema))
     .default('[]'),
   TMDB_API_KEY: z.string().optional(),
+  METADATA_LANGUAGE: z.string().default('it-IT'),
   TVDB_API_KEY: z.string().optional(),
   JELLYFIN_URL: z.string().optional(),
   JELLYFIN_API_KEY: z.string().optional(),

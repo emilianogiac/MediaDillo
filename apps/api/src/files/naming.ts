@@ -25,13 +25,17 @@ export function canonicalSeasonFolderName(seasonNumber: number): string {
 export function canonicalEpisodeFileName(
   showTitle: string,
   seasonNumber: number,
-  episodeNumber: number,
+  episodeStart: number,
   episodeTitle: string | null,
   ext: string,
+  episodeEnd: number | null = null,
 ): string {
   const s = String(seasonNumber).padStart(2, '0')
-  const e = String(episodeNumber).padStart(2, '0')
-  const code = `S${s}E${e}`
+  const eStart = String(episodeStart).padStart(2, '0')
+  let code = `S${s}E${eStart}`
+  if (episodeEnd !== null && episodeEnd > episodeStart) {
+    code += `E${String(episodeEnd).padStart(2, '0')}`
+  }
   const show = sanitizeForFilename(showTitle)
   if (episodeTitle) {
     const title = sanitizeForFilename(episodeTitle)

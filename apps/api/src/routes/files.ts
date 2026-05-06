@@ -6,7 +6,9 @@ import {
   previewEpisodeRenames,
   applyEpisodeRenames,
   deleteToTrash,
+  type RenamePreviewItem,
 } from '../files/rename.js'
+import { detectMultiPartMovies, mergeMovieParts } from '../files/merge.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 
 export async function filesRoutes(app: FastifyInstance): Promise<void> {
@@ -26,21 +28,130 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
   })
 
   // POST /api/files/rename — apply renames
-  // body: { type: 'movies' | 'episodes'; fileIds: string[] }
+  // body: { type: 'movies' | 'episodes'; fileIds: string[]; showFolderItems?: RenamePreviewItem[] }
   app.post<{
-    Body: { type?: 'movies' | 'episodes'; fileIds: string[] }
+    Body: { type?: 'movies' | 'episodes'; fileIds: string[]; showFolderItems?: RenamePreviewItem[] }
   }>('/files/rename', async (req, reply) => {
-    const { type = 'movies', fileIds } = req.body
+    const { type = 'movies', fileIds, showFolderItems } = req.body
     if (!Array.isArray(fileIds) || fileIds.length === 0) {
       return reply.code(400).send({ error: 'fileIds must be a non-empty array' })
     }
 
     const result =
       type === 'episodes'
-        ? await applyEpisodeRenames(fileIds)
+        ? await applyEpisodeRenames(fileIds, showFolderItems)
         : await applyMovieRenames(fileIds)
 
     if (result.renamed > 0) {
+      triggerLibraryRefresh(app.log).catch(() => {})
+    }
+
+    return reply.send(result)
+  })
+
+  // GET /api/files/episode-files — list all episode files with current mapping for remap UI
+  app.get('/files/episode-files', async (_req, reply) => {
+    const files = await prisma.episodeFile.findMany({
+      select: {
+        id: true,
+        path: true,
+        multiEpisodeEnd: true,
+        episode: {
+          select: {
+            episodeNumber: true,
+            title: true,
+            season: {
+              select: {
+                seasonNumber: true,
+                show: { select: { id: true, title: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: [
+        { episode: { season: { show: { title: 'asc' } } } },
+        { episode: { season: { seasonNumber: 'asc' } } },
+        { episode: { episodeNumber: 'asc' } },
+      ],
+    })
+    return reply.send(files)
+  })
+
+  // POST /api/files/episode-remap — reassign an episode file to a different episode (or multi-episode range)
+  app.post<{
+    Body: {
+      fileId: string
+      showId: string
+      seasonNumber: number
+      episodeStart: number
+      episodeEnd?: number
+    }
+  }>('/files/episode-remap', async (req, reply) => {
+    const { fileId, showId, seasonNumber, episodeStart, episodeEnd } = req.body
+    if (!fileId || !showId || seasonNumber == null || episodeStart == null) {
+      return reply.code(400).send({ error: 'fileId, showId, seasonNumber, episodeStart are required' })
+    }
+
+    // Find or create the target season
+    let season = await prisma.season.findFirst({ where: { showId, seasonNumber } })
+    if (!season) {
+      season = await prisma.season.create({
+        data: { showId, seasonNumber, episodeCount: 0 },
+      })
+    }
+
+    // Find or create the start episode
+    let episode = await prisma.episode.findFirst({
+      where: { seasonId: season.id, episodeNumber: episodeStart },
+    })
+    if (!episode) {
+      episode = await prisma.episode.create({
+        data: { seasonId: season.id, episodeNumber: episodeStart, status: 'owned' },
+      })
+    }
+
+    // Update the file
+    const updated = await prisma.episodeFile.update({
+      where: { id: fileId },
+      data: {
+        episodeId: episode.id,
+        multiEpisodeEnd: episodeEnd ?? null,
+      },
+      include: { episode: { include: { season: { include: { show: true } } } } },
+    })
+
+    // Mark all covered episodes as owned when episodeEnd is set
+    if (episodeEnd !== null && episodeEnd !== undefined && episodeEnd > episodeStart) {
+      const eps = await prisma.episode.findMany({
+        where: {
+          seasonId: season.id,
+          episodeNumber: { gte: episodeStart, lte: episodeEnd },
+        },
+      })
+      await prisma.episode.updateMany({
+        where: { id: { in: eps.map((e) => e.id) } },
+        data: { status: 'owned' },
+      })
+    }
+
+    return reply.send(updated)
+  })
+
+  // GET /api/files/multi-part — detect movies split into two part files
+  app.get('/files/multi-part', async (_req, reply) => {
+    const candidates = await detectMultiPartMovies()
+    return reply.send(candidates)
+  })
+
+  // POST /api/files/merge-parts — concat two part files via ffmpeg
+  app.post<{ Body: { movieId: string } }>('/files/merge-parts', async (req, reply) => {
+    const { movieId } = req.body
+    if (!movieId) return reply.code(400).send({ error: 'movieId is required' })
+
+    const result = await mergeMovieParts(movieId)
+
+    if ('outputPath' in result) {
       triggerLibraryRefresh(app.log).catch(() => {})
     }
 
