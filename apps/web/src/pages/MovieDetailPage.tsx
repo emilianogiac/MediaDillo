@@ -63,8 +63,12 @@ export function MovieDetailPage() {
       <div className="flex gap-6">
         {/* Poster */}
         <div className="flex-shrink-0 w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
-          {movie.posterUrl ? (
-            <img src={movie.posterUrl} alt={movie.title} className="w-full object-cover" />
+          {(movie.posterDownloaded || movie.posterUrl) ? (
+            <img
+              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster` : movie.posterUrl!}
+              alt={movie.title}
+              className="w-full object-cover"
+            />
           ) : (
             <div className="aspect-[2/3] flex items-center justify-center text-gray-600 text-xs text-center px-2">
               No Poster

@@ -10,13 +10,38 @@ import type { ScanSummary } from './types.js'
 
 let scanning = false
 
+export interface ScanProgress {
+  scanning: boolean
+  filesProcessed: number
+  filesFound: number
+  currentFile: string | null
+  startedAt: string | null
+}
+
+const progress: ScanProgress = {
+  scanning: false,
+  filesProcessed: 0,
+  filesFound: 0,
+  currentFile: null,
+  startedAt: null,
+}
+
 export function isScanRunning(): boolean {
   return scanning
+}
+
+export function getScanProgress(): ScanProgress {
+  return { ...progress }
 }
 
 export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary> {
   if (scanning) throw new Error('A scan is already running')
   scanning = true
+  progress.scanning = true
+  progress.filesProcessed = 0
+  progress.filesFound = 0
+  progress.currentFile = null
+  progress.startedAt = new Date().toISOString()
 
   const startTime = Date.now()
   let added = 0
@@ -45,6 +70,8 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
 
       for await (const walkedFile of walkRoot(rootConfig.path)) {
         seenVideoPaths.add(walkedFile.path)
+        progress.filesFound++
+        progress.currentFile = walkedFile.path
 
         const folderPath = path.join(rootConfig.path, walkedFile.parentFolder)
         visitedFolders.add(folderPath)
@@ -85,6 +112,7 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
         } catch (err) {
           console.error(`Failed to sync ${walkedFile.path}:`, err)
         }
+        progress.filesProcessed++
       }
 
       // Stale file detection — check each visited folder
@@ -106,5 +134,7 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
     }
   } finally {
     scanning = false
+    progress.scanning = false
+    progress.currentFile = null
   }
 }

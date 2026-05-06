@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
-import { runScan, isScanRunning } from '../scanner/index.js'
+import { runScan, isScanRunning, getScanProgress } from '../scanner/index.js'
 import { config } from '../config.js'
 
 export async function scanRoutes(app: FastifyInstance): Promise<void> {
@@ -30,6 +30,11 @@ export async function scanRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/scan/status — is a scan running?
   app.get('/scan/status', async (_req, reply) => {
     return reply.send({ scanning: isScanRunning() })
+  })
+
+  // GET /api/scan/progress — live scan progress
+  app.get('/scan/progress', async (_req, reply) => {
+    return reply.send(getScanProgress())
   })
 
   // GET /api/scan/logs — list scan history

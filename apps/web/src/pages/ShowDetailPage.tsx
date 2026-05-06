@@ -62,8 +62,12 @@ export function ShowDetailPage() {
       {/* Hero */}
       <div className="flex gap-6">
         <div className="flex-shrink-0 w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
-          {show.posterUrl ? (
-            <img src={show.posterUrl} alt={show.title} className="w-full object-cover" />
+          {(show.posterDownloaded || show.posterUrl) ? (
+            <img
+              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}
+              alt={show.title}
+              className="w-full object-cover"
+            />
           ) : (
             <div className="aspect-[2/3] flex items-center justify-center text-gray-600 text-xs text-center px-2">
               No Poster

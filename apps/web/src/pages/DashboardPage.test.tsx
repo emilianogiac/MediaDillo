@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { DashboardPage } from './DashboardPage.js'
@@ -104,11 +104,13 @@ describe('DashboardPage', () => {
     )
   })
 
-  it('triggers scan when button is clicked', async () => {
+  it('triggers scan when button is clicked and shows scanning state', async () => {
+    // apiFetch never resolves — keeps button in "Scanning…" state
     mockFetchStats.mockResolvedValue(makeStats())
+    mockApiFetch.mockReturnValue(new Promise(() => {}))
     renderPage()
     fireEvent.click(screen.getByText('Trigger scan'))
     await waitFor(() => expect(mockApiFetch).toHaveBeenCalledWith('/scan', expect.objectContaining({ method: 'POST' })))
-    expect(screen.getByText('Scan started.')).toBeInTheDocument()
+    expect(screen.getByText('Scanning…')).toBeInTheDocument()
   })
 })

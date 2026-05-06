@@ -33,9 +33,9 @@ function ShowCard({ show }: { show: ShowSummary }) {
     >
       {/* Poster */}
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
-        {show.posterUrl ? (
+        {(show.posterDownloaded || show.posterUrl) ? (
           <img
-            src={show.posterUrl}
+            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}
             alt={show.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"

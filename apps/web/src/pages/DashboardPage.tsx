@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import type { LibraryStats } from '../api/stats.js'
 import { fetchStats, formatBytes } from '../api/stats.js'
@@ -14,33 +14,84 @@ function StatCard({ label, value, sub }: { label: string; value: string | number
   )
 }
 
-function ScanButton() {
-  const [scanning, setScanning] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+interface ScanProgress {
+  scanning: boolean
+  filesProcessed: number
+  filesFound: number
+  currentFile: string | null
+  startedAt: string | null
+}
 
-  async function trigger() {
-    setScanning(true)
-    setMsg(null)
-    try {
-      await apiFetch('/scan', { method: 'POST' })
-      setMsg('Scan started.')
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Failed')
-    } finally {
-      setScanning(false)
+function ScanButton() {
+  const [triggered, setTriggered] = useState(false)
+  const [progress, setProgress] = useState<ScanProgress | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current)
+      pollRef.current = null
     }
   }
 
+  async function pollProgress() {
+    try {
+      const p = await apiFetch<ScanProgress>('/scan/progress')
+      setProgress(p)
+      if (!p.scanning) {
+        stopPolling()
+        setTriggered(false)
+        setMsg(`Scan complete — ${p.filesProcessed} files processed`)
+      }
+    } catch {
+      // ignore transient errors
+    }
+  }
+
+  async function trigger() {
+    setTriggered(true)
+    setMsg(null)
+    setProgress(null)
+    try {
+      await apiFetch('/scan', { method: 'POST' })
+      pollRef.current = setInterval(() => { void pollProgress() }, 2000)
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Failed')
+      setTriggered(false)
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => () => { stopPolling() }, [])
+
+  const isScanning = triggered || progress?.scanning
+
   return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={trigger}
-        disabled={scanning}
-        className="px-4 py-2 rounded bg-accent hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors"
-      >
-        {scanning ? 'Starting…' : 'Trigger scan'}
-      </button>
-      {msg && <span className="text-xs text-gray-400">{msg}</span>}
+    <div className="flex flex-col gap-1.5 items-end">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={trigger}
+          disabled={!!isScanning}
+          className="px-4 py-2 rounded bg-accent hover:bg-accent-hover text-white text-sm font-medium disabled:opacity-40 transition-colors"
+        >
+          {isScanning ? 'Scanning…' : 'Trigger scan'}
+        </button>
+        {msg && !isScanning && <span className="text-xs text-gray-400">{msg}</span>}
+      </div>
+      {progress?.scanning && (
+        <div className="text-xs text-gray-400 text-right max-w-xs">
+          <span className="font-medium text-accent">{progress.filesProcessed.toLocaleString()}</span>
+          {progress.filesFound > 0 && (
+            <> / {progress.filesFound.toLocaleString()} files</>
+          )}
+          {progress.currentFile && (
+            <div className="text-gray-600 truncate max-w-[240px]" title={progress.currentFile}>
+              {progress.currentFile.split('/').slice(-2).join('/')}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
