@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { JellyfinStatus } from '../api/jellyfin.js'
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
+import { downloadJson, downloadMoviesCsv, downloadShowsCsv, writeBulkNfo } from '../api/export.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
   return (
@@ -112,6 +113,79 @@ export function SettingsPage() {
           optionally <code className="text-xs bg-gray-800 px-1 rounded">TVDB_API_KEY</code>{' '}
           in your environment. Full configuration UI coming in Epic 12.
         </p>
+      </div>
+
+      <ExportCard />
+    </div>
+  )
+}
+
+function ExportCard() {
+  const [nfoResult, setNfoResult] = useState<{ movies: number; shows: number; errors: string[] } | null>(null)
+  const [nfoBusy, setNfoBusy] = useState(false)
+  const [nfoError, setNfoError] = useState<string | null>(null)
+
+  async function runBulkNfo() {
+    setNfoBusy(true)
+    setNfoResult(null)
+    setNfoError(null)
+    try {
+      const result = await writeBulkNfo()
+      setNfoResult(result)
+    } catch (e) {
+      setNfoError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setNfoBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Export & NFO</h2>
+
+      <div className="space-y-2">
+        <p className="text-sm text-gray-500">Download your full library data as JSON or CSV.</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={downloadJson}
+            className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 transition-colors"
+          >
+            Export JSON
+          </button>
+          <button
+            onClick={downloadMoviesCsv}
+            className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 transition-colors"
+          >
+            Movies CSV
+          </button>
+          <button
+            onClick={downloadShowsCsv}
+            className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 transition-colors"
+          >
+            Shows CSV
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-800 pt-4 space-y-2">
+        <p className="text-sm text-gray-500">
+          Write Jellyfin/Kodi-compatible NFO sidecar files alongside all media files.
+        </p>
+        <button
+          onClick={runBulkNfo}
+          disabled={nfoBusy}
+          className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
+        >
+          {nfoBusy ? 'Writing NFO files…' : 'Write all NFO files'}
+        </button>
+        {nfoError && <p className="text-xs text-red-400">{nfoError}</p>}
+        {nfoResult && (
+          <p className="text-xs text-green-400">
+            Written: {nfoResult.movies} movie NFO{nfoResult.movies !== 1 ? 's' : ''},{' '}
+            {nfoResult.shows} show NFO{nfoResult.shows !== 1 ? 's' : ''}.
+            {nfoResult.errors.length > 0 && ` (${nfoResult.errors.length} errors)`}
+          </p>
+        )}
       </div>
     </div>
   )
