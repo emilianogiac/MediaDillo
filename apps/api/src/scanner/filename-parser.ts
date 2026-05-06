@@ -1,8 +1,8 @@
 import path from 'node:path'
 import type { ParsedFilename, ParsedMovie, ParsedEpisode } from './types.js'
 
-// S01E01 or S01E01E02 (multi-episode)
-const TV_SE_RE = /[Ss](\d{1,2})[Ee](\d{1,2})(?:[Ee](\d{1,2}))*/
+// S01E01 / s01e01 / 01x01 / 1x01 — with optional multi-episode (S01E01E02)
+const TV_SE_RE = /(?:[Ss](\d{1,2})[Ee](\d{1,2})(?:[Ee](\d{1,2}))*|(\d{1,2})x(\d{1,2}))/
 
 // Trailing quality/noise tags to strip before parsing title
 const NOISE_RE =
@@ -22,8 +22,9 @@ export function parseFilename(filePath: string): ParsedFilename {
 
 function parseTvFilename(normalized: string, match: RegExpExecArray): ParsedEpisode {
   const full = match[0] as string
-  const season = match[1] as string
-  const ep1 = match[2] as string
+  // Groups 1-3: SxxExx format; groups 4-5: xxXxx format
+  const season = (match[1] ?? match[4]) as string
+  const ep1 = (match[2] ?? match[5]) as string
   const ep2 = match[3] as string | undefined
   const seasonNum = parseInt(season, 10)
   const episodes = [parseInt(ep1, 10)]

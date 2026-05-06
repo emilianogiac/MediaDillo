@@ -61,4 +61,19 @@ describe('parseFilename — TV shows', () => {
     const r = parseFilename('/tv/Show/S02E05.mkv')
     expect(r).toMatchObject({ type: 'tv', season: 2, episodes: [5] })
   })
+
+  it('parses 01x01 convention', () => {
+    const r = parseFilename('/tv/Breaking Bad/Season 01/Breaking Bad - 01x01 - Pilot.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'Breaking Bad', season: 1, episodes: [1], episodeTitle: 'Pilot' })
+  })
+
+  it('parses single-digit season in NxNN format', () => {
+    const r = parseFilename('/tv/Show/1x05 - Episode Title.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [5] })
+  })
+
+  it('parses 2x03 with show name before', () => {
+    const r = parseFilename('/tv/The Wire/The Wire - 2x03 - Hot Shots.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'The Wire', season: 2, episodes: [3], episodeTitle: 'Hot Shots' })
+  })
 })
