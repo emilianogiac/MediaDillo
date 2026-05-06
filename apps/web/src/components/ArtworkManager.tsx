@@ -1,19 +1,20 @@
 import { useState } from 'react'
 import type { ImageCandidate } from '../api/types.js'
-import {
-  triggerMovieDownload,
-  fetchMovieImages,
-  selectMovieImage,
-} from '../api/movies.js'
+
+interface ArtworkApi {
+  download: (type: 'poster' | 'backdrop' | 'all') => Promise<void>
+  searchImages: () => Promise<{ posters: ImageCandidate[]; backdrops: ImageCandidate[] }>
+  selectImage: (filePath: string, artworkType: 'poster' | 'backdrop') => Promise<void>
+}
 
 interface Props {
-  movieId: string
   posterDownloaded: boolean
   backdropDownloaded: boolean
+  api: ArtworkApi
   onUpdated: () => void
 }
 
-export function ArtworkManager({ movieId, posterDownloaded, backdropDownloaded, onUpdated }: Props) {
+export function ArtworkManager({ posterDownloaded, backdropDownloaded, api, onUpdated }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<{ posters: ImageCandidate[]; backdrops: ImageCandidate[] } | null>(null)
@@ -23,7 +24,7 @@ export function ArtworkManager({ movieId, posterDownloaded, backdropDownloaded, 
     setBusy(true)
     setError(null)
     try {
-      await triggerMovieDownload(movieId, type)
+      await api.download(type)
       onUpdated()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Download failed')
@@ -36,7 +37,7 @@ export function ArtworkManager({ movieId, posterDownloaded, backdropDownloaded, 
     setBusy(true)
     setError(null)
     try {
-      const data = await fetchMovieImages(movieId)
+      const data = await api.searchImages()
       setCandidates(data)
       setPickerType(type)
     } catch (e) {
@@ -51,7 +52,7 @@ export function ArtworkManager({ movieId, posterDownloaded, backdropDownloaded, 
     setBusy(true)
     setError(null)
     try {
-      await selectMovieImage(movieId, filePath, pickerType)
+      await api.selectImage(filePath, pickerType)
       setCandidates(null)
       setPickerType(null)
       onUpdated()
@@ -140,7 +141,6 @@ export function ArtworkManager({ movieId, posterDownloaded, backdropDownloaded, 
         </div>
       </div>
 
-      {/* Download all button */}
       {(!posterDownloaded || !backdropDownloaded) && (
         <button
           onClick={() => download('all')}

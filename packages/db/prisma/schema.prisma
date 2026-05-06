@@ -118,6 +118,9 @@ model TvShow {
   tvdbId             Int?
   title              String
   year               Int?
+  overview           String?
+  genres             String[]
+  rating             Float?
   status             TvShowStatus @default(continuing)
   totalEpisodes      Int          @default(0)
   ownedEpisodes      Int          @default(0)
