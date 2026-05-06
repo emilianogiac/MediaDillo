@@ -14,6 +14,7 @@ import { scanRootsRoutes } from './routes/scan-roots.js'
 import { filesRoutes } from './routes/files.js'
 import { libraryHealthRoutes } from './routes/library-health.js'
 import { jellyfinRoutes } from './routes/jellyfin.js'
+import { exportRoutes } from './routes/export.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -54,6 +55,7 @@ export async function buildApp() {
   await app.register(filesRoutes, { prefix: '/api' })
   await app.register(libraryHealthRoutes, { prefix: '/api' })
   await app.register(jellyfinRoutes, { prefix: '/api' })
+  await app.register(exportRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {

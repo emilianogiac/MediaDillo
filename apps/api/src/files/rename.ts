@@ -204,6 +204,8 @@ const KNOWN_FILENAMES = new Set([
   'tvshow.nfo',
 ])
 
+const KNOWN_EXTENSIONS = new Set(['.nfo', '.srt', '.sub', '.ass', '.ssa'])
+
 const VIDEO_EXTENSIONS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.mpg', '.mpeg'])
 
 export async function detectStaleFilesForMovie(movieId: string): Promise<string[]> {
@@ -239,6 +241,7 @@ export async function detectStaleFilesForMovie(movieId: string): Promise<string[
     if (ownedPaths.has(entry)) continue
     const ext = path.extname(entry).toLowerCase()
     if (VIDEO_EXTENSIONS.has(ext)) continue
+    if (KNOWN_EXTENSIONS.has(ext)) continue
     stale.push(path.join(folderPath, entry))
   }
 
