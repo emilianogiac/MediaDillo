@@ -113,6 +113,12 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
 
       const client = getTmdbClient()
 
+      // Clear tmdbId from any other movie that already holds it (unique constraint)
+      await prisma.movie.updateMany({
+        where: { tmdbId, NOT: { id: movie.id } },
+        data: { tmdbId: null },
+      })
+
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.movie.update({ where: { id: movie.id }, data: { tmdbId } })
 
@@ -141,6 +147,12 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const client = getTmdbClient()
+
+      // Clear tmdbId from any other show that already holds it (unique constraint)
+      await prisma.tvShow.updateMany({
+        where: { tmdbId, NOT: { id: show.id } },
+        data: { tmdbId: null },
+      })
 
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.tvShow.update({ where: { id: show.id }, data: { tmdbId } })

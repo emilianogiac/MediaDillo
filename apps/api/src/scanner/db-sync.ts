@@ -152,8 +152,17 @@ export async function syncEpisodeFile(
     parseShowNfo(showFolder),
   ])
 
-  // Find or create TvShow
-  let tvShow = await prisma.tvShow.findFirst({ where: { title: show, year: year ?? null } })
+  // Find or create TvShow.
+  // Try exact match (title + year) first, then title-only fallback — year is
+  // often inconsistently included in episode filenames, which would otherwise
+  // create a separate TvShow record per uniquely-named file.
+  let tvShow =
+    (year !== null
+      ? await prisma.tvShow.findFirst({ where: { title: show, year } })
+      : null) ??
+    await prisma.tvShow.findFirst({ where: { title: show, year: null } }) ??
+    await prisma.tvShow.findFirst({ where: { title: show } })
+
   if (!tvShow) {
     tvShow = await prisma.tvShow.create({
       data: {
@@ -170,6 +179,7 @@ export async function syncEpisodeFile(
     })
   } else {
     const updates: Record<string, unknown> = {}
+    if (!tvShow.year && (showNfo?.year ?? year) !== null) updates['year'] = showNfo?.year ?? year
     if (!tvShow.tmdbId && showNfo?.tmdbId) updates['tmdbId'] = showNfo.tmdbId
     if (!tvShow.tvdbId && showNfo?.tvdbId) updates['tvdbId'] = showNfo.tvdbId
     if (!tvShow.overview && showNfo?.overview) updates['overview'] = showNfo.overview

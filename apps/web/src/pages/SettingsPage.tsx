@@ -6,7 +6,7 @@ import { cleanupTvContamination } from '../api/movies.js'
 import type { ScanRootRecord, ScanLogRecord, ScheduleInterval } from '../api/settings.js'
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
-  fetchScanLogs, fetchSchedule, updateSchedule,
+  fetchScanLogs, fetchSchedule, updateSchedule, dedupShows,
 } from '../api/settings.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -122,28 +122,48 @@ export function SettingsPage() {
 }
 
 function DatabaseMaintenanceCard() {
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [cleanupBusy, setCleanupBusy] = useState(false)
+  const [cleanupResult, setCleanupResult] = useState<string | null>(null)
+  const [cleanupError, setCleanupError] = useState<string | null>(null)
+
+  const [dedupBusy, setDedupBusy] = useState(false)
+  const [dedupResult, setDedupResult] = useState<string | null>(null)
+  const [dedupError, setDedupError] = useState<string | null>(null)
 
   async function runCleanup() {
-    setBusy(true)
-    setResult(null)
-    setError(null)
+    setCleanupBusy(true)
+    setCleanupResult(null)
+    setCleanupError(null)
     try {
       const r = await cleanupTvContamination()
-      setResult(r.deleted === 0
+      setCleanupResult(r.deleted === 0
         ? 'No contaminated records found — library is clean.'
         : `Removed ${r.deleted} movie record${r.deleted !== 1 ? 's' : ''} that belonged to TV scan roots. Run a full scan to rebuild them as episodes.`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed')
+      setCleanupError(e instanceof Error ? e.message : 'Failed')
     } finally {
-      setBusy(false)
+      setCleanupBusy(false)
+    }
+  }
+
+  async function runDedup() {
+    setDedupBusy(true)
+    setDedupResult(null)
+    setDedupError(null)
+    try {
+      const r = await dedupShows()
+      setDedupResult(r.deleted === 0
+        ? 'No duplicate TV show records found.'
+        : `Merged ${r.merged} duplicate show${r.merged !== 1 ? 's' : ''} into their canonical records.`)
+    } catch (e) {
+      setDedupError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setDedupBusy(false)
     }
   }
 
   return (
-    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-3">
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Database Maintenance</h2>
       <div className="space-y-1.5">
         <p className="text-sm text-gray-500">
@@ -152,13 +172,27 @@ function DatabaseMaintenanceCard() {
         </p>
         <button
           onClick={runCleanup}
-          disabled={busy}
+          disabled={cleanupBusy}
           className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
         >
-          {busy ? 'Cleaning up…' : 'Remove contaminated movie records'}
+          {cleanupBusy ? 'Cleaning up…' : 'Remove contaminated movie records'}
         </button>
-        {error && <p className="text-xs text-red-400">{error}</p>}
-        {result && <p className="text-xs text-green-400">{result}</p>}
+        {cleanupError && <p className="text-xs text-red-400">{cleanupError}</p>}
+        {cleanupResult && <p className="text-xs text-green-400">{cleanupResult}</p>}
+      </div>
+      <div className="border-t border-gray-700 pt-3 space-y-1.5">
+        <p className="text-sm text-gray-500">
+          Merge duplicate TV show records caused by inconsistent year inclusion in episode filenames (e.g. some files named <code className="bg-gray-800 px-1 rounded">Show (2019) - 01x01</code> and others just <code className="bg-gray-800 px-1 rounded">Show - 01x02</code>).
+        </p>
+        <button
+          onClick={runDedup}
+          disabled={dedupBusy}
+          className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
+        >
+          {dedupBusy ? 'Merging…' : 'Merge duplicate TV show records'}
+        </button>
+        {dedupError && <p className="text-xs text-red-400">{dedupError}</p>}
+        {dedupResult && <p className="text-xs text-green-400">{dedupResult}</p>}
       </div>
     </div>
   )
