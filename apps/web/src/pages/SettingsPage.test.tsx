@@ -14,19 +14,36 @@ vi.mock('../api/export.js', () => ({
   writeBulkNfo: vi.fn(),
 }))
 
+vi.mock('../api/settings.js', () => ({
+  fetchAllScanRoots: vi.fn(),
+  fetchSchedule: vi.fn(),
+  fetchScanLogs: vi.fn(),
+  createScanRoot: vi.fn(),
+  updateScanRoot: vi.fn(),
+  deleteScanRoot: vi.fn(),
+  updateSchedule: vi.fn(),
+}))
+
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
 import { downloadJson, writeBulkNfo } from '../api/export.js'
+import { fetchAllScanRoots, fetchSchedule, fetchScanLogs } from '../api/settings.js'
 
 const mockStatus = fetchJellyfinStatus as ReturnType<typeof vi.fn>
 const mockRefresh = triggerJellyfinRefresh as ReturnType<typeof vi.fn>
 const mockDownloadJson = downloadJson as ReturnType<typeof vi.fn>
 const mockBulkNfo = writeBulkNfo as ReturnType<typeof vi.fn>
+const mockFetchRoots = fetchAllScanRoots as ReturnType<typeof vi.fn>
+const mockFetchSchedule = fetchSchedule as ReturnType<typeof vi.fn>
+const mockFetchLogs = fetchScanLogs as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockRefresh.mockResolvedValue(undefined)
   mockDownloadJson.mockReturnValue(undefined)
   mockBulkNfo.mockResolvedValue({ movies: 3, shows: 1, errors: [] })
+  mockFetchRoots.mockResolvedValue([])
+  mockFetchSchedule.mockResolvedValue('disabled')
+  mockFetchLogs.mockResolvedValue([])
 })
 
 describe('SettingsPage', () => {
