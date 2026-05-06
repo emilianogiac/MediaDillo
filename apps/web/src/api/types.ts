@@ -120,6 +120,15 @@ export interface MovieDetail extends Omit<MovieSummary, 'files'> {
   credits: Credit[]
 }
 
+export interface MovieCandidate {
+  tmdbId: number
+  title: string
+  year: number | null
+  overview: string | null
+  posterUrl: string | null
+  score: number
+}
+
 export interface ImageCandidate {
   filePath: string
   url: string

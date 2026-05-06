@@ -9,6 +9,7 @@ import { metadataRoutes } from './routes/metadata.js'
 import { artworkRoutes } from './routes/artwork.js'
 import { moviesRoutes } from './routes/movies.js'
 import { showsRoutes } from './routes/shows.js'
+import { missingRoutes } from './routes/missing.js'
 import { scanRootsRoutes } from './routes/scan-roots.js'
 import { config } from './config.js'
 
@@ -45,6 +46,7 @@ export async function buildApp() {
   await app.register(artworkRoutes, { prefix: '/api' })
   await app.register(moviesRoutes, { prefix: '/api' })
   await app.register(showsRoutes, { prefix: '/api' })
+  await app.register(missingRoutes, { prefix: '/api' })
   await app.register(scanRootsRoutes, { prefix: '/api' })
 
   // SPA fallback in production
