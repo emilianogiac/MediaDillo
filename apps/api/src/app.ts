@@ -11,6 +11,7 @@ import { moviesRoutes } from './routes/movies.js'
 import { showsRoutes } from './routes/shows.js'
 import { missingRoutes } from './routes/missing.js'
 import { scanRootsRoutes } from './routes/scan-roots.js'
+import { filesRoutes } from './routes/files.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -48,6 +49,7 @@ export async function buildApp() {
   await app.register(showsRoutes, { prefix: '/api' })
   await app.register(missingRoutes, { prefix: '/api' })
   await app.register(scanRootsRoutes, { prefix: '/api' })
+  await app.register(filesRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {
