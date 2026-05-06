@@ -32,7 +32,13 @@ export async function downloadMovieArtwork(
     return { posterSaved: false, backdropSaved: false, folderPath: null }
   }
 
-  const folderPath = path.dirname(firstFile.path)
+  // For multi-disc movies (files in cd1/ cd2/ subfolders), artwork belongs in the
+  // movie root — one level below the scan root — not in the disc subfolder.
+  const fileDir = path.dirname(firstFile.path)
+  const scanRootPath = movie.scanRoot?.path ?? ''
+  const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
+    ? path.dirname(fileDir)   // file is in a subfolder → use the movie root
+    : fileDir                 // file is directly in movie folder → use as-is
   let posterSaved = false
   let backdropSaved = false
 

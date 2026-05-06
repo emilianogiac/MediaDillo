@@ -24,18 +24,34 @@ async function clearStaleFlag(owner: ArtworkOwner, kind: 'poster' | 'backdrop'):
   }
 }
 
+// Resolve the artwork folder to try: the file's own directory first, then one
+// level up. For multi-disc movies (files in cd1/ cd2/ subfolders) the poster
+// lives in the parent "movie root" folder, not alongside the individual disc file.
+async function resolveArtworkFolder(fileDir: string): Promise<string[]> {
+  const parent = path.dirname(fileDir)
+  return parent !== fileDir ? [fileDir, parent] : [fileDir]
+}
+
 async function streamLocalArtwork(
   app: FastifyInstance,
   reply: FastifyReply,
-  folderPath: string,
+  fileDir: string,
   kind: 'poster' | 'backdrop',
   owner: ArtworkOwner,
+  fallbackUrl?: string | null,
 ): Promise<void> {
-  const paths = await findArtworkPaths(folderPath)
-  const filePath = kind === 'poster' ? paths.posterPath : paths.backdropPath
+  // Search the file's folder and one level up (covers multi-disc subfolder layouts)
+  const folders = await resolveArtworkFolder(fileDir)
+  let filePath: string | null = null
+  for (const folder of folders) {
+    const p = await findArtworkPaths(folder)
+    const candidate = kind === 'poster' ? p.posterPath : p.backdropPath
+    if (candidate) { filePath = candidate; break }
+  }
+
   if (!filePath) {
-    // File not found in folder — clear the stale DB flag so the UI re-enables download
     await clearStaleFlag(owner, kind)
+    if (fallbackUrl) return reply.redirect(fallbackUrl)
     await reply.code(404).send({ error: `No local ${kind} found` })
     return
   }
@@ -45,9 +61,9 @@ async function streamLocalArtwork(
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
     await reply.header('Content-Type', mime).header('Content-Length', s.size).send(createReadStream(filePath))
   } catch {
-    app.log.warn(`artwork file missing on disk: ${filePath}`)
-    // File listed in directory but unreadable — clear the stale DB flag
+    app.log.warn(`artwork file not readable on disk: ${filePath}`)
     await clearStaleFlag(owner, kind)
+    if (fallbackUrl) return reply.redirect(fallbackUrl)
     await reply.code(404).send({ error: 'File not found on disk' })
   }
 }
@@ -78,7 +94,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this movie' })
-    return streamLocalArtwork(app, reply, path.dirname(file.path), 'poster', { type: 'movie', id: req.params.id })
+    return streamLocalArtwork(app, reply, path.dirname(file.path), 'poster', { type: 'movie', id: req.params.id }, movie.posterUrl)
   })
 
   // GET /api/artwork/movies/:id/backdrop — stream local backdrop file
@@ -90,7 +106,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this movie' })
-    return streamLocalArtwork(app, reply, path.dirname(file.path), 'backdrop', { type: 'movie', id: req.params.id })
+    return streamLocalArtwork(app, reply, path.dirname(file.path), 'backdrop', { type: 'movie', id: req.params.id }, movie.backdropUrl)
   })
 
   // GET /api/artwork/shows/:id/poster — stream local poster file
@@ -108,7 +124,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     const file = show.seasons[0]?.episodes[0]?.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this show' })
     const showFolder = path.dirname(path.dirname(file.path))
-    return streamLocalArtwork(app, reply, showFolder, 'poster', { type: 'show', id: req.params.id })
+    return streamLocalArtwork(app, reply, showFolder, 'poster', { type: 'show', id: req.params.id }, show.posterUrl)
   })
 
   // GET /api/artwork/shows/:id/backdrop — stream local backdrop file
@@ -126,7 +142,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     const file = show.seasons[0]?.episodes[0]?.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this show' })
     const showFolder = path.dirname(path.dirname(file.path))
-    return streamLocalArtwork(app, reply, showFolder, 'backdrop', { type: 'show', id: req.params.id })
+    return streamLocalArtwork(app, reply, showFolder, 'backdrop', { type: 'show', id: req.params.id }, show.backdropUrl)
   })
 
   // POST /api/artwork/movies/:id/download?type=poster|backdrop|all

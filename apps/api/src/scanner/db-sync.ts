@@ -14,12 +14,19 @@ export interface ScanCounts {
 export async function syncMovieFile(
   file: ScannedFile,
   scanRootId: string,
+  scanRootPath?: string,
 ): Promise<'added' | 'changed' | 'unchanged'> {
   if (file.parsed.type !== 'movie') throw new Error('Expected movie file')
   const { title, year } = file.parsed
   const specs = file.techSpecs
 
-  const movieFolder = path.dirname(file.path)
+  // For multi-disc movies where files live in cd1/cd2 subfolders, artwork and
+  // NFO are in the movie root (one level below the scan root), not in the disc folder.
+  const fileDir = path.dirname(file.path)
+  const movieFolder = scanRootPath && path.dirname(fileDir) !== scanRootPath
+    ? path.dirname(fileDir)
+    : fileDir
+
   const [artwork, nfo] = await Promise.all([
     detectLocalArtwork(movieFolder),
     parseMovieNfo(movieFolder),

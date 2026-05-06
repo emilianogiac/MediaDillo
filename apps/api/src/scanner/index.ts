@@ -104,7 +104,7 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
               console.warn(`Skipping unexpected TV file in movies root: ${walkedFile.path}`)
               continue
             }
-            result = await syncMovieFile(scannedFile, scanRoot.id)
+            result = await syncMovieFile(scannedFile, scanRoot.id, scanRoot.path)
           }
 
           if (result === 'added') added++
