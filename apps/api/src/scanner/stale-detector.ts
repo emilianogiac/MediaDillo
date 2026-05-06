@@ -49,8 +49,13 @@ export async function detectStaleFiles(
     // Known video file in our DB
     if (knownVideoPaths.has(filePath)) continue
 
-    // Known artwork filenames
+    // Known artwork filenames (bare names or TMM-style {basename}-poster/-fanart etc.)
     if (KNOWN_ARTWORK.has(basename)) continue
+    const artworkSuffixes = ['-poster', '_poster', '-fanart', '_fanart', '-backdrop', '_backdrop',
+      '-landscape', '_landscape', '-banner', '_banner', '-clearart', '_clearart',
+      '-discart', '_discart', '-disc', '_disc', '-logo', '_logo', '-thumb', '_thumb']
+    const nameWithoutExt = basename.replace(/\.[^.]+$/, '')
+    if (artworkSuffixes.some(s => nameWithoutExt.endsWith(s))) continue
 
     // Known metadata filenames
     if (KNOWN_METADATA.has(basename)) continue

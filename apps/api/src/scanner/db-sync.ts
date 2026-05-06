@@ -1,6 +1,8 @@
+import path from 'node:path'
 import { prisma } from '@mediadillo/db'
 import type { ScannedFile } from './types.js'
 import type { StaleFileEntry } from './stale-detector.js'
+import { detectLocalArtwork } from './artwork-detector.js'
 
 export interface ScanCounts {
   added: number
@@ -18,9 +20,22 @@ export async function syncMovieFile(
 
   // Find or create the Movie record (title+year+root as identity until TMDB match in Epic 3)
   let movie = await prisma.movie.findFirst({ where: { title, year: year ?? null, scanRootId } })
+  const artwork = await detectLocalArtwork(path.dirname(file.path))
   if (!movie) {
     movie = await prisma.movie.create({
-      data: { title, year, status: 'owned', scanRootId },
+      data: {
+        title, year, status: 'owned', scanRootId,
+        posterDownloaded: artwork.hasPoster,
+        backdropDownloaded: artwork.hasBackdrop,
+      },
+    })
+  } else if (artwork.hasPoster || artwork.hasBackdrop) {
+    await prisma.movie.update({
+      where: { id: movie.id },
+      data: {
+        ...(artwork.hasPoster ? { posterDownloaded: true } : {}),
+        ...(artwork.hasBackdrop ? { backdropDownloaded: true } : {}),
+      },
     })
   }
 
@@ -73,10 +88,28 @@ export async function syncEpisodeFile(
   const { show, year, season: seasonNum, episodes, episodeTitle } = file.parsed
   const specs = file.techSpecs
 
+  // Show root folder is 2 levels up from the episode file (show/Season XX/episode.mkv)
+  const showFolder = path.dirname(path.dirname(file.path))
+  const showArtwork = await detectLocalArtwork(showFolder)
+
   // Find or create TvShow
   let tvShow = await prisma.tvShow.findFirst({ where: { title: show, year: year ?? null } })
   if (!tvShow) {
-    tvShow = await prisma.tvShow.create({ data: { title: show, year } })
+    tvShow = await prisma.tvShow.create({
+      data: {
+        title: show, year,
+        posterDownloaded: showArtwork.hasPoster,
+        backdropDownloaded: showArtwork.hasBackdrop,
+      },
+    })
+  } else if (showArtwork.hasPoster || showArtwork.hasBackdrop) {
+    await prisma.tvShow.update({
+      where: { id: tvShow.id },
+      data: {
+        ...(showArtwork.hasPoster ? { posterDownloaded: true } : {}),
+        ...(showArtwork.hasBackdrop ? { backdropDownloaded: true } : {}),
+      },
+    })
   }
 
   // Find or create Season
