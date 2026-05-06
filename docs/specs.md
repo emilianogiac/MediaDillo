@@ -57,9 +57,11 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 ### Rules
 - Title case, no special characters except `()`, `-`, spaces
 - Year is always 4-digit release year (not air year for shows)
-- Multi-part episodes: `S01E01E02`
+- Multi-part episodes: `S01E01E02` (EpisodeFile.multiEpisodeEnd tracks the end number)
+- Multi-file movies (cd1/cd2, part1/part2): merged via ffmpeg concat before renaming
 - Quality tag optional suffix: `Show Name - S01E01 - Title [1080p].mkv`
 - All renames preview before apply — no destructive ops without confirmation
+- **Sidecar files** (poster.jpg, backdrop.jpg, movie.nfo, *.srt, *.sub, TMM artwork suffixes) migrate automatically when a movie or show folder is renamed; unknown files are left in place and surfaced in Stale Files
 
 ---
 
@@ -85,6 +87,9 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - **Movies**: TMDB API → title, year, genres, runtime, rating, overview, tagline, cast, director, poster, backdrop, IMDb ID
 - **TV Shows**: TMDB API → series metadata, seasons list, episode list; TVDB as fallback for episode numbering edge cases
 - **IMDb**: Cross-referenced via TMDB's `imdb_id` field — no separate API key needed
+- **IMDb → TMDB auto-match**: if a movie has an IMDb ID (e.g. from NFO import) but no TMDB ID, the metadata scan uses `GET /find/{imdbId}?external_source=imdb_id` to resolve it directly without a title search
+- **Language**: `METADATA_LANGUAGE` env var (default `it-IT`) controls the language of all TMDB fetches — title, overview, tagline, episode names are returned in the configured language with automatic English fallback
+- **External links**: TMDB, IMDb, and TVDB links displayed as clickable pills on movie and show detail pages
 - Metadata stored locally in PostgreSQL — never re-fetched unless user triggers refresh
 - Manual override fields for any metadata value
 - **Artwork management**:
@@ -105,9 +110,13 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - Rename files/folders to match naming convention
 - Show current name → proposed name diff before applying
 - Batch rename (whole library or selection)
+- **Sidecar migration**: when a movie folder is renamed, all known sidecars (poster/backdrop/NFO/subtitles/TMM artwork suffixes) are moved to the new folder; old folder removed if empty
+- **Show folder rename**: TV show directories renamed to canonical name; all EpisodeFile paths updated in DB atomically; season folders move automatically (they're inside the show folder)
 - Move files between category roots
 - Recycle bin pattern for deletions (move to `.trash/`, never `rm`)
 - **Stale file cleanup**: surface leftover `.tbn`, `.xml`, old TMM metadata files, duplicate artwork for review and optional deletion
+- **Multi-part merger**: detects movies split across two files (`-cd1`/`-cd2`, `-part1`/`-part2`, `-disk1`/`-disk2`); ffmpeg concat merges them into one canonical file; originals moved to `.trash/`
+- **Episode remapper**: reassign any episode file to a different season/episode number; supports multi-episode files (e.g. `S01E01E02`); rename preview reflects the new mapping
 - Post-operation: automatically triggers Jellyfin library scan
 
 ### 5. Jellyfin Integration
@@ -166,7 +175,8 @@ Episode        { id, season_id, episode_number, title, air_date,
                  status: owned|missing|not_yet_aired|ignored }
 EpisodeFile    { id, episode_id, path, size_bytes,
                  video_codec, video_resolution, video_quality_tier, hdr,
-                 audio_codec, audio_channels, audio_quality_tier, scanned_at }
+                 audio_codec, audio_channels, audio_quality_tier,
+                 multi_episode_end, scanned_at }
 
 Person         { id, tmdb_id, name, profile_url }
 Credit         { id, person_id, media_type, media_id, role: cast|director|writer, character }
@@ -192,6 +202,7 @@ SCAN_ROOTS='[
 
 TMDB_API_KEY=
 TVDB_API_KEY=
+METADATA_LANGUAGE=it-IT  # TMDB fetch language; title + overview in this language, falls back to English
 
 # Optional
 JELLYFIN_URL=http://localhost:8096

@@ -29,6 +29,19 @@ Track epics and their GitHub issues here. Update status as work progresses.
 
 ---
 
+## Post-Launch Feature Batch (2026-05-06)
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| F1 | **External links** | `[x]` | TMDB / IMDb / TVDB pill links on movie + show detail pages |
+| F2 | **Italian metadata** | `[x]` | `METADATA_LANGUAGE=it-IT` env var; title + overview fetched in Italian with English fallback |
+| F2b | **IMDb → TMDB auto-match** | `[x]` | `findByImdbId()` in TMDB client; used in scan + prepended as first MatchModal candidate |
+| F3 | **Sidecar migration on rename** | `[x]` | Poster/backdrop/NFO/subtitles/TMM artwork files migrate with movie folder; show-folder rename updates all EpisodeFile paths in DB |
+| F4 | **Multi-part file merger** | `[x]` | ffmpeg concat for -cd1/-cd2/-part1/-part2 pairs; "Multi-part" tab in File Manager |
+| F5 | **Episode remapper** | `[x]` | `multiEpisodeEnd` on EpisodeFile; S01E01E02 naming; "Episode Remap" tab in File Manager |
+
+---
+
 ## Working Agreement
 - Autonomous mode: minimal approval interruptions
 - Every code change backed by a GitHub issue
