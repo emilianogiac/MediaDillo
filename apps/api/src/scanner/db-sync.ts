@@ -1,8 +1,9 @@
 import path from 'node:path'
-import { prisma } from '@mediadillo/db'
+import { prisma, MediaType, CreditRole } from '@mediadillo/db'
 import type { ScannedFile } from './types.js'
 import type { StaleFileEntry } from './stale-detector.js'
 import { detectLocalArtwork } from './artwork-detector.js'
+import { parseMovieNfo, parseShowNfo } from './nfo-parser.js'
 
 export interface ScanCounts {
   added: number
@@ -18,25 +19,74 @@ export async function syncMovieFile(
   const { title, year } = file.parsed
   const specs = file.techSpecs
 
-  // Find or create the Movie record (title+year+root as identity until TMDB match in Epic 3)
+  const movieFolder = path.dirname(file.path)
+  const [artwork, nfo] = await Promise.all([
+    detectLocalArtwork(movieFolder),
+    parseMovieNfo(movieFolder),
+  ])
+
+  // Find or create the Movie record
   let movie = await prisma.movie.findFirst({ where: { title, year: year ?? null, scanRootId } })
-  const artwork = await detectLocalArtwork(path.dirname(file.path))
   if (!movie) {
     movie = await prisma.movie.create({
       data: {
-        title, year, status: 'owned', scanRootId,
+        title: nfo?.title ?? title,
+        year: nfo?.year ?? year,
+        status: 'owned',
+        scanRootId,
+        tmdbId: nfo?.tmdbId ?? null,
+        imdbId: nfo?.imdbId ?? null,
+        overview: nfo?.overview ?? null,
+        tagline: nfo?.tagline ?? null,
+        rating: nfo?.rating ?? null,
+        runtime: nfo?.runtime ?? null,
+        genres: nfo?.genres ?? [],
         posterDownloaded: artwork.hasPoster,
         backdropDownloaded: artwork.hasBackdrop,
       },
     })
-  } else if (artwork.hasPoster || artwork.hasBackdrop) {
-    await prisma.movie.update({
-      where: { id: movie.id },
-      data: {
-        ...(artwork.hasPoster ? { posterDownloaded: true } : {}),
-        ...(artwork.hasBackdrop ? { backdropDownloaded: true } : {}),
-      },
-    })
+  } else {
+    // Update metadata from NFO if not yet matched to TMDB
+    const updates: Record<string, unknown> = {}
+    if (!movie.tmdbId && nfo?.tmdbId) updates['tmdbId'] = nfo.tmdbId
+    if (!movie.imdbId && nfo?.imdbId) updates['imdbId'] = nfo.imdbId
+    if (!movie.overview && nfo?.overview) updates['overview'] = nfo.overview
+    if (!movie.tagline && nfo?.tagline) updates['tagline'] = nfo.tagline
+    if (!movie.rating && nfo?.rating) updates['rating'] = nfo.rating
+    if (!movie.runtime && nfo?.runtime) updates['runtime'] = nfo.runtime
+    if ((!movie.genres || movie.genres.length === 0) && nfo?.genres?.length) updates['genres'] = nfo.genres
+    if (artwork.hasPoster) updates['posterDownloaded'] = true
+    if (artwork.hasBackdrop) updates['backdropDownloaded'] = true
+    if (Object.keys(updates).length > 0) {
+      await prisma.movie.update({ where: { id: movie.id }, data: updates })
+    }
+  }
+
+  // Sync credits from NFO if movie has none yet
+  if (nfo && (nfo.directors.length > 0 || nfo.cast.length > 0)) {
+    const existingCredits = await prisma.credit.count({ where: { mediaType: MediaType.movie, movieId: movie.id } })
+    if (existingCredits === 0) {
+      const creditData: Array<{ mediaType: MediaType; movieId: string; role: CreditRole; character: string | null; personId: string }> = []
+      for (const name of nfo.directors) {
+        const person = await prisma.person.upsert({
+          where: { tmdbId: -Math.abs(hashName(name)) },
+          create: { tmdbId: -Math.abs(hashName(name)), name },
+          update: {},
+        })
+        creditData.push({ mediaType: MediaType.movie, movieId: movie.id, role: CreditRole.director, character: null, personId: person.id })
+      }
+      for (const actor of nfo.cast.slice(0, 20)) {
+        const person = await prisma.person.upsert({
+          where: { tmdbId: -Math.abs(hashName(actor.name)) },
+          create: { tmdbId: -Math.abs(hashName(actor.name)), name: actor.name },
+          update: {},
+        })
+        creditData.push({ mediaType: MediaType.movie, movieId: movie.id, role: CreditRole.cast, character: actor.role, personId: person.id })
+      }
+      if (creditData.length > 0) {
+        await prisma.credit.createMany({ data: creditData, skipDuplicates: true })
+      }
+    }
   }
 
   const existing = await prisma.movieFile.findUnique({ where: { path: file.path } })
@@ -90,26 +140,39 @@ export async function syncEpisodeFile(
 
   // Show root folder is 2 levels up from the episode file (show/Season XX/episode.mkv)
   const showFolder = path.dirname(path.dirname(file.path))
-  const showArtwork = await detectLocalArtwork(showFolder)
+  const [showArtwork, showNfo] = await Promise.all([
+    detectLocalArtwork(showFolder),
+    parseShowNfo(showFolder),
+  ])
 
   // Find or create TvShow
   let tvShow = await prisma.tvShow.findFirst({ where: { title: show, year: year ?? null } })
   if (!tvShow) {
     tvShow = await prisma.tvShow.create({
       data: {
-        title: show, year,
+        title: showNfo?.title ?? show,
+        year: showNfo?.year ?? year,
+        tmdbId: showNfo?.tmdbId ?? null,
+        tvdbId: showNfo?.tvdbId ?? null,
+        overview: showNfo?.overview ?? null,
+        rating: showNfo?.rating ?? null,
+        genres: showNfo?.genres ?? [],
         posterDownloaded: showArtwork.hasPoster,
         backdropDownloaded: showArtwork.hasBackdrop,
       },
     })
-  } else if (showArtwork.hasPoster || showArtwork.hasBackdrop) {
-    await prisma.tvShow.update({
-      where: { id: tvShow.id },
-      data: {
-        ...(showArtwork.hasPoster ? { posterDownloaded: true } : {}),
-        ...(showArtwork.hasBackdrop ? { backdropDownloaded: true } : {}),
-      },
-    })
+  } else {
+    const updates: Record<string, unknown> = {}
+    if (!tvShow.tmdbId && showNfo?.tmdbId) updates['tmdbId'] = showNfo.tmdbId
+    if (!tvShow.tvdbId && showNfo?.tvdbId) updates['tvdbId'] = showNfo.tvdbId
+    if (!tvShow.overview && showNfo?.overview) updates['overview'] = showNfo.overview
+    if (!tvShow.rating && showNfo?.rating) updates['rating'] = showNfo.rating
+    if ((!tvShow.genres || tvShow.genres.length === 0) && showNfo?.genres?.length) updates['genres'] = showNfo.genres
+    if (showArtwork.hasPoster) updates['posterDownloaded'] = true
+    if (showArtwork.hasBackdrop) updates['backdropDownloaded'] = true
+    if (Object.keys(updates).length > 0) {
+      await prisma.tvShow.update({ where: { id: tvShow.id }, data: updates })
+    }
   }
 
   // Find or create Season
@@ -181,6 +244,13 @@ export async function syncEpisodeFile(
   }
 
   return 'unchanged'
+}
+
+// Stable integer hash of a name — used for Person.tmdbId when sourced from NFO (negative to avoid TMDB collisions)
+function hashName(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (Math.imul(31, h) + name.charCodeAt(i)) | 0
+  return Math.abs(h) || 1
 }
 
 async function updateShowEpisodeCounts(showId: string): Promise<void> {
