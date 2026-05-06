@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { MovieDetail } from '../api/types.js'
-import { fetchMovie } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage } from '../api/movies.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 
@@ -49,8 +49,8 @@ export function MovieDetailPage() {
     )
   }
 
-  const directors = movie.credits.filter((c) => c.role === 'DIRECTOR')
-  const cast = movie.credits.filter((c) => c.role === 'CAST').slice(0, 12)
+  const directors = movie.credits.filter((c) => c.role === 'director')
+  const cast = movie.credits.filter((c) => c.role === 'cast').slice(0, 12)
 
   return (
     <div className="p-6 space-y-8 max-w-5xl">
@@ -184,9 +184,13 @@ export function MovieDetailPage() {
 
       {/* Artwork Manager */}
       <ArtworkManager
-        movieId={movie.id}
         posterDownloaded={movie.posterDownloaded}
         backdropDownloaded={movie.backdropDownloaded}
+        api={{
+          download: (type) => triggerMovieDownload(movie.id, type),
+          searchImages: () => fetchMovieImages(movie.id),
+          selectImage: (filePath, artworkType) => selectMovieImage(movie.id, filePath, artworkType),
+        }}
         onUpdated={load}
       />
     </div>

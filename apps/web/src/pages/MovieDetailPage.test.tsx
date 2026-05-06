@@ -47,8 +47,8 @@ const makeDetail = (overrides = {}) => ({
     },
   ],
   credits: [
-    { id: 'c1', role: 'DIRECTOR', character: null, person: { id: 'p1', name: 'Christopher Nolan', profileUrl: null } },
-    { id: 'c2', role: 'CAST', character: 'Cobb', person: { id: 'p2', name: 'Leonardo DiCaprio', profileUrl: null } },
+    { id: 'c1', role: 'director' as const, character: null, person: { id: 'p1', name: 'Christopher Nolan', profileUrl: null } },
+    { id: 'c2', role: 'cast' as const, character: 'Cobb', person: { id: 'p2', name: 'Leonardo DiCaprio', profileUrl: null } },
   ],
   ...overrides,
 })
