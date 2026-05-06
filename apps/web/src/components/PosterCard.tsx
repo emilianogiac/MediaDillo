@@ -34,7 +34,7 @@ export function PosterCard({ movie }: Props) {
       </div>
 
       {/* Health badges — top-right overlay */}
-      {(unmatched || missingPoster || missingBackdrop) && (
+      {(unmatched || missingPoster || missingBackdrop || movie.isDuplicate) && (
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
           {unmatched && (
             <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
@@ -44,6 +44,11 @@ export function PosterCard({ movie }: Props) {
           {!unmatched && (missingPoster || missingBackdrop) && (
             <span className="bg-yellow-500/90 text-yellow-900 text-xs px-1.5 py-0.5 rounded font-medium">
               Art missing
+            </span>
+          )}
+          {movie.isDuplicate && (
+            <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
+              Duplicate
             </span>
           )}
         </div>

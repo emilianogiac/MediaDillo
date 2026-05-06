@@ -42,7 +42,7 @@ function ShowCard({ show }: { show: ShowSummary }) {
       </div>
 
       {/* Health badges */}
-      {(unmatched || missingArt) && (
+      {(unmatched || missingArt || show.isDuplicate) && (
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
           {unmatched && (
             <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
@@ -52,6 +52,11 @@ function ShowCard({ show }: { show: ShowSummary }) {
           {!unmatched && missingArt && (
             <span className="bg-yellow-500/90 text-yellow-900 text-xs px-1.5 py-0.5 rounded font-medium">
               Art missing
+            </span>
+          )}
+          {show.isDuplicate && (
+            <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
+              Duplicate
             </span>
           )}
         </div>
@@ -95,11 +100,13 @@ export function ShowsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Derive filter from URL — survives back-navigation
+  const rawDuplicates = searchParams.get('duplicates')
   const filter = {
     search: searchParams.get('q') ?? '',
     qualityTier: searchParams.get('quality') ?? '',
     missingArtwork: searchParams.has('missing'),
     unmatched: searchParams.has('unmatched'),
+    duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
   }
 
   function setPartial(partial: {
@@ -107,6 +114,7 @@ export function ShowsPage() {
     qualityTier?: string
     missingArtwork?: boolean
     unmatched?: boolean
+    duplicates?: 'only' | 'hide' | ''
   }) {
     setSearchParams(
       (prev) => {
@@ -123,6 +131,9 @@ export function ShowsPage() {
         if ('unmatched' in partial) {
           partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched')
         }
+        if ('duplicates' in partial) {
+          partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates')
+        }
         return next
       },
       { replace: true },
@@ -137,13 +148,14 @@ export function ShowsPage() {
     if (filter.qualityTier) showFilter.qualityTier = filter.qualityTier
     if (filter.missingArtwork) showFilter.missingArtwork = true
     if (filter.unmatched) showFilter.unmatched = true
+    if (filter.duplicates) showFilter.duplicates = filter.duplicates
     fetchShows(showFilter)
       .then(setShows)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [searchParams.toString()]) // re-run whenever URL params change; toString() is stable by value
 
-  const hasActiveFilter = filter.search || filter.qualityTier || filter.missingArtwork || filter.unmatched
+  const hasActiveFilter = filter.search || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.duplicates
 
   return (
     <div className="p-6 space-y-4">
@@ -193,9 +205,23 @@ export function ShowsPage() {
           Unmatched
         </label>
 
+        <button
+          onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
+          className={[
+            'text-xs px-2.5 py-1 rounded border transition-colors',
+            filter.duplicates === 'only'
+              ? 'bg-orange-500/20 border-orange-500/60 text-orange-300'
+              : filter.duplicates === 'hide'
+                ? 'bg-gray-700/60 border-gray-600 text-gray-400'
+                : 'border-gray-700 text-gray-500 hover:text-gray-300',
+          ].join(' ')}
+        >
+          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
+        </button>
+
         {hasActiveFilter && (
           <button
-            onClick={() => setPartial({ search: '', qualityTier: '', missingArtwork: false, unmatched: false })}
+            onClick={() => setPartial({ search: '', qualityTier: '', missingArtwork: false, unmatched: false, duplicates: '' })}
             className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
           >
             Clear filters

@@ -2,16 +2,26 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=
+  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide
   app.get<{
     Querystring: {
       search?: string
       qualityTier?: string
       missingArtwork?: string
       unmatched?: string
+      duplicates?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates } = req.query
+
+    const dupGroups = duplicates
+      ? await prisma.tvShow.groupBy({
+          by: ['tmdbId'],
+          where: { tmdbId: { not: null } },
+          having: { tmdbId: { _count: { gt: 1 } } },
+        })
+      : []
+    const dupTmdbIds = dupGroups.map((g) => g.tmdbId as number)
 
     const shows = await prisma.tvShow.findMany({
       where: {
@@ -31,6 +41,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
           ? { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }
           : {}),
         ...(unmatched === 'true' ? { tmdbId: null } : {}),
+        ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
+        ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
       },
       select: {
         id: true,
@@ -49,7 +61,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { title: 'asc' },
     })
 
-    return reply.send(shows)
+    const dupSet = new Set(dupTmdbIds)
+    const tagged = shows.map((s) => ({ ...s, isDuplicate: s.tmdbId != null && dupSet.has(s.tmdbId) }))
+
+    return reply.send(tagged)
   })
 
   // GET /api/shows/:id — full detail with seasons + credits

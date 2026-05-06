@@ -18,6 +18,7 @@ export interface MovieSummary {
   tmdbId: number | null
   posterDownloaded: boolean
   backdropDownloaded: boolean
+  isDuplicate: boolean
   status: string
   scanRoot: { id: string; label: string } | null
   files: { videoQualityTier: string | null }[]
@@ -60,6 +61,7 @@ export interface ShowSummary {
   tmdbId: number | null
   posterDownloaded: boolean
   backdropDownloaded: boolean
+  isDuplicate: boolean
   status: 'continuing' | 'ended'
   ownedEpisodes: number
   totalEpisodes: number

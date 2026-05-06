@@ -15,6 +15,7 @@ export function MoviesPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   // Derive filter from URL — survives back-navigation
+  const rawDuplicates = searchParams.get('duplicates')
   const filter = {
     scanRootId: searchParams.get('root') ?? '',
     search: searchParams.get('q') ?? '',
@@ -22,6 +23,7 @@ export function MoviesPage() {
     qualityTier: searchParams.get('quality') ?? '',
     missingArtwork: searchParams.has('missing'),
     unmatched: searchParams.has('unmatched'),
+    duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
   }
 
   function setPartial(partial: {
@@ -31,6 +33,7 @@ export function MoviesPage() {
     qualityTier?: string
     missingArtwork?: boolean
     unmatched?: boolean
+    duplicates?: 'only' | 'hide' | ''
   }) {
     setSearchParams(
       (prev) => {
@@ -52,6 +55,9 @@ export function MoviesPage() {
         }
         if ('unmatched' in partial) {
           partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched')
+        }
+        if ('duplicates' in partial) {
+          partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates')
         }
         return next
       },
@@ -75,6 +81,7 @@ export function MoviesPage() {
     if (filter.qualityTier) movieFilter.qualityTier = filter.qualityTier
     if (filter.missingArtwork) movieFilter.missingArtwork = true
     if (filter.unmatched) movieFilter.unmatched = true
+    if (filter.duplicates) movieFilter.duplicates = filter.duplicates
     fetchMovies(movieFilter)
       .then(setMovies)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
@@ -87,7 +94,7 @@ export function MoviesPage() {
   )
 
   const hasActiveFilter =
-    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched
+    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.duplicates
 
   return (
     <div className="p-6 space-y-4">
@@ -184,6 +191,20 @@ export function MoviesPage() {
           Unmatched
         </label>
 
+        <button
+          onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
+          className={[
+            'text-xs px-2.5 py-1 rounded border transition-colors',
+            filter.duplicates === 'only'
+              ? 'bg-orange-500/20 border-orange-500/60 text-orange-300'
+              : filter.duplicates === 'hide'
+                ? 'bg-gray-700/60 border-gray-600 text-gray-400'
+                : 'border-gray-700 text-gray-500 hover:text-gray-300',
+          ].join(' ')}
+        >
+          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
+        </button>
+
         {hasActiveFilter && (
           <button
             onClick={() =>
@@ -193,6 +214,7 @@ export function MoviesPage() {
                 qualityTier: '',
                 missingArtwork: false,
                 unmatched: false,
+                duplicates: '',
               })
             }
             className="text-xs text-gray-500 hover:text-gray-200 transition-colors"

@@ -7,6 +7,7 @@ export interface MoviesFilter {
   qualityTier?: string
   missingArtwork?: boolean
   unmatched?: boolean
+  duplicates?: 'only' | 'hide'
   search?: string
 }
 
@@ -17,6 +18,7 @@ export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSumma
   if (filter.qualityTier) params.set('qualityTier', filter.qualityTier)
   if (filter.missingArtwork) params.set('missingArtwork', 'true')
   if (filter.unmatched) params.set('unmatched', 'true')
+  if (filter.duplicates) params.set('duplicates', filter.duplicates)
   if (filter.search) params.set('search', filter.search)
   const qs = params.toString()
   return apiFetch<MovieSummary[]>(`/movies${qs ? `?${qs}` : ''}`)

@@ -6,6 +6,7 @@ export interface ShowsFilter {
   qualityTier?: string
   missingArtwork?: boolean
   unmatched?: boolean
+  duplicates?: 'only' | 'hide'
 }
 
 export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[]> {
@@ -14,6 +15,7 @@ export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[
   if (filter.qualityTier) params.set('qualityTier', filter.qualityTier)
   if (filter.missingArtwork) params.set('missingArtwork', 'true')
   if (filter.unmatched) params.set('unmatched', 'true')
+  if (filter.duplicates) params.set('duplicates', filter.duplicates)
   const qs = params.toString()
   return apiFetch<ShowSummary[]>(`/shows${qs ? `?${qs}` : ''}`)
 }
