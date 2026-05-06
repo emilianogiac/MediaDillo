@@ -112,6 +112,10 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const client = getTmdbClient()
+
+      // Persist tmdbId before enrichment so it survives even if enrichment throws
+      await prisma.movie.update({ where: { id: movie.id }, data: { tmdbId } })
+
       await enrichMovie(client, movie.id, tmdbId)
 
       const updated = await prisma.movie.findUnique({ where: { id: movie.id } })
@@ -132,6 +136,10 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const client = getTmdbClient()
+
+      // Persist tmdbId before enrichment so it survives even if enrichment throws
+      await prisma.tvShow.update({ where: { id: show.id }, data: { tmdbId } })
+
       await enrichTvShow(client, show.id, tmdbId)
 
       const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })

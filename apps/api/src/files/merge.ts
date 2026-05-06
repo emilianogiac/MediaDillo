@@ -5,7 +5,7 @@ import { prisma } from '@mediadillo/db'
 import { canonicalMovieFileName, canonicalMovieFolderName } from './naming.js'
 import { deleteToTrash } from './rename.js'
 
-const PART_PATTERN = /[- _](cd|part|disk|disc|p)[12]$/i
+const PART_PATTERN = /[- _.](cd|part|disk|disc|p)[12]$/i
 
 export interface MultiPartCandidate {
   movieId: string

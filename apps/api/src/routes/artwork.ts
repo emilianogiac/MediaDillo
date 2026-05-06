@@ -11,15 +11,31 @@ import { config } from '../config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import path from 'node:path'
 
+type ArtworkOwner =
+  | { type: 'movie'; id: string }
+  | { type: 'show'; id: string }
+
+async function clearStaleFlag(owner: ArtworkOwner, kind: 'poster' | 'backdrop'): Promise<void> {
+  const field = kind === 'poster' ? 'posterDownloaded' : 'backdropDownloaded'
+  if (owner.type === 'movie') {
+    await prisma.movie.update({ where: { id: owner.id }, data: { [field]: false } }).catch(() => {})
+  } else {
+    await prisma.tvShow.update({ where: { id: owner.id }, data: { [field]: false } }).catch(() => {})
+  }
+}
+
 async function streamLocalArtwork(
   app: FastifyInstance,
   reply: FastifyReply,
   folderPath: string,
   kind: 'poster' | 'backdrop',
+  owner: ArtworkOwner,
 ): Promise<void> {
   const paths = await findArtworkPaths(folderPath)
   const filePath = kind === 'poster' ? paths.posterPath : paths.backdropPath
   if (!filePath) {
+    // File not found in folder — clear the stale DB flag so the UI re-enables download
+    await clearStaleFlag(owner, kind)
     await reply.code(404).send({ error: `No local ${kind} found` })
     return
   }
@@ -30,6 +46,8 @@ async function streamLocalArtwork(
     await reply.header('Content-Type', mime).header('Content-Length', s.size).send(createReadStream(filePath))
   } catch {
     app.log.warn(`artwork file missing on disk: ${filePath}`)
+    // File listed in directory but unreadable — clear the stale DB flag
+    await clearStaleFlag(owner, kind)
     await reply.code(404).send({ error: 'File not found on disk' })
   }
 }
@@ -60,7 +78,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this movie' })
-    return streamLocalArtwork(app, reply, path.dirname(file.path), 'poster')
+    return streamLocalArtwork(app, reply, path.dirname(file.path), 'poster', { type: 'movie', id: req.params.id })
   })
 
   // GET /api/artwork/movies/:id/backdrop — stream local backdrop file
@@ -72,7 +90,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     const file = movie.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this movie' })
-    return streamLocalArtwork(app, reply, path.dirname(file.path), 'backdrop')
+    return streamLocalArtwork(app, reply, path.dirname(file.path), 'backdrop', { type: 'movie', id: req.params.id })
   })
 
   // GET /api/artwork/shows/:id/poster — stream local poster file
@@ -90,7 +108,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     const file = show.seasons[0]?.episodes[0]?.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this show' })
     const showFolder = path.dirname(path.dirname(file.path))
-    return streamLocalArtwork(app, reply, showFolder, 'poster')
+    return streamLocalArtwork(app, reply, showFolder, 'poster', { type: 'show', id: req.params.id })
   })
 
   // GET /api/artwork/shows/:id/backdrop — stream local backdrop file
@@ -108,7 +126,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
     const file = show.seasons[0]?.episodes[0]?.files[0]
     if (!file) return reply.code(404).send({ error: 'No files for this show' })
     const showFolder = path.dirname(path.dirname(file.path))
-    return streamLocalArtwork(app, reply, showFolder, 'backdrop')
+    return streamLocalArtwork(app, reply, showFolder, 'backdrop', { type: 'show', id: req.params.id })
   })
 
   // POST /api/artwork/movies/:id/download?type=poster|backdrop|all

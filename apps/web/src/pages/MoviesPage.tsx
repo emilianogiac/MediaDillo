@@ -79,7 +79,7 @@ export function MoviesPage() {
       .then(setMovies)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [searchParams]) // re-run whenever URL changes
+  }, [searchParams.toString()]) // re-run whenever URL params change; toString() is stable by value
 
   const allGenres = useMemo(
     () => [...new Set(movies.flatMap((m) => m.genres))].sort(),

@@ -141,7 +141,7 @@ export function ShowsPage() {
       .then(setShows)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
-  }, [searchParams]) // re-run whenever URL changes
+  }, [searchParams.toString()]) // re-run whenever URL params change; toString() is stable by value
 
   const hasActiveFilter = filter.search || filter.qualityTier || filter.missingArtwork || filter.unmatched
 
