@@ -20,8 +20,9 @@ export function AppLayout() {
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="w-56 flex-shrink-0 bg-surface-raised border-r border-gray-800 flex flex-col">
-        <div className="p-4 border-b border-gray-800">
-          <span className="text-xl font-bold text-accent">🦔 MediaDillo</span>
+        <div className="p-4 border-b border-gray-800 flex items-center gap-2">
+          <img src="/favicon.png" alt="" className="w-6 h-6 flex-shrink-0" />
+          <span className="text-xl font-bold text-accent">MediaDillo</span>
         </div>
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => (
