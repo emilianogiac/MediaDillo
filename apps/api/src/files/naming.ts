@@ -1,0 +1,41 @@
+const INVALID_CHARS = /[/\\:*?"<>|]/g
+const MULTI_SPACE = /\s{2,}/g
+
+export function sanitizeForFilename(str: string): string {
+  return str.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').trim()
+}
+
+export function canonicalMovieFolderName(title: string, year: number | null): string {
+  const t = sanitizeForFilename(title)
+  return year ? `${t} (${year})` : t
+}
+
+export function canonicalMovieFileName(
+  title: string,
+  year: number | null,
+  ext: string,
+): string {
+  return `${canonicalMovieFolderName(title, year)}${ext}`
+}
+
+export function canonicalSeasonFolderName(seasonNumber: number): string {
+  return `Season ${String(seasonNumber).padStart(2, '0')}`
+}
+
+export function canonicalEpisodeFileName(
+  showTitle: string,
+  seasonNumber: number,
+  episodeNumber: number,
+  episodeTitle: string | null,
+  ext: string,
+): string {
+  const s = String(seasonNumber).padStart(2, '0')
+  const e = String(episodeNumber).padStart(2, '0')
+  const code = `S${s}E${e}`
+  const show = sanitizeForFilename(showTitle)
+  if (episodeTitle) {
+    const title = sanitizeForFilename(episodeTitle)
+    return `${show} - ${code} - ${title}${ext}`
+  }
+  return `${show} - ${code}${ext}`
+}
