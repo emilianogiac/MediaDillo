@@ -1,3 +1,4 @@
+import { access } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { getSchedule, setSchedule } from '../scheduler/index.js'
@@ -64,6 +65,82 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (!root) return reply.code(404).send({ error: 'Scan root not found' })
     await prisma.scanRoot.delete({ where: { id: req.params.id } })
     return reply.code(204).send()
+  })
+
+  // POST /api/settings/verify-integrity — remove DB records for files that no longer exist on disk
+  app.post('/settings/verify-integrity', async (_req, reply) => {
+    let moviesRemoved = 0
+    let episodesLost = 0
+
+    // Check all MovieFiles
+    const movieFiles = await prisma.movieFile.findMany({
+      select: { id: true, path: true, movieId: true },
+    })
+    const missingMovieFileIds: string[] = []
+    const affectedMovieIds = new Set<string>()
+    for (const f of movieFiles) {
+      try { await access(f.path) } catch {
+        missingMovieFileIds.push(f.id)
+        affectedMovieIds.add(f.movieId)
+      }
+    }
+    if (missingMovieFileIds.length > 0) {
+      await prisma.movieFile.deleteMany({ where: { id: { in: missingMovieFileIds } } })
+      for (const movieId of affectedMovieIds) {
+        const remaining = await prisma.movieFile.count({ where: { movieId } })
+        if (remaining === 0) {
+          await prisma.movie.delete({ where: { id: movieId } })
+          moviesRemoved++
+        }
+      }
+    }
+
+    // Check all EpisodeFiles
+    const episodeFiles = await prisma.episodeFile.findMany({
+      select: { id: true, path: true, episodeId: true },
+    })
+    const missingEpisodeFileIds: string[] = []
+    const affectedEpisodeIds = new Set<string>()
+    for (const f of episodeFiles) {
+      try { await access(f.path) } catch {
+        missingEpisodeFileIds.push(f.id)
+        affectedEpisodeIds.add(f.episodeId)
+      }
+    }
+    if (missingEpisodeFileIds.length > 0) {
+      await prisma.episodeFile.deleteMany({ where: { id: { in: missingEpisodeFileIds } } })
+      for (const episodeId of affectedEpisodeIds) {
+        const remaining = await prisma.episodeFile.count({ where: { episodeId } })
+        if (remaining === 0) {
+          await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+          episodesLost++
+        }
+      }
+
+      // Recalculate owned counts for affected shows
+      const affectedShows = await prisma.episode.findMany({
+        where: { id: { in: [...affectedEpisodeIds] } },
+        select: { season: { select: { showId: true } } },
+      })
+      const showIds = [...new Set(affectedShows.map((e) => e.season.showId))]
+      for (const showId of showIds) {
+        const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+        await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+      }
+    }
+
+    // Delete 'owned' movies with no files — these are ghost records left behind
+    // when TMDB enrichment changed the title and the next scan created a new record.
+    const ghostMovies = await prisma.movie.findMany({
+      where: { status: 'owned', files: { none: {} } },
+      select: { id: true },
+    })
+    if (ghostMovies.length > 0) {
+      await prisma.movie.deleteMany({ where: { id: { in: ghostMovies.map((m) => m.id) } } })
+      moviesRemoved += ghostMovies.length
+    }
+
+    return reply.send({ moviesRemoved, episodesLost })
   })
 
   // POST /api/settings/dedup-shows — merge duplicate TvShow records with the same title

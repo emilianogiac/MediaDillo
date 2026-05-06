@@ -5,7 +5,7 @@ import { walkRoot } from './walker.js'
 import { parseFilename } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 import { detectStaleFiles } from './stale-detector.js'
-import { syncMovieFile, syncEpisodeFile, writeScanLog } from './db-sync.js'
+import { syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
 import type { ScanSummary } from './types.js'
 
 let scanning = false
@@ -120,6 +120,9 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
         const stale = await detectStaleFiles(folder, seenVideoPaths)
         allStaleFiles.push(...stale)
       }
+
+      // Remove DB records for files that no longer exist on disk
+      removed += await pruneOrphanedFiles(scanRoot.id, scanRoot.path, rootConfig.type, seenVideoPaths)
     }
 
     const scanLogId = await writeScanLog(null, rootsScanned, { added, changed, removed }, allStaleFiles)

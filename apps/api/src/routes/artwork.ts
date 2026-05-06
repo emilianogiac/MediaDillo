@@ -153,7 +153,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
       const type =
         rawType === 'poster' || rawType === 'backdrop' ? rawType : 'all'
 
-      const result = await downloadMovieArtwork(req.params.id, type)
+      const result = await downloadMovieArtwork(req.params.id, type, true)
       if (result.posterSaved || result.backdropSaved) {
         triggerLibraryRefresh(app.log).catch(() => {})
       }
@@ -169,7 +169,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
       const type =
         rawType === 'poster' || rawType === 'backdrop' ? rawType : 'all'
 
-      const result = await downloadShowArtwork(req.params.id, type)
+      const result = await downloadShowArtwork(req.params.id, type, true)
       if (result.posterSaved || result.backdropSaved) {
         triggerLibraryRefresh(app.log).catch(() => {})
       }

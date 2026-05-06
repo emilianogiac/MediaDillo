@@ -20,6 +20,7 @@ export interface DownloadResult {
 export async function downloadMovieArtwork(
   movieId: string,
   type: ArtworkType = 'all',
+  force = false,
 ): Promise<DownloadResult> {
   const movie = await prisma.movie.findUnique({
     where: { id: movieId },
@@ -42,14 +43,14 @@ export async function downloadMovieArtwork(
   let posterSaved = false
   let backdropSaved = false
 
-  if ((type === 'poster' || type === 'all') && movie.posterUrl && !movie.posterDownloaded) {
+  if ((type === 'poster' || type === 'all') && movie.posterUrl && (force || !movie.posterDownloaded)) {
     posterSaved = await saveImage(movie.posterUrl, path.join(folderPath, 'poster.jpg'))
     if (posterSaved) {
       await prisma.movie.update({ where: { id: movieId }, data: { posterDownloaded: true } })
     }
   }
 
-  if ((type === 'backdrop' || type === 'all') && movie.backdropUrl && !movie.backdropDownloaded) {
+  if ((type === 'backdrop' || type === 'all') && movie.backdropUrl && (force || !movie.backdropDownloaded)) {
     backdropSaved = await saveImage(movie.backdropUrl, path.join(folderPath, 'backdrop.jpg'))
     if (backdropSaved) {
       await prisma.movie.update({ where: { id: movieId }, data: { backdropDownloaded: true } })
@@ -66,6 +67,7 @@ export async function downloadMovieArtwork(
 export async function downloadShowArtwork(
   showId: string,
   type: ArtworkType = 'all',
+  force = false,
 ): Promise<DownloadResult> {
   const show = await prisma.tvShow.findUnique({
     where: { id: showId },
@@ -90,14 +92,14 @@ export async function downloadShowArtwork(
   let posterSaved = false
   let backdropSaved = false
 
-  if ((type === 'poster' || type === 'all') && show.posterUrl && !show.posterDownloaded) {
+  if ((type === 'poster' || type === 'all') && show.posterUrl && (force || !show.posterDownloaded)) {
     posterSaved = await saveImage(show.posterUrl, path.join(showFolder, 'poster.jpg'))
     if (posterSaved) {
       await prisma.tvShow.update({ where: { id: showId }, data: { posterDownloaded: true } })
     }
   }
 
-  if ((type === 'backdrop' || type === 'all') && show.backdropUrl && !show.backdropDownloaded) {
+  if ((type === 'backdrop' || type === 'all') && show.backdropUrl && (force || !show.backdropDownloaded)) {
     backdropSaved = await saveImage(show.backdropUrl, path.join(showFolder, 'backdrop.jpg'))
     if (backdropSaved) {
       await prisma.tvShow.update({ where: { id: showId }, data: { backdropDownloaded: true } })

@@ -6,7 +6,7 @@ import { cleanupTvContamination } from '../api/movies.js'
 import type { ScanRootRecord, ScanLogRecord, ScheduleInterval } from '../api/settings.js'
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
-  fetchScanLogs, fetchSchedule, updateSchedule, dedupShows,
+  fetchScanLogs, fetchSchedule, updateSchedule, dedupShows, verifyIntegrity,
 } from '../api/settings.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -130,6 +130,10 @@ function DatabaseMaintenanceCard() {
   const [dedupResult, setDedupResult] = useState<string | null>(null)
   const [dedupError, setDedupError] = useState<string | null>(null)
 
+  const [integrityBusy, setIntegrityBusy] = useState(false)
+  const [integrityResult, setIntegrityResult] = useState<string | null>(null)
+  const [integrityError, setIntegrityError] = useState<string | null>(null)
+
   async function runCleanup() {
     setCleanupBusy(true)
     setCleanupResult(null)
@@ -193,6 +197,34 @@ function DatabaseMaintenanceCard() {
         </button>
         {dedupError && <p className="text-xs text-red-400">{dedupError}</p>}
         {dedupResult && <p className="text-xs text-green-400">{dedupResult}</p>}
+      </div>
+      <div className="border-t border-gray-700 pt-3 space-y-1.5">
+        <p className="text-sm text-gray-500">
+          Check every file record against the filesystem and remove entries for files that no longer exist on disk. Movies with no remaining files are deleted; episodes revert to "missing". Also runs automatically at the end of every scan.
+        </p>
+        <button
+          onClick={async () => {
+            setIntegrityBusy(true); setIntegrityResult(null); setIntegrityError(null)
+            try {
+              const r = await verifyIntegrity()
+              setIntegrityResult(
+                r.moviesRemoved === 0 && r.episodesLost === 0
+                  ? 'All file records are healthy — nothing removed.'
+                  : `Removed ${r.moviesRemoved} movie${r.moviesRemoved !== 1 ? 's' : ''} and marked ${r.episodesLost} episode${r.episodesLost !== 1 ? 's' : ''} as missing.`
+              )
+            } catch (e) {
+              setIntegrityError(e instanceof Error ? e.message : 'Failed')
+            } finally {
+              setIntegrityBusy(false)
+            }
+          }}
+          disabled={integrityBusy}
+          className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
+        >
+          {integrityBusy ? 'Checking…' : 'Verify library integrity'}
+        </button>
+        {integrityError && <p className="text-xs text-red-400">{integrityError}</p>}
+        {integrityResult && <p className="text-xs text-green-400">{integrityResult}</p>}
       </div>
     </div>
   )

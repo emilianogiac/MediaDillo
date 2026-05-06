@@ -67,3 +67,7 @@ export async function fetchScanLogs(): Promise<ScanLogRecord[]> {
 export async function dedupShows(): Promise<{ merged: number; deleted: number }> {
   return apiFetch<{ merged: number; deleted: number }>('/settings/dedup-shows', { method: 'POST' })
 }
+
+export async function verifyIntegrity(): Promise<{ moviesRemoved: number; episodesLost: number }> {
+  return apiFetch<{ moviesRemoved: number; episodesLost: number }>('/settings/verify-integrity', { method: 'POST' })
+}

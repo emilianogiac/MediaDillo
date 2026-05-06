@@ -32,8 +32,19 @@ export async function syncMovieFile(
     parseMovieNfo(movieFolder),
   ])
 
-  // Find or create the Movie record
-  let movie = await prisma.movie.findFirst({ where: { title, year: year ?? null, scanRootId } })
+  // Find or create the Movie record.
+  // Priority: (1) movie that already owns this file path — survives title changes
+  // after TMDB enrichment; (2) title+year lookup for truly new files.
+  const existingFileRef = await prisma.movieFile.findUnique({
+    where: { path: file.path },
+    select: { movieId: true },
+  })
+  let movie = existingFileRef
+    ? await prisma.movie.findUnique({ where: { id: existingFileRef.movieId } })
+    : null
+  if (!movie) {
+    movie = await prisma.movie.findFirst({ where: { title, year: year ?? null, scanRootId } })
+  }
   if (!movie) {
     movie = await prisma.movie.create({
       data: {
@@ -289,6 +300,74 @@ async function updateShowEpisodeCounts(showId: string): Promise<void> {
     where: { season: { showId }, status: 'owned' },
   })
   await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+}
+
+// Remove MovieFile / EpisodeFile records whose paths were not seen in the scan,
+// then cascade-delete Movie / Episode / Season / TvShow records that are now empty.
+// Returns the count of top-level records removed (movies or shows).
+export async function pruneOrphanedFiles(
+  scanRootId: string,
+  scanRootPath: string,
+  rootType: 'movies' | 'tv',
+  seenPaths: Set<string>,
+): Promise<number> {
+  let removed = 0
+
+  if (rootType === 'movies') {
+    const dbFiles = await prisma.movieFile.findMany({
+      where: { movie: { scanRootId } },
+      select: { id: true, path: true, movieId: true },
+    })
+    const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
+    if (orphaned.length === 0) return 0
+
+    const orphanedIds = orphaned.map((f) => f.id)
+    await prisma.movieFile.deleteMany({ where: { id: { in: orphanedIds } } })
+
+    // Delete Movie records that now have zero files
+    const affectedMovieIds = [...new Set(orphaned.map((f) => f.movieId))]
+    for (const movieId of affectedMovieIds) {
+      const remaining = await prisma.movieFile.count({ where: { movieId } })
+      if (remaining === 0) {
+        await prisma.movie.delete({ where: { id: movieId } })
+        removed++
+      }
+    }
+  } else {
+    // For TV roots, find episode files whose path lives under this scan root and wasn't seen
+    const dbFiles = await prisma.episodeFile.findMany({
+      where: { path: { startsWith: scanRootPath } },
+      select: { id: true, path: true, episodeId: true },
+    })
+    const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
+    if (orphaned.length === 0) return 0
+
+    const orphanedIds = orphaned.map((f) => f.id)
+    await prisma.episodeFile.deleteMany({ where: { id: { in: orphanedIds } } })
+
+    // Set episodes with no files back to 'missing'
+    const affectedEpisodeIds = [...new Set(orphaned.map((f) => f.episodeId))]
+    for (const episodeId of affectedEpisodeIds) {
+      const remaining = await prisma.episodeFile.count({ where: { episodeId } })
+      if (remaining === 0) {
+        await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+      }
+    }
+
+    // Recalculate show counts for affected shows
+    const affectedShowIds = await prisma.episode.findMany({
+      where: { id: { in: affectedEpisodeIds } },
+      select: { season: { select: { showId: true } } },
+    }).then((eps) => [...new Set(eps.map((e) => e.season.showId))])
+
+    for (const showId of affectedShowIds) {
+      const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+      await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+      removed++
+    }
+  }
+
+  return removed
 }
 
 export async function writeScanLog(
