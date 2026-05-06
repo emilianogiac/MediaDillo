@@ -30,4 +30,4 @@ COPY --from=builder /app/packages/db/dist ./packages/db/dist
 COPY --from=builder /app/packages/db/prisma ./packages/db/prisma
 
 EXPOSE 7731
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --schema=packages/db/prisma/schema.prisma && node apps/api/dist/index.js"]
+CMD ["sh", "-c", "packages/db/node_modules/.bin/prisma db push --schema=packages/db/prisma/schema.prisma && node apps/api/dist/index.js"]
