@@ -12,6 +12,7 @@ import { showsRoutes } from './routes/shows.js'
 import { missingRoutes } from './routes/missing.js'
 import { scanRootsRoutes } from './routes/scan-roots.js'
 import { filesRoutes } from './routes/files.js'
+import { libraryHealthRoutes } from './routes/library-health.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -50,6 +51,7 @@ export async function buildApp() {
   await app.register(missingRoutes, { prefix: '/api' })
   await app.register(scanRootsRoutes, { prefix: '/api' })
   await app.register(filesRoutes, { prefix: '/api' })
+  await app.register(libraryHealthRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {
