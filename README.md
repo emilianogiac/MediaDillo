@@ -19,14 +19,14 @@ Self-hosted media library manager for Jellyfin — scan, match, rename, and trac
 
 ## Features
 
-- **Multi-root library scanner** — index movies and TV shows across multiple NAS directories; extracts technical metadata via ffprobe (codec, resolution, bitrate, audio tracks); live progress counter while scanning
+- **Multi-root library scanner** — index movies and TV shows across multiple NAS directories; extracts technical metadata via ffprobe (codec, resolution, bitrate, audio tracks); live progress counter while scanning; partial scan by root or by individual season
 - **Existing artwork detection** — automatically detects posters and backdrops already present on disk (Jellyfin standard names and TinyMediaManager suffixes like `-poster`, `-fanart`, `-landscape`)
-- **NFO sidecar import** — reads existing Kodi/TMM `.nfo` files during scan to pre-populate metadata without an API call
-- **TMDB / TVDB metadata matching** — search and match titles against TMDB and TVDB with local result caching to minimize API calls
+- **NFO sidecar import** — reads existing Kodi/TMM `.nfo` files during scan to pre-populate metadata without an API call; supports movie, show, and episode-level NFOs
+- **TMDB / TVDB metadata matching** — search and match titles against TMDB and TVDB; IMDb → TMDB auto-match via external ID lookup; Italian (or any language) metadata via `METADATA_LANGUAGE` env var
 - **Artwork manager** — streams locally saved artwork directly from the NAS; download missing posters and backdrops from TMDB; search and replace artwork per title
 - **Missing content tracker** — episode diff against TMDB for TV shows; movie wishlist for tracking titles you want to acquire
-- **File manager** — Jellyfin-standard rename preview and apply, plus stale file cleanup (leftover `.tbn`, `.xml`, TMM sidecar files)
-- **Health dashboard** — per-library completeness score; bulk artwork and metadata refresh
+- **File manager** — Jellyfin-standard rename preview and apply; stale file cleanup; per-show Cleanup & Organize panel with rename queue and stale removal; multi-part episode merge (rename two episodes as part1/part2 + cascade renumber); episode remapper for multi-episode files (`S01E01E02`)
+- **Health dashboard** — per-library completeness score; bulk artwork and metadata refresh; duplicate detection (orange badge + tri-state filter); missing-file badge and filter; delete stale records with no files
 - **Jellyfin integration** — auto-trigger library refresh after file operations; watched status sync (optional)
 - **Export** — JSON, CSV, and NFO sidecar files (Kodi / Jellyfin compatible)
 - **Scan scheduler** — configurable scan interval (1h / 6h / 12h / 24h) from the UI
@@ -154,11 +154,31 @@ MediaDillo enforces the **Jellyfin standard** naming convention so your files ar
       ...
 ```
 
+### Multi-disc movies
+
+```
+Movie Title (Year)/
+  Movie Title (Year) - cd1.mkv   ← both map to one Movie record
+  Movie Title (Year) - cd2.mkv
+```
+
+Recognised suffixes: `-cd1`/`-cd2`, `-disc1`/`-disc2`, `-part1`/`-part2`, `-pt1`/`-pt2`.
+
+### Two-part TV episodes
+
+```
+Season 01/
+  Show Name - S01E05 - Title - part1.mkv   ← both linked to Episode E05
+  Show Name - S01E05 - Title - part2.mkv
+```
+
+Use **Merge Multi-Part Episodes** on the season detail page to convert two separate episode records into one, then renumber all following episodes.
+
 ### Rules
 
 - Title case; only `()`, `-`, and spaces are allowed in file and folder names
-- Year is always the 4-digit release year in parentheses
-- Multi-part episodes: `S01E01E02`
+- Year is always the 4-digit release year in parentheses; bare year in TV filenames (e.g. `Show.Name.2005.S01E01`) is also recognised
+- Multi-episode single-file: `S01E01E02` (one file covering two episodes)
 - Both `S01E01` and `01x01` episode naming conventions are recognised during scanning
 - Optional quality suffix: `Show Name - S01E01 - Episode Title [1080p].mkv`
 - All renames are **preview-only** until you explicitly apply them — no files are moved or renamed without your confirmation

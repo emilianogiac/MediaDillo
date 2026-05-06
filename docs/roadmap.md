@@ -42,6 +42,24 @@ Track epics and their GitHub issues here. Update status as work progresses.
 
 ---
 
+## Post-Launch Fix & Polish Batch (2026-05-06)
+
+| # | Feature | Status | Notes |
+|---|---------|--------|-------|
+| G1 | **Duplicate badge + filter** | `[x]` | Orange "Duplicate" badge on poster cards; tri-state filter (all / only / hide) on /movies and /shows; `@unique` removed from `Movie.tmdbId` and `TvShow.tmdbId` |
+| G2 | **DB maintenance tools** | `[x]` | Settings: "Verify library integrity" (removes ghost records + missing files) + "Merge duplicate TV shows" (consolidates phantom TvShow records) |
+| G3 | **Scanner orphan pruning** | `[x]` | `pruneOrphanedFiles()` runs after every scan; removes DB records for paths no longer on disk |
+| G4 | **Forced artwork re-download** | `[x]` | Manual artwork download routes pass `force=true` to bypass `posterDownloaded` guard |
+| G5 | **Show Cleanup & Organize panel** | `[x]` | Collapsible panel on show detail: rename queue (preview + per-item select + apply) + stale file removal |
+| G6 | **Season rescan** | `[x]` | "Rescan" button on season detail page; scoped single-folder scan with orphan pruning; synchronous with inline result |
+| G7 | **Multi-part episode merge + renumber** | `[x]` | MergePartsPanel on season detail: rename E05+E06 → E05-part1/part2, re-parent files in DB, cascade renumber E07+ down by 1 |
+| G8 | **Missing file badge + filter + delete** | `[x]` | Red "Missing file" badge on poster cards; filter button on /movies; "Delete this record" button on movie detail when no files attached |
+| G9 | **Consistent filter buttons** | `[x]` | All /movies filters converted from mixed checkboxes+buttons to uniform toggle buttons with colour-coded active states |
+| G10 | **Back navigation preserves filters** | `[x]` | `navigate(-1)` replaces hardcoded `<Link to="/movies\|/shows">` on detail pages and post-delete redirect |
+| G11 | **Parser: disc suffix + bare year** | `[x]` | `cd1`/`cd2`/`disc1` stripped before movie year extraction; bare trailing year stripped from TV show name portion so episodes with/without year in filename map to same TvShow |
+
+---
+
 ## Working Agreement
 - Autonomous mode: minimal approval interruptions
 - Every code change backed by a GitHub issue

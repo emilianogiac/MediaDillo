@@ -54,11 +54,31 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
       ...
 ```
 
+### Multi-disc / multi-part movies
+
+```
+Movie Title (Year)/
+  Movie Title (Year) - cd1.mkv    ← both files map to the same Movie record
+  Movie Title (Year) - cd2.mkv
+```
+
+Recognised suffixes: `-cd1`/`-cd2`, `-disc1`/`-disc2`, `-part1`/`-part2`, `-pt1`/`-pt2`. The suffix is stripped before title/year extraction so both files deduplicate correctly.
+
+### Two-part TV episodes
+
+```
+Season 01/
+  Show Name - S01E05 - Title - part1.mkv   ← both files linked to Episode E05
+  Show Name - S01E05 - Title - part2.mkv
+```
+
+Use the **Merge Multi-Part Episodes** panel on any season detail page to convert two separate episode records into a single episode with two files, then optionally renumber all following episodes down by one.
+
 ### Rules
 - Title case, no special characters except `()`, `-`, spaces
-- Year is always 4-digit release year (not air year for shows)
-- Multi-part episodes: `S01E01E02` (EpisodeFile.multiEpisodeEnd tracks the end number)
-- Multi-file movies (cd1/cd2, part1/part2): merged via ffmpeg concat before renaming
+- Year is always 4-digit release year in parentheses; bare year in TV filenames (`Show.Name.2005.S01E01`) is also recognised and stripped from the title before deduplication
+- Multi-episode single-file: `S01E01E02` (`EpisodeFile.multiEpisodeEnd` tracks the end number)
+- Multi-file per-episode (two-parter): `S01E05 - part1` / `S01E05 - part2` — both files link to the same Episode record
 - Quality tag optional suffix: `Show Name - S01E01 - Title [1080p].mkv`
 - All renames preview before apply — no destructive ops without confirmation
 - **Sidecar files** (poster.jpg, backdrop.jpg, movie.nfo, *.srt, *.sub, TMM artwork suffixes) migrate automatically when a movie or show folder is renamed; unknown files are left in place and surfaced in Stale Files
@@ -117,6 +137,9 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - **Stale file cleanup**: surface leftover `.tbn`, `.xml`, old TMM metadata files, duplicate artwork for review and optional deletion
 - **Multi-part merger**: detects movies split across two files (`-cd1`/`-cd2`, `-part1`/`-part2`, `-disk1`/`-disk2`); ffmpeg concat merges them into one canonical file; originals moved to `.trash/`
 - **Episode remapper**: reassign any episode file to a different season/episode number; supports multi-episode files (e.g. `S01E01E02`); rename preview reflects the new mapping
+- **Show Cleanup & Organize panel**: per-show collapsible panel on the show detail page — rename queue (preview + per-item select + apply) + stale file removal queue with individual or bulk apply
+- **Season rescan**: scoped single-folder scan triggered from the season detail page; runs synchronously and returns added/changed/removed counts; does not block full scans
+- **Multi-part episode merge + renumber**: MergePartsPanel on season detail — pick two episode numbers, rename them as part1/part2 of the primary episode number, re-parent both files in DB, optionally cascade renumber all following episodes down by 1
 - Post-operation: automatically triggers Jellyfin library scan
 
 ### 5. Jellyfin Integration
@@ -129,6 +152,9 @@ Adopted: **Jellyfin standard** (industry default, ensures Jellyfin auto-picks up
 - Per-item completeness: poster, backdrop, metadata complete, TMDB matched, has files
 - Filter by: missing poster | missing backdrop | unmatched | no files | incomplete metadata
 - Bulk actions: download missing artwork, re-scan metadata
+- **Duplicate detection**: movies and shows sharing a `tmdbId` are tagged with an orange "Duplicate" badge; tri-state filter (all / only / hide) on browse pages; `tmdbId` is intentionally non-unique to support multi-edition and split-file libraries
+- **Missing file badge**: red "Missing file" badge on any item with no video files attached; filterable on /movies; detail page shows delete option for stale records
+- **DB maintenance** (Settings): "Verify library integrity" removes ghost records and resets orphaned episodes; "Merge duplicate TV shows" consolidates phantom TvShow records caused by inconsistent filename parsing
 
 ---
 
