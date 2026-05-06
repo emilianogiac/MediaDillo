@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import type { MovieDetail } from '../api/types.js'
 import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie } from '../api/movies.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -33,7 +33,7 @@ export function MovieDetailPage() {
     setDeleting(true)
     try {
       await deleteMovie(id)
-      navigate('/movies')
+      navigate(-1)
     } catch {
       setDeleting(false)
     }
@@ -57,9 +57,9 @@ export function MovieDetailPage() {
     return (
       <div className="p-6 text-red-400">
         {error ?? 'Movie not found'}
-        <Link to="/movies" className="block mt-2 text-sm text-accent hover:underline">
+        <button onClick={() => navigate(-1)} className="block mt-2 text-sm text-accent hover:underline">
           ← Back to Movies
-        </Link>
+        </button>
       </div>
     )
   }
@@ -70,9 +70,9 @@ export function MovieDetailPage() {
   return (
     <div className="p-6 space-y-8 max-w-5xl">
       {/* Back link */}
-      <Link to="/movies" className="text-sm text-gray-400 hover:text-accent transition-colors">
+      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-accent transition-colors">
         ← Movies
-      </Link>
+      </button>
 
       {/* Hero section */}
       <div className="flex gap-6">

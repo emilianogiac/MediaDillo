@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow } from '../api/shows.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
@@ -25,6 +25,7 @@ function completenessBar(owned: number, total: number) {
 
 export function ShowDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const [show, setShow] = useState<ShowDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -58,9 +59,9 @@ export function ShowDetailPage() {
 
   return (
     <div className="p-6 space-y-8 max-w-5xl">
-      <Link to="/shows" className="text-sm text-gray-400 hover:text-accent transition-colors">
+      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-accent transition-colors">
         ← TV Shows
-      </Link>
+      </button>
 
       {/* Hero */}
       <div className="flex gap-6">
