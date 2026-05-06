@@ -149,3 +149,37 @@ export async function parseShowNfo(showFolderPath: string): Promise<NfoShow | nu
   if (!show) return null
   return parseShowNode(show)
 }
+
+export interface NfoEpisode {
+  title: string | null
+  showtitle: string | null
+  season: number | null
+  episode: number | null
+  airDate: string | null
+  overview: string | null
+  rating: number | null
+  tmdbId: number | null
+  tvdbId: number | null
+}
+
+export async function parseEpisodeNfo(episodeFilePath: string): Promise<NfoEpisode | null> {
+  const nfoPath = episodeFilePath.replace(/\.[^.]+$/, '.nfo')
+  const parsed = await readNfoFile(nfoPath)
+  if (!parsed) return null
+  const ep = (parsed['episodedetails'] ?? parsed['EpisodeDetails']) as Record<string, unknown> | undefined
+  if (!ep) return null
+
+  const uniqueids = ep['uniqueid'] as Array<{ '#text'?: unknown; '@_type'?: string }> | undefined
+
+  return {
+    title: toStr(ep['title']),
+    showtitle: toStr(ep['showtitle']),
+    season: toNum(ep['season']),
+    episode: toNum(ep['episode']),
+    airDate: toStr(ep['aired']),
+    overview: toStr(ep['plot']),
+    rating: toNum(ep['rating']),
+    tmdbId: toNum(extractUniqueId(uniqueids, 'tmdb')) ?? toNum(ep['tmdbid']) ?? null,
+    tvdbId: toNum(extractUniqueId(uniqueids, 'tvdb')) ?? toNum(ep['tvdbid']) ?? null,
+  }
+}

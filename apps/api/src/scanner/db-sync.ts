@@ -3,7 +3,7 @@ import { prisma, MediaType, CreditRole } from '@mediadillo/db'
 import type { ScannedFile } from './types.js'
 import type { StaleFileEntry } from './stale-detector.js'
 import { detectLocalArtwork } from './artwork-detector.js'
-import { parseMovieNfo, parseShowNfo } from './nfo-parser.js'
+import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
 
 export interface ScanCounts {
   added: number
@@ -147,10 +147,15 @@ export async function syncEpisodeFile(
 
   // Show root folder is 2 levels up from the episode file (show/Season XX/episode.mkv)
   const showFolder = path.dirname(path.dirname(file.path))
-  const [showArtwork, showNfo] = await Promise.all([
+  const [showArtwork, showNfo, episodeNfo] = await Promise.all([
     detectLocalArtwork(showFolder),
     parseShowNfo(showFolder),
+    parseEpisodeNfo(file.path),
   ])
+
+  // Prefer the show title from the NFO `<showtitle>` field — it's more reliable
+  // than filename parsing which can vary between episodes of the same show.
+  const showTitle = episodeNfo?.showtitle ?? showNfo?.title ?? show
 
   // Find or create TvShow.
   // Try exact match (title + year) first, then title-only fallback — year is
@@ -158,15 +163,15 @@ export async function syncEpisodeFile(
   // create a separate TvShow record per uniquely-named file.
   let tvShow =
     (year !== null
-      ? await prisma.tvShow.findFirst({ where: { title: show, year } })
+      ? await prisma.tvShow.findFirst({ where: { title: showTitle, year } })
       : null) ??
-    await prisma.tvShow.findFirst({ where: { title: show, year: null } }) ??
-    await prisma.tvShow.findFirst({ where: { title: show } })
+    await prisma.tvShow.findFirst({ where: { title: showTitle, year: null } }) ??
+    await prisma.tvShow.findFirst({ where: { title: showTitle } })
 
   if (!tvShow) {
     tvShow = await prisma.tvShow.create({
       data: {
-        title: showNfo?.title ?? show,
+        title: showTitle,
         year: showNfo?.year ?? year,
         tmdbId: showNfo?.tmdbId ?? null,
         tvdbId: showNfo?.tvdbId ?? null,
@@ -205,19 +210,28 @@ export async function syncEpisodeFile(
   const primaryEp = episodes[0]
   if (primaryEp === undefined) throw new Error('No episode number found')
 
+  // NFO title is more accurate than filename parsing; airDate comes only from NFO
+  const resolvedTitle = episodeNfo?.title ?? episodeTitle ?? null
+  const airDate = episodeNfo?.airDate ? new Date(episodeNfo.airDate) : null
+
   // Find or create Episode
   let episode = await prisma.episode.findFirst({
     where: { seasonId: season.id, episodeNumber: primaryEp },
   })
   if (!episode) {
     episode = await prisma.episode.create({
-      data: { seasonId: season.id, episodeNumber: primaryEp, title: episodeTitle, status: 'owned' },
+      data: { seasonId: season.id, episodeNumber: primaryEp, title: resolvedTitle, airDate, status: 'owned' },
     })
-  } else if (episode.status !== 'owned') {
-    episode = await prisma.episode.update({
-      where: { id: episode.id },
-      data: { status: 'owned', title: episodeTitle ?? episode.title ?? null },
-    })
+  } else {
+    const epUpdates: Record<string, unknown> = { status: 'owned' }
+    if (resolvedTitle && !episode.title) epUpdates['title'] = resolvedTitle
+    if (airDate && !episode.airDate) epUpdates['airDate'] = airDate
+    if (episode.status !== 'owned' || Object.keys(epUpdates).length > 1) {
+      episode = await prisma.episode.update({
+        where: { id: episode.id },
+        data: epUpdates,
+      })
+    }
   }
 
   const existing = await prisma.episodeFile.findUnique({ where: { path: file.path } })
