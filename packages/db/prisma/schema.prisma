@@ -64,7 +64,7 @@ model StaleFile {
 
 model Movie {
   id                 String      @id @default(cuid())
-  tmdbId             Int?        @unique
+  tmdbId             Int?
   imdbId             String?
   title              String
   year               Int?
@@ -121,7 +121,7 @@ model MovieFile {
 
 model TvShow {
   id                 String       @id @default(cuid())
-  tmdbId             Int?         @unique
+  tmdbId             Int?
   tvdbId             Int?
   title              String
   year               Int?
