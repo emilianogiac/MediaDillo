@@ -1,9 +1,11 @@
 import path from 'node:path'
-import { readdir } from 'node:fs/promises'
+import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { previewEpisodeRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
+import { runSeasonScan, isScanRunning } from '../scanner/index.js'
+import { canonicalEpisodeFileName } from '../files/naming.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide
@@ -181,6 +183,149 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.send({ renamed, trashed, errors })
+  })
+
+  // POST /api/shows/:id/seasons/:seasonNumber/rescan — rescan a single season folder
+  app.post<{ Params: { id: string; seasonNumber: string } }>(
+    '/shows/:id/seasons/:seasonNumber/rescan',
+    async (req, reply) => {
+      if (isScanRunning()) return reply.code(409).send({ error: 'A full scan is already running' })
+      const seasonNumber = parseInt(req.params.seasonNumber, 10)
+      if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
+      const counts = await runSeasonScan(req.params.id, seasonNumber)
+      return reply.send(counts)
+    },
+  )
+
+  // POST /api/shows/:id/seasons/:seasonNumber/merge-parts — merge two episodes into one multi-part episode
+  app.post<{
+    Params: { id: string; seasonNumber: string }
+    Body: { primaryEpisode: number; secondaryEpisode: number }
+  }>('/shows/:id/seasons/:seasonNumber/merge-parts', async (req, reply) => {
+    const seasonNumber = parseInt(req.params.seasonNumber, 10)
+    if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
+
+    const { primaryEpisode, secondaryEpisode } = req.body
+    if (!primaryEpisode || !secondaryEpisode || primaryEpisode === secondaryEpisode) {
+      return reply.code(400).send({ error: 'primaryEpisode and secondaryEpisode must be different' })
+    }
+
+    // Load show for title
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    // Load season
+    const season = await prisma.season.findFirst({
+      where: { showId: req.params.id, seasonNumber },
+    })
+    if (!season) return reply.code(404).send({ error: 'Season not found' })
+
+    // Load both episodes with files
+    const [epA, epB] = await Promise.all([
+      prisma.episode.findFirst({ where: { seasonId: season.id, episodeNumber: primaryEpisode }, include: { files: true } }),
+      prisma.episode.findFirst({ where: { seasonId: season.id, episodeNumber: secondaryEpisode }, include: { files: true } }),
+    ])
+    if (!epA) return reply.code(404).send({ error: `Episode ${primaryEpisode} not found` })
+    if (!epB) return reply.code(404).send({ error: `Episode ${secondaryEpisode} not found` })
+    if (epA.files.length === 0) return reply.code(422).send({ error: `Episode ${primaryEpisode} has no files` })
+    if (epB.files.length === 0) return reply.code(422).send({ error: `Episode ${secondaryEpisode} has no files` })
+
+    const errors: string[] = []
+    let renamed = 0
+
+    // Rename primary files → part1
+    for (const file of epA.files) {
+      const ext = path.extname(file.path)
+      const dir = path.dirname(file.path)
+      const newName = canonicalEpisodeFileName(show.title, seasonNumber, primaryEpisode, epA.title, ext, null, 1)
+      const newPath = path.join(dir, newName)
+      try {
+        await fsRename(file.path, newPath)
+        await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath } })
+        renamed++
+      } catch (err) {
+        errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Rename secondary files → part2 (using primary episode number and title)
+    for (const file of epB.files) {
+      const ext = path.extname(file.path)
+      const dir = path.dirname(file.path)
+      const newName = canonicalEpisodeFileName(show.title, seasonNumber, primaryEpisode, epA.title, ext, null, 2)
+      const newPath = path.join(dir, newName)
+      try {
+        await fsRename(file.path, newPath)
+        await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath, episodeId: epA.id } })
+        renamed++
+      } catch (err) {
+        errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Delete secondary episode (files already re-parented)
+    await prisma.episode.delete({ where: { id: epB.id } })
+
+    // Recalculate show owned counts
+    const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
+    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
+
+    return reply.send({ renamed, errors })
+  })
+
+  // POST /api/shows/:id/seasons/:seasonNumber/renumber — shift episode numbers by `shift` starting from `fromEpisode`
+  app.post<{
+    Params: { id: string; seasonNumber: string }
+    Body: { fromEpisode: number; shift: number }
+  }>('/shows/:id/seasons/:seasonNumber/renumber', async (req, reply) => {
+    const seasonNumber = parseInt(req.params.seasonNumber, 10)
+    if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
+
+    const { fromEpisode, shift } = req.body
+    if (!shift || shift === 0) return reply.code(400).send({ error: 'shift must be non-zero' })
+
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    const season = await prisma.season.findFirst({ where: { showId: req.params.id, seasonNumber } })
+    if (!season) return reply.code(404).send({ error: 'Season not found' })
+
+    // Load episodes to renumber, ordered DESC to avoid collision when shifting down
+    const episodes = await prisma.episode.findMany({
+      where: { seasonId: season.id, episodeNumber: { gte: fromEpisode } },
+      include: { files: true },
+      orderBy: { episodeNumber: shift < 0 ? 'asc' : 'desc' },
+    })
+
+    const errors: string[] = []
+    let renamed = 0
+
+    for (const ep of episodes) {
+      const newEpNum = ep.episodeNumber + shift
+
+      for (const file of ep.files) {
+        const ext = path.extname(file.path)
+        const dir = path.dirname(file.path)
+        const newName = canonicalEpisodeFileName(show.title, seasonNumber, newEpNum, ep.title, ext)
+        const newPath = path.join(dir, newName)
+        if (newPath === file.path) continue
+        try {
+          await fsRename(file.path, newPath)
+          await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath } })
+          renamed++
+        } catch (err) {
+          errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      await prisma.episode.update({ where: { id: ep.id }, data: { episodeNumber: newEpNum } })
+    }
+
+    // Recalculate show owned counts
+    const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
+    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
+
+    return reply.send({ renamed, errors })
   })
 
   // GET /api/shows/:id/seasons/:seasonNumber — season detail with episodes + files

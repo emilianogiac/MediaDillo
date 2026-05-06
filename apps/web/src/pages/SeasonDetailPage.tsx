@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { SeasonDetail, EpisodeDetail } from '../api/types.js'
-import { fetchSeason } from '../api/shows.js'
+import { fetchSeason, rescanSeason } from '../api/shows.js'
 import { TechBadge } from '../components/TechBadge.js'
+import { MergePartsPanel } from '../components/MergePartsPanel.js'
 
 const STATUS_STYLES: Record<EpisodeDetail['status'], string> = {
   owned: 'bg-green-700/60 text-green-300',
@@ -28,8 +29,10 @@ export function SeasonDetailPage() {
   const [season, setSeason] = useState<SeasonDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [rescanning, setRescanning] = useState(false)
+  const [rescanResult, setRescanResult] = useState<{ added: number; changed: number; removed: number } | null>(null)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id || !seasonNumber) return
     setLoading(true)
     fetchSeason(id, parseInt(seasonNumber, 10))
@@ -37,6 +40,23 @@ export function SeasonDetailPage() {
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [id, seasonNumber])
+
+  useEffect(() => { load() }, [load])
+
+  async function handleRescan() {
+    if (!id || !seasonNumber) return
+    setRescanning(true)
+    setRescanResult(null)
+    try {
+      const result = await rescanSeason(id, parseInt(seasonNumber, 10))
+      setRescanResult(result)
+      load()
+    } catch {
+      // ignore, button will just stop spinning
+    } finally {
+      setRescanning(false)
+    }
+  }
 
   if (loading) return <div className="p-6 text-gray-500">Loading…</div>
   if (error || !season) {
@@ -68,9 +88,27 @@ export function SeasonDetailPage() {
         <span className="text-gray-200">Season {season.seasonNumber}</span>
       </div>
 
-      <div className="flex items-baseline gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">Season {season.seasonNumber}</h1>
         <span className="text-sm text-gray-500">{owned}/{total} owned</span>
+        <button
+          onClick={handleRescan}
+          disabled={rescanning}
+          className="ml-auto text-xs px-3 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+        >
+          {rescanning ? 'Scanning…' : 'Rescan'}
+        </button>
+        {rescanResult && (
+          <span className="text-xs text-gray-500">
+            {rescanResult.added + rescanResult.changed + rescanResult.removed === 0
+              ? 'Up to date'
+              : [
+                  rescanResult.added > 0 && `${rescanResult.added} added`,
+                  rescanResult.changed > 0 && `${rescanResult.changed} changed`,
+                  rescanResult.removed > 0 && `${rescanResult.removed} removed`,
+                ].filter(Boolean).join(', ')}
+          </span>
+        )}
       </div>
 
       {/* Episode list */}
@@ -129,6 +167,15 @@ export function SeasonDetailPage() {
           <p className="text-gray-500 text-sm py-8 text-center">No episodes found for this season.</p>
         )}
       </div>
+
+      {id && seasonNumber && (
+        <MergePartsPanel
+          showId={id}
+          seasonNumber={parseInt(seasonNumber, 10)}
+          episodes={season.episodes}
+          onDone={load}
+        />
+      )}
     </div>
   )
 }

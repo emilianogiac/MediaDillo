@@ -94,3 +94,34 @@ export async function applyOrganize(
     body: JSON.stringify({ renames, trash }),
   })
 }
+
+export async function rescanSeason(
+  showId: string,
+  seasonNumber: number,
+): Promise<{ added: number; changed: number; removed: number }> {
+  return apiFetch(`/shows/${showId}/seasons/${seasonNumber}/rescan`, { method: 'POST' })
+}
+
+export async function mergeParts(
+  showId: string,
+  seasonNumber: number,
+  primaryEpisode: number,
+  secondaryEpisode: number,
+): Promise<{ renamed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/seasons/${seasonNumber}/merge-parts`, {
+    method: 'POST',
+    body: JSON.stringify({ primaryEpisode, secondaryEpisode }),
+  })
+}
+
+export async function renumberEpisodes(
+  showId: string,
+  seasonNumber: number,
+  fromEpisode: number,
+  shift: number,
+): Promise<{ renamed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/seasons/${seasonNumber}/renumber`, {
+    method: 'POST',
+    body: JSON.stringify({ fromEpisode, shift }),
+  })
+}

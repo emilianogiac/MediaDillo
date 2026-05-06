@@ -29,6 +29,7 @@ export function canonicalEpisodeFileName(
   episodeTitle: string | null,
   ext: string,
   episodeEnd: number | null = null,
+  partNumber: number | null = null,
 ): string {
   const s = String(seasonNumber).padStart(2, '0')
   const eStart = String(episodeStart).padStart(2, '0')
@@ -37,9 +38,10 @@ export function canonicalEpisodeFileName(
     code += `E${String(episodeEnd).padStart(2, '0')}`
   }
   const show = sanitizeForFilename(showTitle)
+  const partSuffix = partNumber !== null ? ` - part${partNumber}` : ''
   if (episodeTitle) {
     const title = sanitizeForFilename(episodeTitle)
-    return `${show} - ${code} - ${title}${ext}`
+    return `${show} - ${code} - ${title}${partSuffix}${ext}`
   }
-  return `${show} - ${code}${ext}`
+  return `${show} - ${code}${partSuffix}${ext}`
 }

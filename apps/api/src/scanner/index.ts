@@ -6,6 +6,7 @@ import { parseFilename } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 import { detectStaleFiles } from './stale-detector.js'
 import { syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
+import type { ScanCounts } from './db-sync.js'
 import type { ScanSummary } from './types.js'
 
 let scanning = false
@@ -140,4 +141,63 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
     progress.scanning = false
     progress.currentFile = null
   }
+}
+
+export async function runSeasonScan(showId: string, seasonNumber: number): Promise<ScanCounts> {
+  if (scanning) throw new Error('A full scan is already running')
+
+  // Derive season folder from any existing episode file in this season
+  const anyFile = await prisma.episodeFile.findFirst({
+    where: { episode: { season: { showId, seasonNumber } } },
+    select: { path: true },
+  })
+  if (!anyFile) return { added: 0, changed: 0, removed: 0 }
+
+  const seasonFolderPath = path.dirname(anyFile.path)
+
+  let added = 0
+  let changed = 0
+  const seenPaths = new Set<string>()
+
+  for await (const walkedFile of walkRoot(seasonFolderPath)) {
+    seenPaths.add(walkedFile.path)
+    const parsed = parseFilename(walkedFile.path)
+    if (parsed.type !== 'tv') continue
+
+    const techSpecs = await extractTechSpecs(walkedFile.path)
+    try {
+      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs })
+      if (result === 'added') added++
+      else if (result === 'changed') changed++
+    } catch (err) {
+      console.error(`Season scan: failed to sync ${walkedFile.path}:`, err)
+    }
+  }
+
+  // Prune episode files in this season folder that were not seen
+  const dbFiles = await prisma.episodeFile.findMany({
+    where: { path: { startsWith: seasonFolderPath + '/' } },
+    select: { id: true, path: true, episodeId: true },
+  })
+  const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
+  let removed = 0
+
+  if (orphaned.length > 0) {
+    await prisma.episodeFile.deleteMany({ where: { id: { in: orphaned.map((f) => f.id) } } })
+
+    const affectedEpisodeIds = [...new Set(orphaned.map((f) => f.episodeId))]
+    for (const episodeId of affectedEpisodeIds) {
+      const remaining = await prisma.episodeFile.count({ where: { episodeId } })
+      if (remaining === 0) {
+        await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+        removed++
+      }
+    }
+
+    // Recalculate owned count for the show
+    const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+    await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+  }
+
+  return { added, changed, removed }
 }
