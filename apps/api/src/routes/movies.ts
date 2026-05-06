@@ -19,6 +19,11 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
 
     const movies = await prisma.movie.findMany({
       where: {
+        // Only return movies from movies-type scan roots (or no scan root assigned)
+        OR: [
+          { scanRootId: null },
+          { scanRoot: { type: 'movies' } },
+        ],
         ...(scanRootId ? { scanRootId } : {}),
         ...(genre ? { genres: { has: genre } } : {}),
         ...(qualityTier ? { files: { some: { videoQualityTier: qualityTier } } } : {}),
@@ -47,6 +52,26 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     })
 
     return reply.send(movies)
+  })
+
+  // POST /api/movies/cleanup-tv-contamination — delete Movie records that belong to TV-type scan roots
+  // These were created before the scanner was fixed to route files by root type.
+  app.post('/movies/cleanup-tv-contamination', async (_req, reply) => {
+    const tvRoots = await prisma.scanRoot.findMany({ where: { type: 'tv' } })
+    if (tvRoots.length === 0) return reply.send({ deleted: 0 })
+    const tvRootIds = tvRoots.map((r) => r.id)
+
+    const contaminated = await prisma.movie.findMany({
+      where: { scanRootId: { in: tvRootIds } },
+      select: { id: true },
+    })
+    const ids = contaminated.map((m) => m.id)
+    if (ids.length === 0) return reply.send({ deleted: 0 })
+
+    await prisma.movieFile.deleteMany({ where: { movieId: { in: ids } } })
+    await prisma.movie.deleteMany({ where: { id: { in: ids } } })
+
+    return reply.send({ deleted: ids.length })
   })
 
   // GET /api/movies/:id — full detail with files + credits

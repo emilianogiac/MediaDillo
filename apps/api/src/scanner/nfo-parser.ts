@@ -71,9 +71,13 @@ function parseMovieNode(movie: Record<string, unknown>): NfoMovie {
   const actors = (movie['actor'] as Array<Record<string, unknown>> | undefined) ?? []
   const directors = (movie['director'] as string[] | undefined) ?? []
 
+  // Support both <uniqueid type="tmdb"> and direct <tmdbid> tag (older TMM format)
+  const tmdbId = toNum(tmdbStr) ?? toNum(movie['tmdbid']) ?? toNum(movie['tmdb_id']) ?? null
+  const imdbFromUnique = extractUniqueId(uniqueids, 'imdb')
+
   return {
-    tmdbId: tmdbStr ? (toNum(tmdbStr) ?? null) : null,
-    imdbId: extractUniqueId(uniqueids, 'imdb') ?? toStr(movie['imdbid']),
+    tmdbId,
+    imdbId: imdbFromUnique ?? toStr(movie['imdbid']) ?? toStr(movie['id']),
     title: toStr(movie['title']),
     year: toNum(movie['year']),
     overview: toStr(movie['plot']),
@@ -95,9 +99,9 @@ function parseShowNode(show: Record<string, unknown>): NfoShow {
   const uniqueids = show['uniqueid'] as Array<{ '#text'?: unknown; '@_type'?: string }> | undefined
 
   return {
-    tmdbId: toNum(extractUniqueId(uniqueids, 'tmdb')),
-    tvdbId: toNum(extractUniqueId(uniqueids, 'tvdb')),
-    imdbId: extractUniqueId(uniqueids, 'imdb') ?? toStr(show['imdbid']),
+    tmdbId: toNum(extractUniqueId(uniqueids, 'tmdb')) ?? toNum(show['tmdbid']) ?? toNum(show['tmdb_id']) ?? null,
+    tvdbId: toNum(extractUniqueId(uniqueids, 'tvdb')) ?? toNum(show['tvdbid']) ?? toNum(show['tvdb_id']) ?? null,
+    imdbId: extractUniqueId(uniqueids, 'imdb') ?? toStr(show['imdbid']) ?? toStr(show['id']),
     title: toStr(show['title']),
     year: toNum(show['year']),
     overview: toStr(show['plot']),

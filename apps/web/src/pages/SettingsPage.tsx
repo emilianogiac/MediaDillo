@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import type { JellyfinStatus } from '../api/jellyfin.js'
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
 import { downloadJson, downloadMoviesCsv, downloadShowsCsv, writeBulkNfo } from '../api/export.js'
+import { cleanupTvContamination } from '../api/movies.js'
 import type { ScanRootRecord, ScanLogRecord, ScheduleInterval } from '../api/settings.js'
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
@@ -112,9 +113,53 @@ export function SettingsPage() {
       </div>
 
       <ExportCard />
+      <DatabaseMaintenanceCard />
       <ScanRootsCard />
       <ScheduleCard />
       <ScanLogsCard />
+    </div>
+  )
+}
+
+function DatabaseMaintenanceCard() {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function runCleanup() {
+    setBusy(true)
+    setResult(null)
+    setError(null)
+    try {
+      const r = await cleanupTvContamination()
+      setResult(r.deleted === 0
+        ? 'No contaminated records found — library is clean.'
+        : `Removed ${r.deleted} movie record${r.deleted !== 1 ? 's' : ''} that belonged to TV scan roots. Run a full scan to rebuild them as episodes.`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Database Maintenance</h2>
+      <div className="space-y-1.5">
+        <p className="text-sm text-gray-500">
+          Remove movie records that were incorrectly created from TV scan roots (caused by the pre-fix scanner routing bug).
+          After cleanup, run a full scan to correctly index those files as episodes.
+        </p>
+        <button
+          onClick={runCleanup}
+          disabled={busy}
+          className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
+        >
+          {busy ? 'Cleaning up…' : 'Remove contaminated movie records'}
+        </button>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+        {result && <p className="text-xs text-green-400">{result}</p>}
+      </div>
     </div>
   )
 }
