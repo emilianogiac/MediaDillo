@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { readdir } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 
 // Jellyfin-standard bare names
 const POSTER_NAMES = new Set(['poster', 'folder'])
@@ -29,6 +29,15 @@ export async function detectLocalArtwork(folderPath: string): Promise<ArtworkPre
   return { hasPoster: posterPath !== null, hasBackdrop: backdropPath !== null }
 }
 
+async function fileExistsOnDisk(filePath: string): Promise<boolean> {
+  try {
+    const s = await stat(filePath)
+    return s.isFile() && s.size > 0
+  } catch {
+    return false
+  }
+}
+
 export async function findArtworkPaths(folderPath: string): Promise<{ posterPath: string | null; backdropPath: string | null }> {
   const files = await listFolder(folderPath)
   let posterPath: string | null = null
@@ -40,10 +49,19 @@ export async function findArtworkPaths(folderPath: string): Promise<{ posterPath
     const base = path.basename(file, ext).toLowerCase()
 
     if (!posterPath && (POSTER_NAMES.has(base) || POSTER_SUFFIXES.some(s => base.endsWith(s)))) {
-      posterPath = path.join(folderPath, file)
+      const candidate = path.join(folderPath, file)
+      // Verify the file actually exists and is non-empty on disk before claiming
+      // it as valid artwork. readdir alone cannot detect zero-byte or deleted files
+      // that still appear as directory entries (e.g. on some network filesystems).
+      if (await fileExistsOnDisk(candidate)) {
+        posterPath = candidate
+      }
     }
     if (!backdropPath && (BACKDROP_NAMES.has(base) || BACKDROP_SUFFIXES.some(s => base.endsWith(s)))) {
-      backdropPath = path.join(folderPath, file)
+      const candidate = path.join(folderPath, file)
+      if (await fileExistsOnDisk(candidate)) {
+        backdropPath = candidate
+      }
     }
     if (posterPath && backdropPath) break
   }

@@ -167,7 +167,7 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
 
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
-    if (!movie.tmdbId) return reply.code(422).send({ error: 'Movie has no TMDB ID — match it first' })
+    if (!movie.tmdbId) return reply.send({ posters: [], backdrops: [] })
 
     const images = await searchMovieImages(config.TMDB_API_KEY, movie.tmdbId)
     return reply.send(images)

@@ -116,7 +116,12 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.movie.update({ where: { id: movie.id }, data: { tmdbId } })
 
-      await enrichMovie(client, movie.id, tmdbId)
+      try {
+        await enrichMovie(client, movie.id, tmdbId)
+      } catch (err) {
+        // Enrichment failure is non-fatal — the tmdbId is already saved
+        app.log.error(err, `enrichMovie failed for movie ${movie.id} (tmdbId ${tmdbId}); match persisted`)
+      }
 
       const updated = await prisma.movie.findUnique({ where: { id: movie.id } })
       return reply.send(updated)
@@ -140,7 +145,12 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.tvShow.update({ where: { id: show.id }, data: { tmdbId } })
 
-      await enrichTvShow(client, show.id, tmdbId)
+      try {
+        await enrichTvShow(client, show.id, tmdbId)
+      } catch (err) {
+        // Enrichment failure is non-fatal — the tmdbId is already saved
+        app.log.error(err, `enrichTvShow failed for show ${show.id} (tmdbId ${tmdbId}); match persisted`)
+      }
 
       const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })
       return reply.send(updated)
