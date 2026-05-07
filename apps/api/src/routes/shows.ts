@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
@@ -348,6 +349,54 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       if (!season) return reply.code(404).send({ error: 'Season not found' })
 
       return reply.send(season)
+    },
+  )
+
+  // POST /api/shows/:id/move — move show folder to a different scan root
+  app.post<{ Params: { id: string }; Body: { targetScanRootId: string } }>(
+    '/shows/:id/move',
+    async (req, reply) => {
+      const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
+      if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+      const targetRoot = await prisma.scanRoot.findUnique({ where: { id: req.body.targetScanRootId } })
+      if (!targetRoot) return reply.code(404).send({ error: 'Target scan root not found' })
+      if (targetRoot.type !== 'tv') return reply.code(422).send({ error: 'Target must be a tv-type scan root' })
+
+      // Derive show folder from any episode file (2 levels up: show/Season XX/episode.mkv)
+      const anyFile = await prisma.episodeFile.findFirst({
+        where: { episode: { season: { showId: show.id } } },
+        select: { path: true },
+      })
+      if (!anyFile) return reply.code(422).send({ error: 'Show has no files to move' })
+
+      const showFolder = path.dirname(path.dirname(anyFile.path))
+      const folderName = path.basename(showFolder)
+      const newShowFolder = path.join(targetRoot.path, folderName)
+
+      if (showFolder === newShowFolder) return reply.code(422).send({ error: 'Already in this collection' })
+
+      try {
+        await fs.rename(showFolder, newShowFolder)
+      } catch (err) {
+        return reply.code(500).send({ error: `Failed to move folder: ${err instanceof Error ? err.message : String(err)}` })
+      }
+
+      // Update all episode file paths
+      const allFiles = await prisma.episodeFile.findMany({
+        where: { path: { startsWith: showFolder + '/' } },
+        select: { id: true, path: true },
+      })
+      await Promise.all(
+        allFiles.map((f) =>
+          prisma.episodeFile.update({
+            where: { id: f.id },
+            data: { path: f.path.replace(showFolder, newShowFolder) },
+          }),
+        ),
+      )
+
+      return reply.send({ moved: true, newFolder: newShowFolder })
     },
   )
 }

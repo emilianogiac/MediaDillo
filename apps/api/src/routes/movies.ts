@@ -1,6 +1,9 @@
+import fs from 'node:fs/promises'
+import path from 'node:path'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { runMovieFolderScan, isScanRunning } from '../scanner/index.js'
+import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
@@ -145,6 +148,51 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         ),
       )
       return reply.send({ updated: fileIds.length })
+    },
+  )
+
+  // POST /api/movies/:id/move — move movie folder to a different scan root
+  app.post<{ Params: { id: string }; Body: { targetScanRootId: string } }>(
+    '/movies/:id/move',
+    async (req, reply) => {
+      const movie = await prisma.movie.findUnique({
+        where: { id: req.params.id },
+        include: { files: true, scanRoot: true },
+      })
+      if (!movie) return reply.code(404).send({ error: 'Movie not found' })
+      if (!movie.files.length) return reply.code(422).send({ error: 'Movie has no files to move' })
+
+      const targetRoot = await prisma.scanRoot.findUnique({ where: { id: req.body.targetScanRootId } })
+      if (!targetRoot) return reply.code(404).send({ error: 'Target scan root not found' })
+      if (targetRoot.type !== 'movies') return reply.code(422).send({ error: 'Target must be a movies-type scan root' })
+      if (movie.scanRootId === targetRoot.id) return reply.code(422).send({ error: 'Already in this collection' })
+
+      // Derive the movie folder from the first file
+      const currentFolder = path.dirname(movie.files[0]!.path)
+      const folderName = path.basename(currentFolder)
+      const newFolder = path.join(targetRoot.path, folderName)
+
+      if (currentFolder === newFolder) return reply.code(422).send({ error: 'Source and target are the same path' })
+
+      try {
+        await fs.rename(currentFolder, newFolder)
+      } catch (err) {
+        return reply.code(500).send({ error: `Failed to move folder: ${err instanceof Error ? err.message : String(err)}` })
+      }
+
+      // Update all file paths and the scan root reference
+      await Promise.all([
+        ...movie.files.map((f) =>
+          prisma.movieFile.update({
+            where: { id: f.id },
+            data: { path: f.path.replace(currentFolder, newFolder) },
+          }),
+        ),
+        prisma.movie.update({ where: { id: movie.id }, data: { scanRootId: targetRoot.id } }),
+      ])
+
+      triggerLibraryRefresh(app.log).catch(() => {})
+      return reply.send({ moved: true, newFolder })
     },
   )
 }

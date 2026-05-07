@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder, moveMovie } from '../api/movies.js'
+import { fetchScanRoots } from '../api/movies.js'
+import type { ScanRoot } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -32,6 +34,9 @@ export function MovieDetailPage() {
   const [rescanResult, setRescanResult] = useState<string | null>(null)
   const [fileOrder, setFileOrder] = useState<MovieFile[]>([])
   const [savingOrder, setSavingOrder] = useState(false)
+  const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
+  const [moving, setMoving] = useState(false)
+  const [moveTarget, setMoveTarget] = useState('')
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -88,7 +93,22 @@ export function MovieDetailPage() {
     }
   }
 
+  async function handleMove() {
+    if (!id || !moveTarget) return
+    setMoving(true)
+    try {
+      await moveMovie(id, moveTarget)
+      load()
+      setMoveTarget('')
+    } catch {
+      // error visible via load failure
+    } finally {
+      setMoving(false)
+    }
+  }
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
 
   if (loading) {
     return <div className="p-6 text-gray-500">Loading…</div>
@@ -147,10 +167,35 @@ export function MovieDetailPage() {
               <span className="text-yellow-400">★ {movie.rating.toFixed(1)}</span>
             )}
             {movie.scanRoot && (
-              <span className="text-gray-500">
-                {movie.scanRoot.label}
-              </span>
+              <span className="text-gray-500">{movie.scanRoot.label}</span>
             )}
+            {(() => {
+              const targets = scanRoots.filter((r) => r.type === 'movies' && r.id !== movie.scanRoot?.id)
+              if (targets.length === 0) return null
+              return (
+                <span className="flex items-center gap-1">
+                  <select
+                    value={moveTarget}
+                    onChange={(e) => setMoveTarget(e.target.value)}
+                    className="text-xs bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-gray-300"
+                  >
+                    <option value="">Move to…</option>
+                    {targets.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label}</option>
+                    ))}
+                  </select>
+                  {moveTarget && (
+                    <button
+                      onClick={handleMove}
+                      disabled={moving}
+                      className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-40"
+                    >
+                      {moving ? '…' : 'Move'}
+                    </button>
+                  )}
+                </span>
+              )
+            })()}
           </div>
 
           {movie.genres.length > 0 && (

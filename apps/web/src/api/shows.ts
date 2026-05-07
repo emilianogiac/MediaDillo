@@ -125,3 +125,11 @@ export async function renumberEpisodes(
     body: JSON.stringify({ fromEpisode, shift }),
   })
 }
+
+
+export async function moveShow(showId: string, targetScanRootId: string): Promise<{ moved: boolean; newFolder: string }> {
+  return apiFetch(`/shows/${showId}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ targetScanRootId }),
+  })
+}

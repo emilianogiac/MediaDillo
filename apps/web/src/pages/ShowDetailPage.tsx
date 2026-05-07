@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow } from '../api/shows.js'
+import type { ScanRoot } from '../api/types.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow } from '../api/shows.js'
+import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
@@ -30,6 +32,9 @@ export function ShowDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
+  const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
+  const [moving, setMoving] = useState(false)
+  const [moveTarget, setMoveTarget] = useState('')
 
   const load = useCallback(() => {
     if (!id) return
@@ -41,6 +46,21 @@ export function ShowDetailPage() {
   }, [id])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+
+  async function handleMove() {
+    if (!id || !moveTarget) return
+    setMoving(true)
+    try {
+      await moveShow(id, moveTarget)
+      load()
+      setMoveTarget('')
+    } catch {
+      // error visible via load failure
+    } finally {
+      setMoving(false)
+    }
+  }
 
   if (loading) return <div className="p-6 text-gray-500">Loading…</div>
   if (error || !show) {
@@ -96,6 +116,33 @@ export function ShowDetailPage() {
             >
               {show.status === 'continuing' ? 'Airing' : 'Ended'}
             </span>
+            {(() => {
+              const targets = scanRoots.filter((r) => r.type === 'tv')
+              if (targets.length === 0) return null
+              return (
+                <span className="flex items-center gap-1">
+                  <select
+                    value={moveTarget}
+                    onChange={(e) => setMoveTarget(e.target.value)}
+                    className="text-xs bg-gray-800 border border-gray-600 rounded px-1 py-0.5 text-gray-300"
+                  >
+                    <option value="">Move to…</option>
+                    {targets.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label}</option>
+                    ))}
+                  </select>
+                  {moveTarget && (
+                    <button
+                      onClick={handleMove}
+                      disabled={moving}
+                      className="text-xs px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors disabled:opacity-40"
+                    >
+                      {moving ? '…' : 'Move'}
+                    </button>
+                  )}
+                </span>
+              )
+            })()}
           </div>
 
           {show.genres.length > 0 && (

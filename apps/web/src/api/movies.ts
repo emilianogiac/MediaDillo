@@ -85,3 +85,10 @@ export async function setMovieFileOrder(movieId: string, fileIds: string[]): Pro
     body: JSON.stringify({ fileIds }),
   })
 }
+
+export async function moveMovie(movieId: string, targetScanRootId: string): Promise<{ moved: boolean; newFolder: string }> {
+  return apiFetch(`/movies/${movieId}/move`, {
+    method: 'POST',
+    body: JSON.stringify({ targetScanRootId }),
+  })
+}
