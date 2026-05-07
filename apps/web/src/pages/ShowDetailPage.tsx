@@ -35,6 +35,7 @@ export function ShowDetailPage() {
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
+  const [artworkVersion, setArtworkVersion] = useState(0)
 
   const load = useCallback(() => {
     if (!id) return
@@ -88,7 +89,7 @@ export function ShowDetailPage() {
         <div className="flex-shrink-0 self-start w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
           {(show.posterDownloaded || show.posterUrl) ? (
             <img
-              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}
+              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${artworkVersion}` : show.posterUrl!}
               alt={show.title}
               className="w-full object-cover"
             />
@@ -278,7 +279,7 @@ export function ShowDetailPage() {
           searchImages: () => fetchShowImages(show.id),
           selectImage: (filePath, artworkType) => selectShowImage(show.id, filePath, artworkType),
         }}
-        onUpdated={load}
+        onUpdated={() => { load(); setArtworkVersion((v) => v + 1) }}
       />
 
       {showMatchModal && (

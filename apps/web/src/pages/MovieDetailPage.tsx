@@ -37,6 +37,7 @@ export function MovieDetailPage() {
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
+  const [artworkVersion, setArtworkVersion] = useState(0)
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -140,7 +141,7 @@ export function MovieDetailPage() {
         <div className="flex-shrink-0 self-start w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
-              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster` : movie.posterUrl!}
+              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=${artworkVersion}` : movie.posterUrl!}
               alt={movie.title}
               className="w-full object-cover"
             />
@@ -377,7 +378,7 @@ export function MovieDetailPage() {
           searchImages: () => fetchMovieImages(movie.id),
           selectImage: (filePath, artworkType) => selectMovieImage(movie.id, filePath, artworkType),
         }}
-        onUpdated={load}
+        onUpdated={() => { load(); setArtworkVersion((v) => v + 1) }}
       />
 
       {showMatchModal && (
