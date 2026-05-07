@@ -11,6 +11,9 @@ const NOISE_RE =
 // Trailing disc/part suffix on multi-disc movies: "- cd1", "disc 2", "part1", "pt2", etc.
 const DISC_SUFFIX_RE = /\s*[-–]?\s*(?:cd|disc|disk|part|pt)\.?\s*\d+\s*$/i
 
+// Edition token: "{edition-Director's Cut}", "{edition-Extended}", etc.
+const EDITION_RE = /\s*\{edition-([^}]+)\}\s*/i
+
 export function parseFilename(filePath: string): ParsedFilename {
   const base = path.basename(filePath, path.extname(filePath))
   const normalized = normalizeDelimiters(base)
@@ -51,12 +54,23 @@ function parseTvFilename(normalized: string, match: RegExpExecArray): ParsedEpis
 }
 
 function parseMovieFilename(normalized: string): ParsedMovie {
-  // Strip noise tags, then disc suffix, before extracting year
-  // e.g. "Title (Year) [1080p] - cd1" → "Title (Year)"
+  // Strip noise tags, then disc suffix, then edition token, before extracting year
+  // e.g. "Title (Year) {edition-Director's Cut} [1080p] - cd1" → "Title (Year)"
   const noNoise = stripNoise(normalized)
   const noDisc = noNoise.replace(DISC_SUFFIX_RE, '').trim()
-  const { title, year } = extractYearFromTitle(noDisc)
-  return { type: 'movie', title, year }
+  const { edition, remainder } = extractEdition(noDisc)
+  const { title, year } = extractYearFromTitle(remainder)
+  return { type: 'movie', title, year, edition }
+}
+
+// Extract {edition-...} token from a string, returning the label and the remainder.
+function extractEdition(str: string): { edition: string | null; remainder: string } {
+  const match = EDITION_RE.exec(str)
+  if (match?.[1]) {
+    const remainder = (str.slice(0, match.index) + str.slice(match.index + match[0].length)).trim()
+    return { edition: match[1].trim(), remainder }
+  }
+  return { edition: null, remainder: str }
 }
 
 // Extract trailing (YEAR) from a title string — only matches parenthesised years

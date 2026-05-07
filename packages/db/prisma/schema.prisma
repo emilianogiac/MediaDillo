@@ -109,6 +109,7 @@ model MovieFile {
   audioCodec       String?
   audioChannels    String?
   audioQualityTier String?
+  edition          String?
   sortOrder        Int      @default(0)
   scannedAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

@@ -5,7 +5,7 @@ import type { WalkedFile } from './walker.js'
 import type { StaleFileEntry } from './stale-detector.js'
 import { detectLocalArtwork } from './artwork-detector.js'
 import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
-import { parseMovieFolderName } from './filename-parser.js'
+import { parseMovieFolderName, parseFilename } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 
 export interface ScanCounts {
@@ -20,7 +20,7 @@ export async function syncMovieFile(
   scanRootPath?: string,
 ): Promise<'added' | 'changed' | 'unchanged'> {
   if (file.parsed.type !== 'movie') throw new Error('Expected movie file')
-  const { title, year } = file.parsed
+  const { title, year, edition } = file.parsed
   const specs = file.techSpecs
 
   // For multi-disc movies where files live in cd1/cd2 subfolders, artwork and
@@ -143,6 +143,7 @@ export async function syncMovieFile(
         movieId: movie.id,
         path: file.path,
         sizeBytes: file.sizeBytes,
+        edition,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -156,11 +157,12 @@ export async function syncMovieFile(
   }
 
   const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
-  if (mtimeChanged || existing.videoCodec !== specs.videoCodec) {
+  if (mtimeChanged || existing.videoCodec !== specs.videoCodec || existing.edition !== edition) {
     await prisma.movieFile.update({
       where: { path: file.path },
       data: {
         sizeBytes: file.sizeBytes,
+        edition,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -277,6 +279,9 @@ export async function syncMovieFolder(
       specs = { videoCodec: null, videoResolution: null, videoQualityTier: null, hdr: false, audioCodec: null, audioChannels: null, audioQualityTier: null }
     }
 
+    const fileParsed = parseFilename(walkedFile.path)
+    const fileEdition = fileParsed.type === 'movie' ? fileParsed.edition : null
+
     const existing = await prisma.movieFile.findUnique({ where: { path: walkedFile.path } })
     if (!existing) {
       await prisma.movieFile.create({
@@ -284,6 +289,7 @@ export async function syncMovieFolder(
           movieId: movie.id,
           path: walkedFile.path,
           sizeBytes: walkedFile.sizeBytes,
+          edition: fileEdition,
           videoCodec: specs.videoCodec,
           videoResolution: specs.videoResolution,
           videoQualityTier: specs.videoQualityTier,
@@ -296,7 +302,7 @@ export async function syncMovieFolder(
       added++
     } else {
       const needsReparent = existing.movieId !== movie.id
-      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec
+      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition
       if (needsReparent || needsUpdate) {
         const oldMovieId = needsReparent ? existing.movieId : null
         await prisma.movieFile.update({
@@ -304,6 +310,7 @@ export async function syncMovieFolder(
           data: {
             movieId: movie.id,
             sizeBytes: walkedFile.sizeBytes,
+            edition: fileEdition,
             videoCodec: specs.videoCodec,
             videoResolution: specs.videoResolution,
             videoQualityTier: specs.videoQualityTier,

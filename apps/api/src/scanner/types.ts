@@ -12,6 +12,7 @@ export interface ParsedMovie {
   type: 'movie'
   title: string
   year: number | null
+  edition: string | null
 }
 
 export interface ParsedEpisode {

@@ -306,9 +306,11 @@ export function MovieDetailPage() {
                 className="bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2"
               >
                 <div className="flex items-center gap-2">
-                  {fileOrder.length > 1 && (
+                  {file.edition ? (
+                    <TechBadge label={file.edition} variant="edition" />
+                  ) : fileOrder.length > 1 ? (
                     <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
-                  )}
+                  ) : null}
                   <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
                   {fileOrder.length > 1 && (
                     <div className="flex flex-col gap-0.5 shrink-0">

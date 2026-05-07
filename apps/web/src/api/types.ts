@@ -27,6 +27,7 @@ export interface MovieSummary {
 export interface MovieFile {
   id: string
   path: string
+  edition: string | null
   sizeBytes: bigint | number | null
   durationS: number | null
   videoCodec: string | null

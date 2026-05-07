@@ -76,7 +76,7 @@ describe('runScan — scan root type routing', () => {
   it('routes a parser-classified movie to syncMovieFile when scan root is movies', async () => {
     const filePath = '/mnt/nas/The Godfather (1972)/The Godfather (1972).mkv'
     mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
-    mockParseFilename.mockReturnValue({ type: 'movie', title: 'The Godfather', year: 1972 })
+    mockParseFilename.mockReturnValue({ type: 'movie', title: 'The Godfather', year: 1972, edition: null })
 
     await runScan([{ path: '/mnt/nas', label: 'Movies', type: 'movies' }])
 
@@ -106,7 +106,7 @@ describe('runScan — scan root type routing', () => {
     // File has no S/E pattern → parser calls it a movie, but the root is tv
     const filePath = '/mnt/nas/tv/Breaking Bad/Season 01/Breaking Bad - Pilot.mkv'
     mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
-    mockParseFilename.mockReturnValue({ type: 'movie', title: 'Breaking Bad - Pilot', year: null })
+    mockParseFilename.mockReturnValue({ type: 'movie', title: 'Breaking Bad - Pilot', year: null, edition: null })
 
     await runScan([{ path: '/mnt/nas/tv', label: 'TV', type: 'tv' }])
 
@@ -147,7 +147,7 @@ describe('runScan — scan root type routing', () => {
     mockParseFilename
       .mockReturnValueOnce({ type: 'tv', show: 'Breaking Bad', year: null, season: 1, episodes: [1], episodeTitle: 'Pilot' })
       .mockReturnValueOnce({ type: 'tv', show: 'Breaking Bad', year: null, season: 1, episodes: [2], episodeTitle: 'Cat\'s in the Bag' })
-      .mockReturnValueOnce({ type: 'movie', title: 'Featurette', year: null }) // misclassified
+      .mockReturnValueOnce({ type: 'movie', title: 'Featurette', year: null, edition: null }) // misclassified
 
     mockSyncEpisodeFile.mockResolvedValue('added')
 

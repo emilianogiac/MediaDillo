@@ -30,6 +30,28 @@ describe('parseFilename — movies', () => {
   })
 })
 
+describe('parseFilename — movie editions', () => {
+  it('parses edition token', () => {
+    const r = parseFilename('/film/The Godfather (1972)/The Godfather (1972) {edition-Director\'s Cut}.mkv')
+    expect(r).toMatchObject({ type: 'movie', title: 'The Godfather', year: 1972, edition: "Director's Cut" })
+  })
+
+  it('parses edition token without year', () => {
+    const r = parseFilename('/film/Casablanca {edition-Restored}.mkv')
+    expect(r).toMatchObject({ type: 'movie', title: 'Casablanca', year: null, edition: 'Restored' })
+  })
+
+  it('returns null edition when token absent', () => {
+    const r = parseFilename('/film/The Godfather (1972)/The Godfather (1972).mkv')
+    expect(r).toMatchObject({ type: 'movie', title: 'The Godfather', year: 1972, edition: null })
+  })
+
+  it('strips edition token before extracting title and year', () => {
+    const r = parseFilename('/film/Blade Runner 2049 (2017) {edition-Extended Cut}.mkv')
+    expect(r).toMatchObject({ type: 'movie', title: 'Blade Runner 2049', year: 2017, edition: 'Extended Cut' })
+  })
+})
+
 describe('parseFilename — TV shows', () => {
   it('parses standard Jellyfin S/E format', () => {
     const r = parseFilename('/tv/Breaking Bad/Season 01/Breaking Bad - S01E01 - Pilot.mkv')
