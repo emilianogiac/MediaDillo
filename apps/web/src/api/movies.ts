@@ -9,6 +9,7 @@ export interface MoviesFilter {
   unmatched?: boolean
   missingFile?: boolean
   needsRename?: boolean
+  organized?: boolean
   duplicates?: 'only' | 'hide'
   search?: string
 }
@@ -22,6 +23,7 @@ export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSumma
   if (filter.unmatched) params.set('unmatched', 'true')
   if (filter.missingFile) params.set('missingFile', 'true')
   if (filter.needsRename) params.set('needsRename', 'true')
+  if (filter.organized === false) params.set('organized', 'false')
   if (filter.duplicates) params.set('duplicates', filter.duplicates)
   if (filter.search) params.set('search', filter.search)
   const qs = params.toString()

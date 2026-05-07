@@ -9,7 +9,7 @@ import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/namin
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
 export async function moviesRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide&missingFile=true&needsRename=true
+  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide&missingFile=true&needsRename=true&organized=false
   app.get<{
     Querystring: {
       scanRootId?: string
@@ -21,23 +21,24 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       duplicates?: string
       missingFile?: string
       needsRename?: string
+      organized?: string
     }
   }>('/movies', async (req, reply) => {
-    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename } = req.query
+    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized } = req.query
 
-    // Find tmdbIds that appear more than once (multiple editions/versions)
-    const dupGroups = duplicates
-      ? await prisma.movie.groupBy({
-          by: ['tmdbId'],
-          where: { tmdbId: { not: null } },
-          having: { tmdbId: { _count: { gt: 1 } } },
-        })
-      : []
-    const dupTmdbIds = dupGroups.map((g) => g.tmdbId as number)
+    // Always compute dup groups with count (needed for filter + duplicateCount badge)
+    const dupGroups = await prisma.movie.groupBy({
+      by: ['tmdbId'],
+      where: { tmdbId: { not: null } },
+      having: { tmdbId: { _count: { gt: 1 } } },
+      _count: { tmdbId: true },
+    })
+    const dupCountMap = new Map<number, number>(
+      dupGroups.map((g) => [g.tmdbId as number, g._count.tmdbId]),
+    )
+    const dupTmdbIds = [...dupCountMap.keys()]
 
-    const dupSet = new Set(dupTmdbIds)
-
-    // Shared filter conditions (except OR which can't be spread twice cleanly)
+    // Shared filter conditions
     const sharedWhere = {
       OR: [
         { scanRootId: null },
@@ -53,36 +54,9 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
     }
 
-    // missingArtwork uses OR which would collide with the scan-root OR above, so wrap in AND
     const andClauses = missingArtwork === 'true'
       ? [sharedWhere, { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }]
       : [sharedWhere]
-
-    if (needsRename === 'true') {
-      const moviesWithFiles = await prisma.movie.findMany({
-        where: { AND: andClauses },
-        include: { files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] }, scanRoot: true },
-        orderBy: { title: 'asc' },
-      })
-      const filtered = moviesWithFiles.filter((movie) => {
-        if (!movie.scanRoot || movie.files.length === 0) return false
-        const folderPath = path.join(movie.scanRoot.path, canonicalMovieFolderName(movie.title, movie.year))
-        const isMulti = movie.files.length > 1
-        return movie.files.some((file, idx) => {
-          const proposed = path.join(
-            folderPath,
-            canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null),
-          )
-          return file.path !== proposed
-        })
-      })
-      const tagged = filtered.map((m) => ({
-        ...m,
-        isDuplicate: m.tmdbId != null && dupSet.has(m.tmdbId),
-        files: m.files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier })),
-      }))
-      return reply.send(tagged)
-    }
 
     const movies = await prisma.movie.findMany({
       where: { AND: andClauses },
@@ -98,13 +72,53 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         posterDownloaded: true,
         backdropDownloaded: true,
         status: true,
-        scanRoot: { select: { id: true, label: true } },
-        files: { select: { videoQualityTier: true }, take: 1 },
+        scanRoot: { select: { id: true, label: true, path: true } },
+        files: {
+          select: { path: true, sortOrder: true, videoQualityTier: true },
+          orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }],
+        },
       },
       orderBy: { title: 'asc' },
     })
 
-    const tagged = movies.map((m) => ({ ...m, isDuplicate: m.tmdbId != null && dupSet.has(m.tmdbId) }))
+    function allFilesCanonical(movie: typeof movies[0]): boolean {
+      if (!movie.scanRoot || movie.files.length === 0) return false
+      const folderPath = path.join(movie.scanRoot.path, canonicalMovieFolderName(movie.title, movie.year))
+      const isMulti = movie.files.length > 1
+      return movie.files.every((file, idx) => {
+        const proposed = path.join(
+          folderPath,
+          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null),
+        )
+        return file.path === proposed
+      })
+    }
+
+    function isOrganized(movie: typeof movies[0]): boolean {
+      return movie.tmdbId != null && allFilesCanonical(movie)
+    }
+
+    let filtered = movies
+
+    if (needsRename === 'true') {
+      filtered = filtered.filter((movie) =>
+        movie.scanRoot != null && movie.files.length > 0 && !allFilesCanonical(movie),
+      )
+    }
+
+    if (organized === 'false') {
+      filtered = filtered.filter((movie) => !isOrganized(movie))
+    }
+
+    const tagged = filtered.map(({ scanRoot, files, ...rest }) => ({
+      ...rest,
+      isDuplicate: rest.tmdbId != null && dupCountMap.has(rest.tmdbId),
+      duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
+      isOrganized: isOrganized({ scanRoot, files, ...rest }),
+      scanRoot: scanRoot ? { id: scanRoot.id, label: scanRoot.label } : null,
+      files: files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier })),
+    }))
+
     return reply.send(tagged)
   })
 

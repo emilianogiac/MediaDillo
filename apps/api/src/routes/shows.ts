@@ -6,10 +6,10 @@ import { prisma } from '@mediadillo/db'
 import { previewEpisodeRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, isScanRunning } from '../scanner/index.js'
-import { canonicalEpisodeFileName } from '../files/naming.js'
+import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide
+  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false
   app.get<{
     Querystring: {
       search?: string
@@ -17,18 +17,22 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       missingArtwork?: string
       unmatched?: string
       duplicates?: string
+      organized?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched, duplicates } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized } = req.query
 
-    const dupGroups = duplicates
-      ? await prisma.tvShow.groupBy({
-          by: ['tmdbId'],
-          where: { tmdbId: { not: null } },
-          having: { tmdbId: { _count: { gt: 1 } } },
-        })
-      : []
-    const dupTmdbIds = dupGroups.map((g) => g.tmdbId as number)
+    // Always compute dup groups with count
+    const dupGroups = await prisma.tvShow.groupBy({
+      by: ['tmdbId'],
+      where: { tmdbId: { not: null } },
+      having: { tmdbId: { _count: { gt: 1 } } },
+      _count: { tmdbId: true },
+    })
+    const dupCountMap = new Map<number, number>(
+      dupGroups.map((g) => [g.tmdbId as number, g._count.tmdbId]),
+    )
+    const dupTmdbIds = [...dupCountMap.keys()]
 
     const shows = await prisma.tvShow.findMany({
       where: {
@@ -64,12 +68,46 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         status: true,
         ownedEpisodes: true,
         totalEpisodes: true,
+        // First episode file path — used to derive show folder name for isOrganized
+        seasons: {
+          take: 1,
+          select: {
+            episodes: {
+              take: 1,
+              select: {
+                files: { take: 1, select: { path: true } },
+              },
+            },
+          },
+        },
       },
       orderBy: { title: 'asc' },
     })
 
+    function showFolderName(s: typeof shows[0]): string | null {
+      const firstPath = s.seasons[0]?.episodes[0]?.files[0]?.path
+      if (!firstPath) return null
+      return path.basename(path.dirname(path.dirname(firstPath)))
+    }
+
+    function isShowOrganized(s: typeof shows[0]): boolean {
+      if (!s.tmdbId) return false
+      const folderName = showFolderName(s)
+      return folderName === canonicalMovieFolderName(s.title, s.year)
+    }
+
+    let filtered = shows
+    if (organized === 'false') {
+      filtered = filtered.filter((s) => !isShowOrganized(s))
+    }
+
     const dupSet = new Set(dupTmdbIds)
-    const tagged = shows.map((s) => ({ ...s, isDuplicate: s.tmdbId != null && dupSet.has(s.tmdbId) }))
+    const tagged = filtered.map(({ seasons, ...rest }) => ({
+      ...rest,
+      isDuplicate: rest.tmdbId != null && dupSet.has(rest.tmdbId),
+      duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
+      isOrganized: isShowOrganized({ seasons, ...rest }),
+    }))
 
     return reply.send(tagged)
   })

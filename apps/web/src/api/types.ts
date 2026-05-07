@@ -19,6 +19,8 @@ export interface MovieSummary {
   posterDownloaded: boolean
   backdropDownloaded: boolean
   isDuplicate: boolean
+  duplicateCount: number
+  isOrganized: boolean
   status: string
   scanRoot: { id: string; label: string } | null
   files: { videoQualityTier: string | null }[]
@@ -64,6 +66,8 @@ export interface ShowSummary {
   posterDownloaded: boolean
   backdropDownloaded: boolean
   isDuplicate: boolean
+  duplicateCount: number
+  isOrganized: boolean
   status: 'continuing' | 'ended'
   ownedEpisodes: number
   totalEpisodes: number

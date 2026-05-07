@@ -12,6 +12,7 @@ export function PosterCard({ movie }: Props) {
   const missingPoster = !movie.posterDownloaded
   const missingBackdrop = !movie.backdropDownloaded
   const unmatched = !movie.tmdbId
+  const isDuplicate = movie.duplicateCount > 1
 
   return (
     <Link
@@ -35,7 +36,7 @@ export function PosterCard({ movie }: Props) {
       </div>
 
       {/* Health badges — top-right overlay */}
-      {(missingFile || unmatched || missingPoster || missingBackdrop || movie.isDuplicate) && (
+      {(missingFile || unmatched || missingPoster || missingBackdrop || isDuplicate) && (
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
           {missingFile && (
             <span className="bg-red-700/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
@@ -52,9 +53,9 @@ export function PosterCard({ movie }: Props) {
               Art missing
             </span>
           )}
-          {movie.isDuplicate && (
+          {isDuplicate && (
             <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">
-              Duplicate
+              {movie.duplicateCount}×
             </span>
           )}
         </div>
@@ -64,6 +65,13 @@ export function PosterCard({ movie }: Props) {
       {qualityTier && (
         <div className="absolute bottom-9 left-1.5">
           <TechBadge label={qualityTier} variant="quality" />
+        </div>
+      )}
+
+      {/* Organized badge — bottom-right overlay */}
+      {movie.isOrganized && (
+        <div className="absolute bottom-9 right-1.5">
+          <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>
         </div>
       )}
 
