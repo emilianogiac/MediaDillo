@@ -42,6 +42,31 @@ export async function syncMovieFile(
   let movie = existingFileRef
     ? await prisma.movie.findUnique({ where: { id: existingFileRef.movieId } })
     : null
+
+  // Self-heal: if the file-path lookup found a stale record with a broken title
+  // (pre-parser-fix disc suffix like "Movie - cd1") and it was never TMDB-matched,
+  // try to re-parent it onto the canonical movie for this title+year.
+  if (movie && !movie.tmdbId && movie.title !== (nfo?.title ?? title)) {
+    const canonical = await prisma.movie.findFirst({
+      where: { title: nfo?.title ?? title, year: year ?? null, scanRootId, id: { not: movie.id } },
+    })
+    if (canonical) {
+      // Re-parent this file to the canonical record and clean up the stale one.
+      await prisma.movieFile.updateMany({ where: { movieId: movie.id }, data: { movieId: canonical.id } })
+      const remaining = await prisma.movieFile.count({ where: { movieId: movie.id } })
+      if (remaining === 0) await prisma.movie.delete({ where: { id: movie.id } })
+      movie = canonical
+    } else {
+      // No canonical yet — fix the stale record's title so the next disc file
+      // can find it via title+year lookup instead of creating a duplicate.
+      await prisma.movie.update({
+        where: { id: movie.id },
+        data: { title: nfo?.title ?? title, year: year ?? null },
+      })
+      movie = await prisma.movie.findUnique({ where: { id: movie.id } })
+    }
+  }
+
   if (!movie) {
     movie = await prisma.movie.findFirst({ where: { title, year: year ?? null, scanRootId } })
   }
