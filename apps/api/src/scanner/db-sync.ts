@@ -294,23 +294,39 @@ export async function syncMovieFolder(
         },
       })
       added++
-    } else if (existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec) {
-      await prisma.movieFile.update({
-        where: { path: walkedFile.path },
-        data: {
-          movieId: movie.id,
-          sizeBytes: walkedFile.sizeBytes,
-          videoCodec: specs.videoCodec,
-          videoResolution: specs.videoResolution,
-          videoQualityTier: specs.videoQualityTier,
-          hdr: specs.hdr,
-          audioCodec: specs.audioCodec,
-          audioChannels: specs.audioChannels,
-          audioQualityTier: specs.audioQualityTier,
-          scannedAt: new Date(),
-        },
-      })
-      changed++
+    } else {
+      const needsReparent = existing.movieId !== movie.id
+      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec
+      if (needsReparent || needsUpdate) {
+        const oldMovieId = needsReparent ? existing.movieId : null
+        await prisma.movieFile.update({
+          where: { path: walkedFile.path },
+          data: {
+            movieId: movie.id,
+            sizeBytes: walkedFile.sizeBytes,
+            videoCodec: specs.videoCodec,
+            videoResolution: specs.videoResolution,
+            videoQualityTier: specs.videoQualityTier,
+            hdr: specs.hdr,
+            audioCodec: specs.audioCodec,
+            audioChannels: specs.audioChannels,
+            audioQualityTier: specs.audioQualityTier,
+            ...(needsUpdate ? { scannedAt: new Date() } : {}),
+          },
+        })
+        changed++
+
+        // Clean up the stale Movie record that no longer owns any files
+        if (oldMovieId) {
+          const remaining = await prisma.movieFile.count({ where: { movieId: oldMovieId } })
+          if (remaining === 0) {
+            const stale = await prisma.movie.findUnique({ where: { id: oldMovieId }, select: { tmdbId: true } })
+            if (stale && !stale.tmdbId) {
+              await prisma.movie.delete({ where: { id: oldMovieId } })
+            }
+          }
+        }
+      }
     }
   }
 
