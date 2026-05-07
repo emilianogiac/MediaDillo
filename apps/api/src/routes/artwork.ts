@@ -59,7 +59,18 @@ async function streamLocalArtwork(
     const s = await stat(filePath)
     const ext = path.extname(filePath).toLowerCase()
     const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
-    await reply.header('Content-Type', mime).header('Content-Length', s.size).send(createReadStream(filePath))
+    const lastModified = s.mtime.toUTCString()
+    const ifModifiedSince = reply.request.headers['if-modified-since']
+    if (ifModifiedSince && new Date(ifModifiedSince) >= s.mtime) {
+      await reply.code(304).send()
+      return
+    }
+    await reply
+      .header('Content-Type', mime)
+      .header('Content-Length', s.size)
+      .header('Cache-Control', 'no-cache')
+      .header('Last-Modified', lastModified)
+      .send(createReadStream(filePath))
   } catch {
     app.log.warn(`artwork file not readable on disk: ${filePath}`)
     await clearStaleFlag(owner, kind)
