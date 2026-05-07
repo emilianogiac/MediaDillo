@@ -1,6 +1,24 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
-import { prisma } from '@mediadillo/db'
+import { prisma, RenameTrigger } from '@mediadillo/db'
+
+const RENAME_LOG_TTL_DAYS = 180
+
+async function pruneExpiredRenameLogs(): Promise<void> {
+  await prisma.renameLog.deleteMany({ where: { expiresAt: { lt: new Date() } } })
+}
+
+async function logRename(opts: {
+  movieId: string | null
+  fileId: string | null
+  fromPath: string
+  toPath: string
+  trigger: RenameTrigger
+}): Promise<void> {
+  const expiresAt = new Date()
+  expiresAt.setDate(expiresAt.getDate() + RENAME_LOG_TTL_DAYS)
+  await prisma.renameLog.create({ data: { ...opts, expiresAt } })
+}
 import {
   canonicalMovieFolderName,
   canonicalMovieFileName,
@@ -57,7 +75,12 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
   return items
 }
 
-export async function applyMovieRenames(fileIds: string[]): Promise<{ renamed: number; errors: string[] }> {
+export async function applyMovieRenames(
+  fileIds: string[],
+  trigger: RenameTrigger = RenameTrigger.manual,
+): Promise<{ renamed: number; errors: string[] }> {
+  await pruneExpiredRenameLogs()
+
   // Load files grouped by movie to resolve part numbers correctly
   const files = await prisma.movieFile.findMany({
     where: { id: { in: fileIds } },
@@ -92,6 +115,7 @@ export async function applyMovieRenames(fileIds: string[]): Promise<{ renamed: n
       await fs.mkdir(newFolder, { recursive: true })
       await fs.rename(file.path, proposedPath)
       await prisma.movieFile.update({ where: { id: file.id }, data: { path: proposedPath } })
+      await logRename({ movieId: movie.id, fileId: file.id, fromPath: file.path, toPath: proposedPath, trigger })
       renamed++
 
       // Migrate sidecars when the folder actually changed

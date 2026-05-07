@@ -120,3 +120,15 @@ export interface EpisodeFileRecord {
 export async function fetchEpisodeFiles(): Promise<EpisodeFileRecord[]> {
   return apiFetch<EpisodeFileRecord[]>('/files/episode-files')
 }
+
+export interface RenameLogEntry {
+  id: string
+  createdAt: string
+  fromPath: string
+  toPath: string
+  trigger: 'manual' | 'match'
+}
+
+export async function fetchRenameLog(movieId: string): Promise<RenameLogEntry[]> {
+  return apiFetch<RenameLogEntry[]>(`/files/rename-log?movieId=${movieId}`)
+}

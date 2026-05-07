@@ -40,13 +40,24 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     const result =
       type === 'episodes'
         ? await applyEpisodeRenames(fileIds, showFolderItems)
-        : await applyMovieRenames(fileIds)
+        : await applyMovieRenames(fileIds, 'manual')
 
     if (result.renamed > 0) {
       triggerLibraryRefresh(app.log).catch(() => {})
     }
 
     return reply.send(result)
+  })
+
+  // GET /api/files/rename-log?movieId=xxx
+  app.get<{ Querystring: { movieId?: string } }>('/files/rename-log', async (req, reply) => {
+    const { movieId } = req.query
+    const logs = await prisma.renameLog.findMany({
+      where: { ...(movieId ? { movieId } : {}), expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    })
+    return reply.send(logs)
   })
 
   // GET /api/files/episode-files — list all episode files with current mapping for remap UI

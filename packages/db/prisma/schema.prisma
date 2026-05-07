@@ -95,6 +95,25 @@ enum MovieStatus {
   wanted
 }
 
+model RenameLog {
+  id        String        @id @default(cuid())
+  createdAt DateTime      @default(now())
+  expiresAt DateTime
+  movieId   String?
+  fileId    String?
+  fromPath  String
+  toPath    String
+  trigger   RenameTrigger
+
+  @@index([movieId])
+  @@index([expiresAt])
+}
+
+enum RenameTrigger {
+  manual
+  match
+}
+
 model MovieFile {
   id               String   @id @default(cuid())
   movieId          String
