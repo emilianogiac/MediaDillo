@@ -24,6 +24,7 @@ export function MoviesPage() {
     missingArtwork: searchParams.has('missing'),
     unmatched: searchParams.has('unmatched'),
     missingFile: searchParams.has('missingfile'),
+    needsRename: searchParams.has('needsrename'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
   }
 
@@ -35,6 +36,7 @@ export function MoviesPage() {
     missingArtwork?: boolean
     unmatched?: boolean
     missingFile?: boolean
+    needsRename?: boolean
     duplicates?: 'only' | 'hide' | ''
   }) {
     setSearchParams(
@@ -60,6 +62,9 @@ export function MoviesPage() {
         }
         if ('missingFile' in partial) {
           partial.missingFile ? next.set('missingfile', '1') : next.delete('missingfile')
+        }
+        if ('needsRename' in partial) {
+          partial.needsRename ? next.set('needsrename', '1') : next.delete('needsrename')
         }
         if ('duplicates' in partial) {
           partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates')
@@ -87,6 +92,7 @@ export function MoviesPage() {
     if (filter.missingArtwork) movieFilter.missingArtwork = true
     if (filter.unmatched) movieFilter.unmatched = true
     if (filter.missingFile) movieFilter.missingFile = true
+    if (filter.needsRename) movieFilter.needsRename = true
     if (filter.duplicates) movieFilter.duplicates = filter.duplicates
     fetchMovies(movieFilter)
       .then(setMovies)
@@ -100,7 +106,7 @@ export function MoviesPage() {
   )
 
   const hasActiveFilter =
-    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.duplicates
+    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.duplicates
 
   return (
     <div className="p-6 space-y-4">
@@ -214,6 +220,18 @@ export function MoviesPage() {
         </button>
 
         <button
+          onClick={() => setPartial({ needsRename: !filter.needsRename })}
+          className={[
+            'text-xs px-2.5 py-1 rounded border transition-colors',
+            filter.needsRename
+              ? 'bg-orange-500/20 border-orange-500/60 text-orange-300'
+              : 'border-gray-700 text-gray-500 hover:text-gray-300',
+          ].join(' ')}
+        >
+          Needs rename
+        </button>
+
+        <button
           onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
           className={[
             'text-xs px-2.5 py-1 rounded border transition-colors',
@@ -237,6 +255,7 @@ export function MoviesPage() {
                 missingArtwork: false,
                 unmatched: false,
                 missingFile: false,
+                needsRename: false,
                 duplicates: '',
               })
             }

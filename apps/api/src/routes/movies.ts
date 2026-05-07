@@ -4,11 +4,12 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { runMovieFolderScan, isScanRunning } from '../scanner/index.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
+import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/naming.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
 export async function moviesRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide&missingFile=true
+  // GET /api/movies?scanRootId=&genre=&qualityTier=&missingArtwork=&unmatched=&search=&duplicates=only|hide&missingFile=true&needsRename=true
   app.get<{
     Querystring: {
       scanRootId?: string
@@ -19,9 +20,10 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       search?: string
       duplicates?: string
       missingFile?: string
+      needsRename?: string
     }
   }>('/movies', async (req, reply) => {
-    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile } = req.query
+    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename } = req.query
 
     // Find tmdbIds that appear more than once (multiple editions/versions)
     const dupGroups = duplicates
@@ -33,25 +35,57 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       : []
     const dupTmdbIds = dupGroups.map((g) => g.tmdbId as number)
 
+    const dupSet = new Set(dupTmdbIds)
+
+    // Shared filter conditions (except OR which can't be spread twice cleanly)
+    const sharedWhere = {
+      OR: [
+        { scanRootId: null },
+        { scanRoot: { type: 'movies' as const } },
+      ],
+      ...(scanRootId ? { scanRootId } : {}),
+      ...(genre ? { genres: { has: genre } } : {}),
+      ...(qualityTier ? { files: { some: { videoQualityTier: qualityTier } } } : {}),
+      ...(unmatched === 'true' ? { tmdbId: null } : {}),
+      ...(missingFile === 'true' ? { files: { none: {} } } : {}),
+      ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
+      ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
+      ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
+    }
+
+    // missingArtwork uses OR which would collide with the scan-root OR above, so wrap in AND
+    const andClauses = missingArtwork === 'true'
+      ? [sharedWhere, { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }]
+      : [sharedWhere]
+
+    if (needsRename === 'true') {
+      const moviesWithFiles = await prisma.movie.findMany({
+        where: { AND: andClauses },
+        include: { files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] }, scanRoot: true },
+        orderBy: { title: 'asc' },
+      })
+      const filtered = moviesWithFiles.filter((movie) => {
+        if (!movie.scanRoot || movie.files.length === 0) return false
+        const folderPath = path.join(movie.scanRoot.path, canonicalMovieFolderName(movie.title, movie.year))
+        const isMulti = movie.files.length > 1
+        return movie.files.some((file, idx) => {
+          const proposed = path.join(
+            folderPath,
+            canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null),
+          )
+          return file.path !== proposed
+        })
+      })
+      const tagged = filtered.map((m) => ({
+        ...m,
+        isDuplicate: m.tmdbId != null && dupSet.has(m.tmdbId),
+        files: m.files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier })),
+      }))
+      return reply.send(tagged)
+    }
+
     const movies = await prisma.movie.findMany({
-      where: {
-        // Only return movies from movies-type scan roots (or no scan root assigned)
-        OR: [
-          { scanRootId: null },
-          { scanRoot: { type: 'movies' } },
-        ],
-        ...(scanRootId ? { scanRootId } : {}),
-        ...(genre ? { genres: { has: genre } } : {}),
-        ...(qualityTier ? { files: { some: { videoQualityTier: qualityTier } } } : {}),
-        ...(missingArtwork === 'true'
-          ? { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }
-          : {}),
-        ...(unmatched === 'true' ? { tmdbId: null } : {}),
-        ...(missingFile === 'true' ? { files: { none: {} } } : {}),
-        ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
-        ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
-        ...(search ? { title: { contains: search, mode: 'insensitive' } } : {}),
-      },
+      where: { AND: andClauses },
       select: {
         id: true,
         title: true,
@@ -70,10 +104,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       orderBy: { title: 'asc' },
     })
 
-    // Tag each movie with isDuplicate for the badge
-    const dupSet = new Set(dupTmdbIds)
     const tagged = movies.map((m) => ({ ...m, isDuplicate: m.tmdbId != null && dupSet.has(m.tmdbId) }))
-
     return reply.send(tagged)
   })
 
