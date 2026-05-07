@@ -404,6 +404,7 @@ export function ShowsPage() {
       {/* Batch rematch modal */}
       {batchRematch && currentBatchShow && (
         <MatchModal
+          key={currentBatchShow.id}
           mediaType="show"
           id={currentBatchShow.id}
           currentTitle={currentBatchShow.title}

@@ -21,6 +21,7 @@ export interface MovieSummary {
   isDuplicate: boolean
   duplicateCount: number
   isOrganized: boolean
+  fileCount: number
   status: string
   scanRoot: { id: string; label: string } | null
   files: { videoQualityTier: string | null }[]

@@ -115,6 +115,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       isDuplicate: rest.tmdbId != null && dupCountMap.has(rest.tmdbId),
       duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
       isOrganized: isOrganized({ scanRoot, files, ...rest }),
+      fileCount: files.length,
       scanRoot: scanRoot ? { id: scanRoot.id, label: scanRoot.label } : null,
       files: files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier })),
     }))

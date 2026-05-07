@@ -87,6 +87,11 @@ function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
           </div>
         )}
 
+        {/* File count */}
+        <div className={`flex-shrink-0 w-8 text-xs text-right tabular-nums ${movie.fileCount > 1 ? 'text-yellow-400 font-medium' : 'text-gray-600'}`}>
+          {movie.fileCount > 0 ? `${movie.fileCount}f` : '—'}
+        </div>
+
         {/* Scan root */}
         <div className="flex-shrink-0 w-28 text-xs text-gray-500 truncate text-right">
           {movie.scanRoot?.label ?? '—'}
@@ -492,6 +497,7 @@ export function MoviesPage() {
       {/* Batch rematch modal */}
       {batchAction === 'rematch' && currentBatchMovie && (
         <MatchModal
+          key={currentBatchMovie.id}
           mediaType="movie"
           id={currentBatchMovie.id}
           currentTitle={currentBatchMovie.title}
@@ -506,6 +512,7 @@ export function MoviesPage() {
       {/* Batch rename modal */}
       {batchAction === 'rename' && currentBatchMovie && (
         <BatchRenameModal
+          key={currentBatchMovie.id}
           movie={currentBatchMovie}
           remaining={batchQueue.length - batchIdx}
           onApplied={advanceBatch}
