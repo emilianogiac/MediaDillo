@@ -1,11 +1,11 @@
 import path from 'node:path'
 import { prisma } from '@mediadillo/db'
 import type { ScanRootConfig } from '../config.js'
-import { walkRoot } from './walker.js'
+import { walkRoot, walkMovieFolders } from './walker.js'
 import { parseFilename } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 import { detectStaleFiles } from './stale-detector.js'
-import { syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
+import { syncMovieFolder, syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
 import type { ScanCounts } from './db-sync.js'
 import type { ScanSummary } from './types.js'
 
@@ -69,51 +69,49 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
       // Track which folders we've visited for stale detection
       const visitedFolders = new Set<string>()
 
-      for await (const walkedFile of walkRoot(rootConfig.path)) {
-        seenVideoPaths.add(walkedFile.path)
-        progress.filesFound++
-        progress.currentFile = walkedFile.path
+      if (rootConfig.type === 'tv') {
+        // TV: file-level walk → episode sync
+        for await (const walkedFile of walkRoot(rootConfig.path)) {
+          seenVideoPaths.add(walkedFile.path)
+          progress.filesFound++
+          progress.currentFile = walkedFile.path
 
-        const folderPath = path.join(rootConfig.path, walkedFile.parentFolder)
-        visitedFolders.add(folderPath)
+          const folderPath = path.join(rootConfig.path, walkedFile.parentFolder)
+          visitedFolders.add(folderPath)
 
-        const parsed = parseFilename(walkedFile.path)
-        const techSpecs = await extractTechSpecs(walkedFile.path)
-
-        const scannedFile = {
-          path: walkedFile.path,
-          sizeBytes: walkedFile.sizeBytes,
-          mtimeMs: walkedFile.mtimeMs,
-          parsed,
-          techSpecs,
-        }
-
-        try {
-          let result: 'added' | 'changed' | 'unchanged'
-          if (rootConfig.type === 'tv') {
-            // TV scan root: always route to episode sync. If the filename parser
-            // couldn't find an S/E pattern the file is unrecognised — skip it
-            // rather than letting it pollute the Movie table.
-            if (parsed.type !== 'tv') {
-              console.warn(`Skipping unrecognised TV file (no S/E pattern): ${walkedFile.path}`)
-              continue
-            }
-            result = await syncEpisodeFile(scannedFile)
-          } else {
-            // Movies scan root: only sync files the parser classified as movies.
-            if (parsed.type !== 'movie') {
-              console.warn(`Skipping unexpected TV file in movies root: ${walkedFile.path}`)
-              continue
-            }
-            result = await syncMovieFile(scannedFile, scanRoot.id, scanRoot.path)
+          const parsed = parseFilename(walkedFile.path)
+          if (parsed.type !== 'tv') {
+            console.warn(`Skipping unrecognised TV file (no S/E pattern): ${walkedFile.path}`)
+            progress.filesProcessed++
+            continue
           }
-
-          if (result === 'added') added++
-          else if (result === 'changed') changed++
-        } catch (err) {
-          console.error(`Failed to sync ${walkedFile.path}:`, err)
+          const techSpecs = await extractTechSpecs(walkedFile.path)
+          const scannedFile = { path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }
+          try {
+            const result = await syncEpisodeFile(scannedFile)
+            if (result === 'added') added++
+            else if (result === 'changed') changed++
+          } catch (err) {
+            console.error(`Failed to sync ${walkedFile.path}:`, err)
+          }
+          progress.filesProcessed++
         }
-        progress.filesProcessed++
+      } else {
+        // Movies: folder-level walk → one Movie per folder
+        for await (const { folderPath, files } of walkMovieFolders(rootConfig.path)) {
+          visitedFolders.add(folderPath)
+          for (const f of files) seenVideoPaths.add(f.path)
+          progress.filesFound += files.length
+          progress.currentFile = folderPath
+          try {
+            const counts = await syncMovieFolder(folderPath, files, scanRoot.id)
+            added += counts.added
+            changed += counts.changed
+          } catch (err) {
+            console.error(`Failed to sync movie folder ${folderPath}:`, err)
+          }
+          progress.filesProcessed += files.length
+        }
       }
 
       // Stale file detection — check each visited folder
@@ -200,4 +198,42 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
   }
 
   return { added, changed, removed }
+}
+
+export async function runMovieFolderScan(movieId: string): Promise<ScanCounts> {
+  if (scanning) throw new Error('A full scan is already running')
+
+  const movie = await prisma.movie.findUnique({
+    where: { id: movieId },
+    include: { files: { take: 1 }, scanRoot: true },
+  })
+  if (!movie || !movie.scanRoot) return { added: 0, changed: 0, removed: 0 }
+
+  // Derive folder from first file path
+  const firstFile = movie.files[0]
+  if (!firstFile) return { added: 0, changed: 0, removed: 0 }
+
+  const folderPath = path.dirname(firstFile.path)
+
+  // Collect all video files in the folder (recursive, same as walkMovieFolders internals)
+  const files = []
+  for await (const f of walkRoot(folderPath)) {
+    files.push(f)
+  }
+
+  const counts = await syncMovieFolder(folderPath, files, movie.scanRootId!)
+
+  // Prune MovieFiles for this movie whose path no longer exists on disk
+  const seenPaths = new Set(files.map((f) => f.path))
+  const dbFiles = await prisma.movieFile.findMany({
+    where: { movieId },
+    select: { id: true, path: true },
+  })
+  const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
+  if (orphaned.length > 0) {
+    await prisma.movieFile.deleteMany({ where: { id: { in: orphaned.map((f) => f.id) } } })
+    counts.removed += orphaned.length
+  }
+
+  return counts
 }

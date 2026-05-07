@@ -57,6 +57,29 @@ async function* walkDir(dir: string, rootPath: string): AsyncGenerator<WalkedFil
   }
 }
 
+export interface MovieFolder {
+  folderPath: string
+  files: WalkedFile[]
+}
+
+// Walk a movie-type scan root at folder level.
+// Each direct subdirectory = one movie; yields the folder + all video files within it.
+// Files directly in rootPath (no subfolder) are skipped — they violate the spec.
+export async function* walkMovieFolders(rootPath: string): AsyncGenerator<MovieFolder> {
+  const entries = await readDirSafe(rootPath)
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    if (entry.name.startsWith('.') || entry.name === '.trash') continue
+
+    const folderPath = path.join(rootPath, entry.name)
+    const files: WalkedFile[] = []
+    for await (const f of walkDir(folderPath, rootPath)) {
+      files.push(f)
+    }
+    if (files.length > 0) yield { folderPath, files }
+  }
+}
+
 // List ALL files in a directory (non-recursive) for stale detection
 export async function listFolderFiles(folderPath: string): Promise<string[]> {
   const entries = await readDirSafe(folderPath)

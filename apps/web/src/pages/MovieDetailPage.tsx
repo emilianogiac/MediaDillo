@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import type { MovieDetail } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie } from '../api/movies.js'
+import type { MovieDetail, MovieFile } from '../api/types.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder } from '../api/movies.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
+import { MovieFilesPanel } from '../components/MovieFilesPanel.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -27,6 +28,10 @@ export function MovieDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [rescanning, setRescanning] = useState(false)
+  const [rescanResult, setRescanResult] = useState<string | null>(null)
+  const [fileOrder, setFileOrder] = useState<MovieFile[]>([])
+  const [savingOrder, setSavingOrder] = useState(false)
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -43,10 +48,45 @@ export function MovieDetailPage() {
     if (!id) return
     setLoading(true)
     fetchMovie(id)
-      .then(setMovie)
+      .then((m) => { setMovie(m); setFileOrder(m.files) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }, [id])
+
+  async function handleRescan() {
+    if (!id) return
+    setRescanning(true)
+    setRescanResult(null)
+    try {
+      const r = await rescanMovie(id)
+      const parts = [r.added > 0 && `${r.added} added`, r.changed > 0 && `${r.changed} changed`, r.removed > 0 && `${r.removed} removed`].filter(Boolean)
+      setRescanResult(parts.length > 0 ? parts.join(', ') : 'Up to date')
+      load()
+    } catch {
+      setRescanResult('Rescan failed')
+    } finally {
+      setRescanning(false)
+    }
+  }
+
+  function moveFile(index: number, dir: -1 | 1) {
+    const next = [...fileOrder]
+    const target = index + dir
+    if (target < 0 || target >= next.length) return
+    ;[next[index], next[target]] = [next[target]!, next[index]!]
+    setFileOrder(next)
+  }
+
+  async function handleSaveOrder() {
+    if (!id) return
+    setSavingOrder(true)
+    try {
+      await setMovieFileOrder(id, fileOrder.map((f) => f.id))
+      load()
+    } finally {
+      setSavingOrder(false)
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -187,7 +227,20 @@ export function MovieDetailPage() {
 
       {/* Files */}
       <section className="space-y-2">
-        <h2 className="text-lg font-semibold">Files</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Files</h2>
+          <div className="flex items-center gap-2">
+            {rescanResult && <span className="text-xs text-gray-400">{rescanResult}</span>}
+            <button
+              onClick={handleRescan}
+              disabled={rescanning}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+            >
+              {rescanning ? 'Rescanning…' : 'Rescan folder'}
+            </button>
+          </div>
+        </div>
+
         {movie.files.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-red-400 font-medium">⚠ No video file attached to this record.</p>
@@ -202,12 +255,33 @@ export function MovieDetailPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {movie.files.map((file) => (
+            {fileOrder.map((file, idx) => (
               <div
                 key={file.id}
                 className="bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2"
               >
-                <p className="text-xs text-gray-400 font-mono break-all">{file.path}</p>
+                <div className="flex items-center gap-2">
+                  {fileOrder.length > 1 && (
+                    <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
+                  )}
+                  <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
+                  {fileOrder.length > 1 && (
+                    <div className="flex flex-col gap-0.5 shrink-0">
+                      <button
+                        onClick={() => moveFile(idx, -1)}
+                        disabled={idx === 0}
+                        className="text-gray-500 hover:text-accent disabled:opacity-20 leading-none"
+                        title="Move up"
+                      >▲</button>
+                      <button
+                        onClick={() => moveFile(idx, 1)}
+                        disabled={idx === fileOrder.length - 1}
+                        className="text-gray-500 hover:text-accent disabled:opacity-20 leading-none"
+                        title="Move down"
+                      >▼</button>
+                    </div>
+                  )}
+                </div>
                 <div className="flex flex-wrap gap-1.5 items-center">
                   {file.videoQualityTier && (
                     <TechBadge label={file.videoQualityTier} variant="quality" />
@@ -229,9 +303,23 @@ export function MovieDetailPage() {
                 </div>
               </div>
             ))}
+            {fileOrder.length > 1 && (
+              <button
+                onClick={handleSaveOrder}
+                disabled={savingOrder}
+                className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              >
+                {savingOrder ? 'Saving…' : 'Save file order'}
+              </button>
+            )}
           </div>
         )}
       </section>
+
+      {/* Rename & Organize */}
+      {movie.files.length > 0 && (
+        <MovieFilesPanel movieId={movie.id} onDone={load} />
+      )}
 
       {/* Artwork Manager */}
       <ArtworkManager

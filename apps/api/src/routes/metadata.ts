@@ -5,6 +5,9 @@ import { searchMovieCandidates, searchTvCandidates, type MovieCandidate } from '
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
 import { config } from '../config.js'
+import { writeMovieNfo } from '../nfo/writer.js'
+import { downloadMovieArtwork } from '../artwork/downloader.js'
+import { applyMovieRenames } from '../files/rename.js'
 
 function getTmdbClient(): TmdbClient {
   if (!config.TMDB_API_KEY) throw new Error('TMDB_API_KEY is not configured')
@@ -121,6 +124,22 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       } catch (err) {
         // Enrichment failure is non-fatal — the tmdbId is already saved
         app.log.error(err, `enrichMovie failed for movie ${movie.id} (tmdbId ${tmdbId}); match persisted`)
+      }
+
+      // Auto-post-match: write NFO, download artwork, rename to canonical paths.
+      // All non-fatal — match is already persisted above.
+      try {
+        await writeMovieNfo(movie.id)
+        await downloadMovieArtwork(movie.id, 'all', true)
+        const refreshed = await prisma.movie.findUnique({
+          where: { id: movie.id },
+          include: { files: true },
+        })
+        if (refreshed?.files.length) {
+          await applyMovieRenames(refreshed.files.map((f) => f.id))
+        }
+      } catch (err) {
+        app.log.warn(err, `Post-match auto-ops failed for movie ${movie.id}`)
       }
 
       const updated = await prisma.movie.findUnique({ where: { id: movie.id } })

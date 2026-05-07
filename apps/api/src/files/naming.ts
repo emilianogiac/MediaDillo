@@ -14,8 +14,11 @@ export function canonicalMovieFileName(
   title: string,
   year: number | null,
   ext: string,
+  partNumber: number | null = null,
 ): string {
-  return `${canonicalMovieFolderName(title, year)}${ext}`
+  const base = canonicalMovieFolderName(title, year)
+  const part = partNumber !== null ? ` - part${partNumber}` : ''
+  return `${base}${part}${ext}`
 }
 
 export function canonicalSeasonFolderName(seasonNumber: number): string {

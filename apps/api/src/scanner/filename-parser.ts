@@ -108,3 +108,10 @@ function normalizeDelimiters(str: string): string {
 function stripNoise(str: string): string {
   return str.replace(NOISE_RE, '').trim()
 }
+
+// Parse a movie folder name to extract title and year.
+// Best-effort: extracts (YEAR) if present, otherwise uses folder name as-is.
+// No noise stripping — folder names are closer to canonical than filenames.
+export function parseMovieFolderName(folderName: string): { title: string; year: number | null } {
+  return extractYearFromTitle(folderName.trim())
+}

@@ -36,6 +36,7 @@ export interface MovieFile {
   audioCodec: string | null
   audioChannels: string | null
   audioQualityTier: string | null
+  sortOrder: number
 }
 
 export interface Person {

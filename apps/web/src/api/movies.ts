@@ -74,3 +74,14 @@ export async function matchMovie(id: string, tmdbId: number): Promise<void> {
 export async function deleteMovie(id: string): Promise<void> {
   await apiFetch(`/movies/${id}`, { method: 'DELETE' })
 }
+
+export async function rescanMovie(id: string): Promise<{ added: number; changed: number; removed: number }> {
+  return apiFetch(`/movies/${id}/rescan`, { method: 'POST' })
+}
+
+export async function setMovieFileOrder(movieId: string, fileIds: string[]): Promise<void> {
+  await apiFetch(`/movies/${movieId}/files/order`, {
+    method: 'PATCH',
+    body: JSON.stringify({ fileIds }),
+  })
+}

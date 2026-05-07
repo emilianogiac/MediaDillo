@@ -26,7 +26,7 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
       status: 'owned',
       ...(movieIds && movieIds.length > 0 ? { id: { in: movieIds } } : {}),
     },
-    include: { files: true, scanRoot: true },
+    include: { files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] }, scanRoot: true },
   })
 
   const items: RenamePreviewItem[] = []
@@ -36,10 +36,12 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
 
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
+    const isMulti = movie.files.length > 1
 
-    for (const file of movie.files) {
+    movie.files.forEach((file, idx) => {
       const ext = path.extname(file.path)
-      const fileName = canonicalMovieFileName(movie.title, movie.year, ext)
+      const partNumber = isMulti ? idx + 1 : null
+      const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber)
       const proposedPath = path.join(folderPath, fileName)
 
       items.push({
@@ -49,16 +51,17 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
         proposedPath,
         needsRename: file.path !== proposedPath,
       })
-    }
+    })
   }
 
   return items
 }
 
 export async function applyMovieRenames(fileIds: string[]): Promise<{ renamed: number; errors: string[] }> {
+  // Load files grouped by movie to resolve part numbers correctly
   const files = await prisma.movieFile.findMany({
     where: { id: { in: fileIds } },
-    include: { movie: { include: { scanRoot: true } } },
+    include: { movie: { include: { scanRoot: true, files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] } } } },
   })
 
   let renamed = 0
@@ -74,7 +77,10 @@ export async function applyMovieRenames(fileIds: string[]): Promise<{ renamed: n
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
     const ext = path.extname(file.path)
-    const fileName = canonicalMovieFileName(movie.title, movie.year, ext)
+    const isMulti = movie.files.length > 1
+    const fileIndex = movie.files.findIndex((f) => f.id === file.id)
+    const partNumber = isMulti ? fileIndex + 1 : null
+    const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber)
     const proposedPath = path.join(folderPath, fileName)
 
     if (file.path === proposedPath) continue

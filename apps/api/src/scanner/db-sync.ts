@@ -1,9 +1,12 @@
 import path from 'node:path'
 import { prisma, MediaType, CreditRole } from '@mediadillo/db'
-import type { ScannedFile } from './types.js'
+import type { ScannedFile, VideoTechSpecs } from './types.js'
+import type { WalkedFile } from './walker.js'
 import type { StaleFileEntry } from './stale-detector.js'
 import { detectLocalArtwork } from './artwork-detector.js'
 import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
+import { parseMovieFolderName } from './filename-parser.js'
+import { extractTechSpecs } from './ffprobe.js'
 
 export interface ScanCounts {
   added: number
@@ -172,6 +175,146 @@ export async function syncMovieFile(
   }
 
   return 'unchanged'
+}
+
+// ---------------------------------------------------------------------------
+// Folder-level movie sync — one folder = one movie
+// ---------------------------------------------------------------------------
+
+export async function syncMovieFolder(
+  folderPath: string,
+  files: WalkedFile[],
+  scanRootId: string,
+): Promise<ScanCounts> {
+  const { title, year } = parseMovieFolderName(path.basename(folderPath))
+
+  const [artwork, nfo] = await Promise.all([
+    detectLocalArtwork(folderPath),
+    parseMovieNfo(folderPath),
+  ])
+
+  // Find or create the Movie record.
+  // Try: any existing MovieFile whose path starts with this folder → get movieId.
+  // Fallback: title+year lookup for truly new folders.
+  const existingFileRef = await prisma.movieFile.findFirst({
+    where: { path: { startsWith: folderPath + '/' } },
+    select: { movieId: true },
+  })
+  let movie = existingFileRef
+    ? await prisma.movie.findUnique({ where: { id: existingFileRef.movieId } })
+    : null
+  if (!movie) {
+    movie = await prisma.movie.findFirst({ where: { title: nfo?.title ?? title, year: year ?? null, scanRootId } })
+  }
+  if (!movie) {
+    movie = await prisma.movie.create({
+      data: {
+        title: nfo?.title ?? title,
+        year: nfo?.year ?? year,
+        status: 'owned',
+        scanRootId,
+        tmdbId: nfo?.tmdbId ?? null,
+        imdbId: nfo?.imdbId ?? null,
+        overview: nfo?.overview ?? null,
+        tagline: nfo?.tagline ?? null,
+        rating: nfo?.rating ?? null,
+        runtime: nfo?.runtime ?? null,
+        genres: nfo?.genres ?? [],
+        posterDownloaded: artwork.hasPoster,
+        backdropDownloaded: artwork.hasBackdrop,
+      },
+    })
+  } else {
+    const updates: Record<string, unknown> = {}
+    if (!movie.tmdbId && nfo?.tmdbId) updates['tmdbId'] = nfo.tmdbId
+    if (!movie.imdbId && nfo?.imdbId) updates['imdbId'] = nfo.imdbId
+    if (!movie.overview && nfo?.overview) updates['overview'] = nfo.overview
+    if (!movie.tagline && nfo?.tagline) updates['tagline'] = nfo.tagline
+    if (!movie.rating && nfo?.rating) updates['rating'] = nfo.rating
+    if (!movie.runtime && nfo?.runtime) updates['runtime'] = nfo.runtime
+    if ((!movie.genres || movie.genres.length === 0) && nfo?.genres?.length) updates['genres'] = nfo.genres
+    if (artwork.hasPoster) updates['posterDownloaded'] = true
+    if (artwork.hasBackdrop) updates['backdropDownloaded'] = true
+    if (Object.keys(updates).length > 0) {
+      await prisma.movie.update({ where: { id: movie.id }, data: updates })
+    }
+  }
+
+  // Sync credits from NFO once per folder
+  if (nfo && (nfo.directors.length > 0 || nfo.cast.length > 0)) {
+    const existingCredits = await prisma.credit.count({ where: { mediaType: MediaType.movie, movieId: movie.id } })
+    if (existingCredits === 0) {
+      const creditData: Array<{ mediaType: MediaType; movieId: string; role: CreditRole; character: string | null; personId: string }> = []
+      for (const name of nfo.directors) {
+        const person = await prisma.person.upsert({
+          where: { tmdbId: -Math.abs(hashName(name)) },
+          create: { tmdbId: -Math.abs(hashName(name)), name },
+          update: {},
+        })
+        creditData.push({ mediaType: MediaType.movie, movieId: movie.id, role: CreditRole.director, character: null, personId: person.id })
+      }
+      for (const actor of nfo.cast.slice(0, 20)) {
+        const person = await prisma.person.upsert({
+          where: { tmdbId: -Math.abs(hashName(actor.name)) },
+          create: { tmdbId: -Math.abs(hashName(actor.name)), name: actor.name },
+          update: {},
+        })
+        creditData.push({ mediaType: MediaType.movie, movieId: movie.id, role: CreditRole.cast, character: actor.role, personId: person.id })
+      }
+      if (creditData.length > 0) {
+        await prisma.credit.createMany({ data: creditData, skipDuplicates: true })
+      }
+    }
+  }
+
+  // Upsert a MovieFile for each video file in this folder
+  let added = 0; let changed = 0
+  for (const walkedFile of files) {
+    let specs: VideoTechSpecs
+    try {
+      specs = await extractTechSpecs(walkedFile.path)
+    } catch {
+      specs = { videoCodec: null, videoResolution: null, videoQualityTier: null, hdr: false, audioCodec: null, audioChannels: null, audioQualityTier: null }
+    }
+
+    const existing = await prisma.movieFile.findUnique({ where: { path: walkedFile.path } })
+    if (!existing) {
+      await prisma.movieFile.create({
+        data: {
+          movieId: movie.id,
+          path: walkedFile.path,
+          sizeBytes: walkedFile.sizeBytes,
+          videoCodec: specs.videoCodec,
+          videoResolution: specs.videoResolution,
+          videoQualityTier: specs.videoQualityTier,
+          hdr: specs.hdr,
+          audioCodec: specs.audioCodec,
+          audioChannels: specs.audioChannels,
+          audioQualityTier: specs.audioQualityTier,
+        },
+      })
+      added++
+    } else if (existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec) {
+      await prisma.movieFile.update({
+        where: { path: walkedFile.path },
+        data: {
+          movieId: movie.id,
+          sizeBytes: walkedFile.sizeBytes,
+          videoCodec: specs.videoCodec,
+          videoResolution: specs.videoResolution,
+          videoQualityTier: specs.videoQualityTier,
+          hdr: specs.hdr,
+          audioCodec: specs.audioCodec,
+          audioChannels: specs.audioChannels,
+          audioQualityTier: specs.audioQualityTier,
+          scannedAt: new Date(),
+        },
+      })
+      changed++
+    }
+  }
+
+  return { added, changed, removed: 0 }
 }
 
 export async function syncEpisodeFile(

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
+import { runMovieFolderScan, isScanRunning } from '../scanner/index.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
@@ -107,7 +108,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       where: { id: req.params.id },
       include: {
         scanRoot: true,
-        files: { orderBy: { path: 'asc' } },
+        files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] },
         credits: {
           include: { person: true },
           orderBy: { role: 'asc' },
@@ -117,4 +118,33 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     return reply.send(movie)
   })
+
+  // POST /api/movies/:id/rescan — re-scan the movie's folder
+  app.post<{ Params: { id: string } }>('/movies/:id/rescan', async (req, reply) => {
+    if (isScanRunning()) return reply.code(409).send({ error: 'A full scan is already running' })
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!movie) return reply.code(404).send({ error: 'Movie not found' })
+    try {
+      const counts = await runMovieFolderScan(req.params.id)
+      return reply.send(counts)
+    } catch (err) {
+      return reply.code(500).send({ error: err instanceof Error ? err.message : 'Rescan failed' })
+    }
+  })
+
+  // PATCH /api/movies/:id/files/order — set file sort order
+  app.patch<{ Params: { id: string }; Body: { fileIds: string[] } }>(
+    '/movies/:id/files/order',
+    async (req, reply) => {
+      const { fileIds } = req.body
+      if (!Array.isArray(fileIds)) return reply.code(400).send({ error: 'fileIds must be an array' })
+
+      await Promise.all(
+        fileIds.map((id, idx) =>
+          prisma.movieFile.update({ where: { id }, data: { sortOrder: idx } }),
+        ),
+      )
+      return reply.send({ updated: fileIds.length })
+    },
+  )
 }
