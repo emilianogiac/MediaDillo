@@ -1,4 +1,4 @@
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -14,7 +14,7 @@ RUN pnpm --filter @mediadillo/db build
 RUN pnpm --filter @mediadillo/web build
 RUN pnpm --filter @mediadillo/api build
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 RUN apk add --no-cache openssl
 RUN corepack enable
 WORKDIR /app
