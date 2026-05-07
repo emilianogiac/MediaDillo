@@ -85,7 +85,7 @@ export function ShowDetailPage() {
 
       {/* Hero */}
       <div className="flex gap-6">
-        <div className="flex-shrink-0 w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
+        <div className="flex-shrink-0 self-start w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
           {(show.posterDownloaded || show.posterUrl) ? (
             <img
               src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}

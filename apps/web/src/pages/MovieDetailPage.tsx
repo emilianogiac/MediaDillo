@@ -137,7 +137,7 @@ export function MovieDetailPage() {
       {/* Hero section */}
       <div className="flex gap-6">
         {/* Poster */}
-        <div className="flex-shrink-0 w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
+        <div className="flex-shrink-0 self-start w-36 rounded-lg overflow-hidden bg-gray-800 border border-gray-700">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
               src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster` : movie.posterUrl!}
