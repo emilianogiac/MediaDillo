@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@10.32.1",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"pnpm --filter @mediadillo/api dev\" \"pnpm --filter @mediadillo/web dev\"",
     "build": "pnpm --filter @mediadillo/db db:generate && pnpm --filter @mediadillo/api build && pnpm --filter @mediadillo/web build",
