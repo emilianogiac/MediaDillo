@@ -64,7 +64,7 @@ function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
-              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster` : movie.posterUrl!}
+              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=1` : movie.posterUrl!}
               alt={movie.title}
               loading="lazy"
               className="w-full h-full object-cover"

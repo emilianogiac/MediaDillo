@@ -50,7 +50,7 @@ function ShowCard({ show }: { show: ShowSummary }) {
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
         {(show.posterDownloaded || show.posterUrl) ? (
           <img
-            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}
+            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=1` : show.posterUrl!}
             alt={show.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -126,7 +126,7 @@ function ShowListRow({ show, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(show.posterDownloaded || show.posterUrl) ? (
             <img
-              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster` : show.posterUrl!}
+              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=1` : show.posterUrl!}
               alt={show.title}
               loading="lazy"
               className="w-full h-full object-cover"

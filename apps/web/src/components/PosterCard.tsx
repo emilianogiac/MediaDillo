@@ -23,7 +23,7 @@ export function PosterCard({ movie }: Props) {
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
         {(movie.posterDownloaded || movie.posterUrl) ? (
           <img
-            src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster` : movie.posterUrl!}
+            src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=1` : movie.posterUrl!}
             alt={movie.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
