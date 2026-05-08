@@ -89,7 +89,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       return movie.files.every((file, idx) => {
         const proposed = path.join(
           folderPath,
-          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null),
+          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null, file.edition ?? null),
         )
         return file.path === proposed
       })
