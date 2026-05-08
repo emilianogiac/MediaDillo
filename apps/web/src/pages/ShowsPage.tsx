@@ -4,7 +4,6 @@ import type { ShowSummary } from '../api/types.js'
 import { fetchShows, fetchShowCandidates, matchShow } from '../api/shows.js'
 import { MatchModal } from '../components/MatchModal.js'
 
-const SESSION_V = Date.now()
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
 function completenessColor(owned: number, total: number): string {
@@ -37,7 +36,7 @@ function ListIcon() {
   )
 }
 
-function ShowCard({ show }: { show: ShowSummary }) {
+function ShowCard({ show, nonce }: { show: ShowSummary; nonce: number }) {
   const unmatched = !show.tmdbId
   const missingArt = !show.posterDownloaded || !show.backdropDownloaded
   const isDuplicate = show.duplicateCount > 1
@@ -51,7 +50,7 @@ function ShowCard({ show }: { show: ShowSummary }) {
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
         {(show.posterDownloaded || show.posterUrl) ? (
           <img
-            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${SESSION_V}` : show.posterUrl!}
+            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${nonce}` : show.posterUrl!}
             alt={show.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -100,22 +99,25 @@ function ShowCard({ show }: { show: ShowSummary }) {
 interface ListRowProps {
   show: ShowSummary
   selected: boolean
-  onToggle: () => void
+  index: number
+  nonce: number
+  onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function ShowListRow({ show, selected, onToggle }: ListRowProps) {
+function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
   const unmatched = !show.tmdbId
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
+  const rowBg = index % 2 === 1 ? 'bg-gray-900/30' : ''
 
   return (
-    <div className="flex items-center group">
+    <div className={`flex items-center group ${rowBg}`}>
       <div className="pl-3 pr-2 flex-shrink-0 flex items-center self-stretch">
         <input
           type="checkbox"
           checked={selected}
-          onChange={onToggle}
-          onClick={(e) => e.stopPropagation()}
+          onChange={() => {}}
+          onClick={(e) => { e.stopPropagation(); onToggle(e) }}
           className="accent-accent cursor-pointer"
         />
       </div>
@@ -127,7 +129,7 @@ function ShowListRow({ show, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(show.posterDownloaded || show.posterUrl) ? (
             <img
-              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${SESSION_V}` : show.posterUrl!}
+              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${nonce}` : show.posterUrl!}
               alt={show.title}
               loading="lazy"
               className="w-full h-full object-cover"
@@ -166,9 +168,11 @@ export function ShowsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
+  const [listNonce, setListNonce] = useState(() => Date.now())
 
   // Selection state
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
   // Batch rematch state
   const [batchQueue, setBatchQueue] = useState<string[]>([])
@@ -222,7 +226,7 @@ export function ShowsPage() {
     if (filter.needsOrganizing) showFilter.organized = false
     if (filter.duplicates) showFilter.duplicates = filter.duplicates
     fetchShows(showFilter)
-      .then(setShows)
+      .then((data) => { setShows(data); setListNonce(Date.now()) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }
@@ -236,8 +240,19 @@ export function ShowsPage() {
   const someSelected = selected.size > 0
 
   function toggleAll() { setSelected(allSelected ? new Set() : new Set(allIds)) }
-  function toggleOne(id: string) {
-    setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+
+  function toggleOne(id: string, index: number, shiftKey: boolean) {
+    if (shiftKey && lastSelectedIdx !== null) {
+      const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
+      setSelected((prev) => {
+        const next = new Set(prev)
+        shows.slice(from, to + 1).forEach((s) => next.add(s.id))
+        return next
+      })
+    } else {
+      setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+      setLastSelectedIdx(index)
+    }
   }
 
   function startBatchRematch() {
@@ -353,7 +368,7 @@ export function ShowsPage() {
 
       {!loading && !error && shows.length > 0 && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-          {shows.map((show) => <ShowCard key={show.id} show={show} />)}
+          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} />)}
         </div>
       )}
 
@@ -371,12 +386,14 @@ export function ShowsPage() {
               {someSelected ? `${selected.size} selected` : `${shows.length} items`}
             </span>
           </div>
-          {shows.map((show) => (
+          {shows.map((show, idx) => (
             <ShowListRow
               key={show.id}
               show={show}
               selected={selected.has(show.id)}
-              onToggle={() => toggleOne(show.id)}
+              index={idx}
+              nonce={listNonce}
+              onToggle={(e) => toggleOne(show.id, idx, e.shiftKey)}
             />
           ))}
         </div>

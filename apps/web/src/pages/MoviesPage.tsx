@@ -7,8 +7,6 @@ import { TechBadge } from '../components/TechBadge.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
 
-const SESSION_V = Date.now()
-
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
 function GridIcon() {
@@ -35,24 +33,30 @@ function ListIcon() {
 interface ListRowProps {
   movie: MovieSummary
   selected: boolean
-  onToggle: () => void
+  index: number
+  nonce: number
+  onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
-  const qualityTier = movie.files[0]?.videoQualityTier
+function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps) {
+  const file = movie.files[0]
+  const qualityTier = file?.videoQualityTier
+  const videoCodec = file?.videoCodec
+  const audioLabel = [file?.audioCodec, file?.audioChannels].filter(Boolean).join(' ')
   const unmatched = !movie.tmdbId
   const isDuplicate = movie.duplicateCount > 1
   const missingFile = movie.files.length === 0
+  const rowBg = index % 2 === 1 ? 'bg-gray-900/30' : ''
 
   return (
-    <div className="flex items-center group">
+    <div className={`flex items-center group ${rowBg}`}>
       {/* Checkbox */}
       <div className="pl-3 pr-2 flex-shrink-0 flex items-center self-stretch">
         <input
           type="checkbox"
           checked={selected}
-          onChange={onToggle}
-          onClick={(e) => e.stopPropagation()}
+          onChange={() => {}}
+          onClick={(e) => { e.stopPropagation(); onToggle(e) }}
           className="accent-accent cursor-pointer"
         />
       </div>
@@ -66,7 +70,7 @@ function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
-              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=${SESSION_V}` : movie.posterUrl!}
+              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=${nonce}` : movie.posterUrl!}
               alt={movie.title}
               loading="lazy"
               className="w-full h-full object-cover"
@@ -77,17 +81,25 @@ function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
         </div>
 
         {/* Title + year */}
-        <div className="flex-1 min-w-0">
+        <div className="w-48 flex-shrink-0 min-w-0">
           <p className="text-sm font-medium text-gray-100 truncate">{movie.title}</p>
           <p className="text-xs text-gray-500">{movie.year ?? '—'}</p>
         </div>
 
         {/* Quality */}
-        {qualityTier && (
-          <div className="flex-shrink-0">
-            <TechBadge label={qualityTier} variant="quality" />
-          </div>
-        )}
+        <div className="flex-shrink-0 w-14">
+          {qualityTier && <TechBadge label={qualityTier} variant="quality" />}
+        </div>
+
+        {/* Video codec */}
+        <div className="flex-shrink-0 w-12 text-xs text-gray-500 tabular-nums truncate">
+          {videoCodec ?? '—'}
+        </div>
+
+        {/* Audio */}
+        <div className="flex-shrink-0 w-24 text-xs text-gray-500 tabular-nums truncate">
+          {audioLabel || '—'}
+        </div>
 
         {/* File count */}
         <div className={`flex-shrink-0 w-8 text-xs text-right tabular-nums ${movie.fileCount > 1 ? 'text-yellow-400 font-medium' : 'text-gray-600'}`}>
@@ -125,9 +137,11 @@ export function MoviesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
+  const [listNonce, setListNonce] = useState(() => Date.now())
 
   // Selection state
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
   // Batch action state: queue of movie ids + which action + current index
   const [batchQueue, setBatchQueue] = useState<string[]>([])
@@ -226,7 +240,7 @@ export function MoviesPage() {
     if (filter.needsOrganizing) movieFilter.organized = false
     if (filter.duplicates) movieFilter.duplicates = filter.duplicates
     fetchMovies(movieFilter)
-      .then(setMovies)
+      .then((data) => { setMovies(data); setListNonce(Date.now()) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
   }
@@ -250,12 +264,22 @@ export function MoviesPage() {
     setSelected(allSelected ? new Set() : new Set(allIds))
   }
 
-  function toggleOne(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+  function toggleOne(id: string, index: number, shiftKey: boolean) {
+    if (shiftKey && lastSelectedIdx !== null) {
+      const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
+      setSelected((prev) => {
+        const next = new Set(prev)
+        movies.slice(from, to + 1).forEach((m) => next.add(m.id))
+        return next
+      })
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev)
+        next.has(id) ? next.delete(id) : next.add(id)
+        return next
+      })
+      setLastSelectedIdx(index)
+    }
   }
 
   // Batch helpers
@@ -438,7 +462,7 @@ export function MoviesPage() {
       {!loading && !error && movies.length > 0 && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
           {movies.map((movie) => (
-            <PosterCard key={movie.id} movie={movie} />
+            <PosterCard key={movie.id} movie={movie} version={listNonce} />
           ))}
         </div>
       )}
@@ -459,12 +483,14 @@ export function MoviesPage() {
             </span>
           </div>
 
-          {movies.map((movie) => (
+          {movies.map((movie, idx) => (
             <MovieListRow
               key={movie.id}
               movie={movie}
               selected={selected.has(movie.id)}
-              onToggle={() => toggleOne(movie.id)}
+              index={idx}
+              nonce={listNonce}
+              onToggle={(e) => toggleOne(movie.id, idx, e.shiftKey)}
             />
           ))}
         </div>

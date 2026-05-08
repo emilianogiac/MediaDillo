@@ -41,8 +41,8 @@ export async function searchTvImages(
 }
 
 async function fetchImages(endpoint: string, apiKey: string): Promise<TmdbImagesResponse> {
-  // include_image_language: fetch English + language-neutral images
-  const url = `https://api.themoviedb.org/3${endpoint}?api_key=${apiKey}&include_image_language=en,null`
+  // include_image_language: Italian first, then English, then language-neutral
+  const url = `https://api.themoviedb.org/3${endpoint}?api_key=${apiKey}&include_image_language=it,en,null`
   const res = await fetch(url, { headers: { Accept: 'application/json' } })
   if (!res.ok) throw new Error(`TMDB images ${endpoint} → HTTP ${res.status}`)
   return res.json() as Promise<TmdbImagesResponse>
@@ -58,7 +58,10 @@ function toImageCandidates(images: TmdbImage[] = []): ImageCandidate[] {
       language: img.iso_639_1,
       voteAverage: img.vote_average,
     }))
-    .sort((a, b) => b.voteAverage - a.voteAverage)
+    .sort((a, b) => {
+      const langScore = (lang: string | null) => (lang === 'it' ? 2 : lang === 'en' ? 1 : 0)
+      return langScore(b.language) - langScore(a.language) || b.voteAverage - a.voteAverage
+    })
     .slice(0, 20)
 }
 

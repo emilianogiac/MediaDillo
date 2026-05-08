@@ -74,7 +74,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         status: true,
         scanRoot: { select: { id: true, label: true, path: true } },
         files: {
-          select: { path: true, sortOrder: true, videoQualityTier: true },
+          select: { path: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
           orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }],
         },
       },
@@ -117,7 +117,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       isOrganized: isOrganized({ scanRoot, files, ...rest }),
       fileCount: files.length,
       scanRoot: scanRoot ? { id: scanRoot.id, label: scanRoot.label } : null,
-      files: files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier })),
+      files: files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier, videoCodec: f.videoCodec, audioQualityTier: f.audioQualityTier, audioChannels: f.audioChannels, audioCodec: f.audioCodec })),
     }))
 
     return reply.send(tagged)
