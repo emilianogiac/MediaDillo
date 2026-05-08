@@ -7,6 +7,8 @@ import { TechBadge } from '../components/TechBadge.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
 
+const SESSION_V = Date.now()
+
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
 function GridIcon() {
@@ -64,7 +66,7 @@ function MovieListRow({ movie, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
-              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=1` : movie.posterUrl!}
+              src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=${SESSION_V}` : movie.posterUrl!}
               alt={movie.title}
               loading="lazy"
               className="w-full h-full object-cover"

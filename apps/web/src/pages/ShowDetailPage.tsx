@@ -35,7 +35,7 @@ export function ShowDetailPage() {
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
-  const [artworkVersion, setArtworkVersion] = useState(0)
+  const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
 
   const load = useCallback(() => {
     if (!id) return

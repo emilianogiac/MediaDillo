@@ -4,6 +4,7 @@ import type { ShowSummary } from '../api/types.js'
 import { fetchShows, fetchShowCandidates, matchShow } from '../api/shows.js'
 import { MatchModal } from '../components/MatchModal.js'
 
+const SESSION_V = Date.now()
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
 function completenessColor(owned: number, total: number): string {
@@ -50,7 +51,7 @@ function ShowCard({ show }: { show: ShowSummary }) {
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
         {(show.posterDownloaded || show.posterUrl) ? (
           <img
-            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=1` : show.posterUrl!}
+            src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${SESSION_V}` : show.posterUrl!}
             alt={show.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
@@ -126,7 +127,7 @@ function ShowListRow({ show, selected, onToggle }: ListRowProps) {
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(show.posterDownloaded || show.posterUrl) ? (
             <img
-              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=1` : show.posterUrl!}
+              src={show.posterDownloaded ? `/api/artwork/shows/${show.id}/poster?v=${SESSION_V}` : show.posterUrl!}
               alt={show.title}
               loading="lazy"
               className="w-full h-full object-cover"

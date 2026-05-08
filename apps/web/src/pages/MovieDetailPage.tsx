@@ -37,7 +37,7 @@ export function MovieDetailPage() {
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
-  const [artworkVersion, setArtworkVersion] = useState(0)
+  const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return

@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom'
 import type { MovieSummary } from '../api/types.js'
 import { TechBadge } from './TechBadge.js'
 
+const SESSION_V = Date.now()
+
 interface Props {
   movie: MovieSummary
 }
@@ -23,7 +25,7 @@ export function PosterCard({ movie }: Props) {
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
         {(movie.posterDownloaded || movie.posterUrl) ? (
           <img
-            src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=1` : movie.posterUrl!}
+            src={movie.posterDownloaded ? `/api/artwork/movies/${movie.id}/poster?v=${SESSION_V}` : movie.posterUrl!}
             alt={movie.title}
             loading="lazy"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
