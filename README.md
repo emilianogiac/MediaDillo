@@ -23,10 +23,10 @@ Self-hosted media library manager for Jellyfin — scan, match, rename, and trac
 - **Existing artwork detection** — automatically detects posters and backdrops already present on disk (Jellyfin standard names and TinyMediaManager suffixes like `-poster`, `-fanart`, `-landscape`)
 - **NFO sidecar import** — reads existing Kodi/TMM `.nfo` files during scan to pre-populate metadata without an API call; supports movie, show, and episode-level NFOs
 - **TMDB / TVDB metadata matching** — search and match titles against TMDB and TVDB; IMDb → TMDB auto-match via external ID lookup; Italian (or any language) metadata via `METADATA_LANGUAGE` env var
-- **Artwork manager** — streams locally saved artwork directly from the NAS; download missing posters and backdrops from TMDB; search and replace artwork per title
+- **Artwork manager** — streams locally saved artwork directly from the NAS; download missing posters and backdrops from TMDB; search and replace artwork per title; Italian-first image sorting (it → en → null); artwork always served fresh (no stale browser cache)
 - **Missing content tracker** — episode diff against TMDB for TV shows; movie wishlist for tracking titles you want to acquire
-- **File manager** — Jellyfin-standard rename preview and apply; stale file cleanup; per-show Cleanup & Organize panel with rename queue and stale removal; multi-part episode merge (rename two episodes as part1/part2 + cascade renumber); episode remapper for multi-episode files (`S01E01E02`)
-- **Health dashboard** — per-library completeness score; bulk artwork and metadata refresh; duplicate detection (orange badge + tri-state filter); missing-file badge and filter; delete stale records with no files
+- **File manager** — Jellyfin-standard rename preview and apply; stale file cleanup; per-show Cleanup & Organize panel with rename queue and stale removal; per-movie Folder Cleanup panel (scan folder, remove old TMM artwork and stale NFOs); multi-part episode merge (rename two episodes as part1/part2 + cascade renumber); episode remapper for multi-episode files (`S01E01E02`)
+- **Health dashboard** — per-library completeness score; bulk artwork and metadata refresh; duplicate detection (orange badge + tri-state filter); missing-file badge and filter; delete stale records with no files; list view with codec/audio columns, alternating rows, and shift-click range selection
 - **Jellyfin integration** — auto-trigger library refresh after file operations; watched status sync (optional)
 - **Export** — JSON, CSV, and NFO sidecar files (Kodi / Jellyfin compatible)
 - **Scan scheduler** — configurable scan interval (1h / 6h / 12h / 24h) from the UI
