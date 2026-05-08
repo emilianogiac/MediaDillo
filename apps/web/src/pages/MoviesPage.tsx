@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
 import { fetchMovies, fetchScanRoots, fetchEditions } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
-import { fetchRenamePreview, applyRenames } from '../api/files.js'
+import { renameBatch } from '../api/files.js'
 import { PosterCard } from '../components/PosterCard.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
@@ -324,16 +324,13 @@ export function MoviesPage() {
   async function handleBatchRenameAll() {
     if (selected.size === 0) return
     try {
-      const previews = await fetchRenamePreview('movies', [...selected])
-      const toRename = previews.filter((i) => i.needsRename)
-      if (toRename.length === 0) {
-        toast({ type: 'success', message: 'All files are already canonical — nothing to rename' })
+      const { jobId, total, message } = await renameBatch([...selected])
+      if (!jobId) {
+        toast({ type: 'success', message: message ?? 'Nothing to rename' })
         return
       }
-      await applyRenames('movies', toRename.map((i) => i.id))
-      toast({ type: 'success', message: `Renamed ${toRename.length} file${toRename.length !== 1 ? 's' : ''}` })
+      trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
       setSelected(new Set())
-      load()
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     }

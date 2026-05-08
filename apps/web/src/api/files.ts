@@ -47,6 +47,15 @@ export async function applyRenames(
   })
 }
 
+export async function renameBatch(
+  movieIds: string[],
+): Promise<{ jobId: string | null; total: number; message?: string }> {
+  return apiFetch('/files/rename-batch', {
+    method: 'POST',
+    body: JSON.stringify({ movieIds }),
+  })
+}
+
 export async function fetchStaleFiles(
   limit = 100,
   offset = 0,

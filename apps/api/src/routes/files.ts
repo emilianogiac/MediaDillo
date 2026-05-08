@@ -10,6 +10,7 @@ import {
 } from '../files/rename.js'
 import { detectMultiPartMovies, mergeMovieParts } from '../files/merge.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
+import { createJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 
 export async function filesRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/files/rename-preview?type=movies|episodes&ids=id1,id2,...
@@ -47,6 +48,70 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.send(result)
+  })
+
+  // POST /api/files/rename-batch — background job rename for selected movies
+  app.post<{ Body: { movieIds: string[] } }>('/files/rename-batch', async (req, reply) => {
+    const { movieIds = [] } = req.body
+    if (movieIds.length === 0) {
+      return reply.code(400).send({ error: 'No movies provided' })
+    }
+
+    // Preview to find which movies actually need renaming; group file IDs by movie
+    const previews = await previewMovieRenames(movieIds)
+    const byMovie = new Map<string, { title: string; fileIds: string[] }>()
+
+    // Load titles for error messages
+    const movies = await prisma.movie.findMany({
+      where: { id: { in: movieIds } },
+      select: { id: true, title: true },
+    })
+    const titleMap = new Map(movies.map((m) => [m.id, m.title]))
+
+    // Load files to get movieId per fileId
+    const needsRenameFileIds = previews.filter((p) => p.needsRename).map((p) => p.id)
+    if (needsRenameFileIds.length === 0) {
+      return reply.send({ jobId: null, total: 0, message: 'All files are already canonical' })
+    }
+
+    const files = await prisma.movieFile.findMany({
+      where: { id: { in: needsRenameFileIds } },
+      select: { id: true, movieId: true },
+    })
+    for (const f of files) {
+      if (!byMovie.has(f.movieId)) {
+        byMovie.set(f.movieId, { title: titleMap.get(f.movieId) ?? f.movieId, fileIds: [] })
+      }
+      byMovie.get(f.movieId)!.fileIds.push(f.id)
+    }
+
+    const entries = [...byMovie.entries()]
+    const job = createJob(entries.length)
+
+    const run = async () => {
+      let anyRenamed = false
+      for (const [, { title, fileIds }] of entries) {
+        try {
+          const result = await applyMovieRenames(fileIds, 'manual')
+          if (result.renamed > 0) anyRenamed = true
+          if (result.errors.length > 0) {
+            for (const e of result.errors) failJob(job.id, `"${title}": ${e}`)
+          }
+        } catch (err) {
+          failJob(job.id, `"${title}": ${err instanceof Error ? err.message : String(err)}`)
+        }
+        tickJob(job.id)
+      }
+      if (anyRenamed) triggerLibraryRefresh(app.log).catch(() => {})
+      finishJob(job.id)
+    }
+
+    run().catch((err: unknown) => {
+      app.log.error(err, 'Batch rename failed')
+      finishJob(job.id)
+    })
+
+    return reply.code(202).send({ jobId: job.id, total: entries.length })
   })
 
   // GET /api/files/rename-log?movieId=xxx
