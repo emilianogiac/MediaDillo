@@ -41,7 +41,7 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
   const firstFile = movie.files[0]!
   const fileDir = path.dirname(firstFile.path)
   const scanRootPath = movie.scanRoot?.path ?? ''
-  const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
+  const folderPath = (scanRootPath && fileDir !== scanRootPath && path.dirname(fileDir) !== scanRootPath)
     ? path.dirname(fileDir)
     : fileDir
 

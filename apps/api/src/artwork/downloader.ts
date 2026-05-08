@@ -37,9 +37,13 @@ export async function downloadMovieArtwork(
   // movie root — one level below the scan root — not in the disc subfolder.
   const fileDir = path.dirname(firstFile.path)
   const scanRootPath = movie.scanRoot?.path ?? ''
-  const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
-    ? path.dirname(fileDir)   // file is in a subfolder → use the movie root
-    : fileDir                 // file is directly in movie folder → use as-is
+  // Go up one level only for disc subfolders (Movie/cd1/file.mkv → Movie/).
+  // Guard fileDir !== scanRootPath: when the file sits directly in the scan root
+  // (not yet renamed into a subfolder), path.dirname(scanRoot) would otherwise
+  // resolve to the parent of the scan root — the wrong place entirely.
+  const folderPath = (scanRootPath && fileDir !== scanRootPath && path.dirname(fileDir) !== scanRootPath)
+    ? path.dirname(fileDir)
+    : fileDir
   let posterSaved = false
   let backdropSaved = false
 
