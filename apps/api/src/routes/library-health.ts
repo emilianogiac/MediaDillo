@@ -286,13 +286,14 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
     ])
 
     const job = createJob(movies.length + shows.length)
-    const client = new TmdbClient(config.TMDB_API_KEY)
+    const client = new TmdbClient(config.TMDB_API_KEY, config.METADATA_LANGUAGE)
 
     const run = async () => {
       for (const m of movies) {
         if (m.tmdbId == null) continue
         try {
           await enrichMovie(client, m.id, m.tmdbId)
+          await downloadMovieArtwork(m.id, 'all', true)
         } catch (err) {
           failJob(job.id, `movie:${m.id}: ${err instanceof Error ? err.message : String(err)}`)
         }
@@ -302,6 +303,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
         if (s.tmdbId == null) continue
         try {
           await enrichTvShow(client, s.id, s.tmdbId)
+          await downloadShowArtwork(s.id, 'all', true)
         } catch (err) {
           failJob(job.id, `show:${s.id}: ${err instanceof Error ? err.message : String(err)}`)
         }

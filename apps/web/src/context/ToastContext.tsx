@@ -15,13 +15,14 @@ export interface JobToast {
   label: string
   jobId: string
   job: JobStatus | null
+  onComplete?: () => void
 }
 
 export type Toast = SimpleToast | JobToast
 
 interface ToastContextValue {
   toast: (opts: Omit<SimpleToast, 'id'>) => void
-  trackJob: (opts: { label: string; jobId: string }) => void
+  trackJob: (opts: { label: string; jobId: string; onComplete?: () => void }) => void
   toasts: Toast[]
   dismiss: (id: number) => void
 }
@@ -42,9 +43,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setTimeout(() => dismiss(id), 4000)
   }, [dismiss])
 
-  const trackJob = useCallback((opts: { label: string; jobId: string }) => {
+  const trackJob = useCallback((opts: { label: string; jobId: string; onComplete?: () => void }) => {
     const id = ++counter.current
-    setToasts((prev) => [...prev, { type: 'job', id, label: opts.label, jobId: opts.jobId, job: null }])
+    setToasts((prev) => [...prev, { type: 'job', id, label: opts.label, jobId: opts.jobId, job: null, onComplete: opts.onComplete }])
   }, [])
 
   // Poll all running job toasts
@@ -58,7 +59,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           const status = await fetchJobStatus(jt.jobId)
           setToasts((prev) => prev.map((t) => t.id === jt.id ? { ...t, job: status } as JobToast : t))
           if (!status.running) {
-            // Auto-dismiss 5s after completion
+            jt.onComplete?.()
             setTimeout(() => dismiss(jt.id), 5000)
           }
         } catch {

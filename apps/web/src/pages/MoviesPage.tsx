@@ -293,7 +293,7 @@ export function MoviesPage() {
     }
     try {
       const { jobId, total } = await refreshMetadata(matchedIds, [])
-      trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId })
+      trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
       setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
