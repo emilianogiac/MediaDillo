@@ -45,7 +45,13 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
     ? path.dirname(fileDir)
     : fileDir
 
-  const knownPaths = new Set(movie.files.map((f) => f.path))
+  // Include ALL MovieFiles in this folder, not just those of the current movie record,
+  // so that other editions/versions sharing the same folder are never flagged for deletion.
+  const allFolderFiles = await prisma.movieFile.findMany({
+    where: { path: { startsWith: folderPath + '/' } },
+    select: { path: true },
+  })
+  const knownPaths = new Set(allFolderFiles.map((f) => f.path))
   const canonicalNfoName = `${canonicalMovieFolderName(movie.title, movie.year)}.nfo`
 
   let entries: string[]
