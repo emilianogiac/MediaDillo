@@ -170,7 +170,7 @@ function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
 }
 
 export function ShowsPage() {
-  const { toast } = useToast()
+  const { toast, trackJob } = useToast()
   const [shows, setShows] = useState<ShowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -264,8 +264,8 @@ export function ShowsPage() {
       return
     }
     try {
-      const { total } = await refreshMetadata([], matchedIds)
-      toast({ type: 'success', message: `Refreshing metadata for ${total} show${total !== 1 ? 's' : ''}…` })
+      const { jobId, total } = await refreshMetadata([], matchedIds)
+      trackJob({ label: `Re-matching ${total} show${total !== 1 ? 's' : ''}`, jobId })
       setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })

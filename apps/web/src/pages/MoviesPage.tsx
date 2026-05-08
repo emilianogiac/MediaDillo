@@ -134,7 +134,7 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
 }
 
 export function MoviesPage() {
-  const { toast } = useToast()
+  const { toast, trackJob } = useToast()
   const [movies, setMovies] = useState<MovieSummary[]>([])
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [loading, setLoading] = useState(true)
@@ -292,8 +292,8 @@ export function MoviesPage() {
       return
     }
     try {
-      const { total } = await refreshMetadata(matchedIds, [])
-      toast({ type: 'success', message: `Refreshing metadata for ${total} movie${total !== 1 ? 's' : ''}…` })
+      const { jobId, total } = await refreshMetadata(matchedIds, [])
+      trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId })
       setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
