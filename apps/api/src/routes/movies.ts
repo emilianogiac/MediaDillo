@@ -215,6 +215,40 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  // GET /api/movies/editions — list all distinct edition labels in use
+  app.get('/movies/editions', async (_req, reply) => {
+    const rows = await prisma.movieFile.findMany({
+      where: { edition: { not: null } },
+      select: { edition: true },
+      distinct: ['edition'],
+      orderBy: { edition: 'asc' },
+    })
+    return reply.send({ editions: rows.map((r) => r.edition as string) })
+  })
+
+  // POST /api/movies/editions/rename — rename an edition label globally (updates all files + renames on disk)
+  app.post<{ Body: { from: string; to: string | null } }>(
+    '/movies/editions/rename',
+    async (req, reply) => {
+      const { from, to } = req.body
+      if (!from) return reply.code(400).send({ error: 'from is required' })
+
+      const files = await prisma.movieFile.findMany({
+        where: { edition: from },
+        select: { id: true },
+      })
+      if (files.length === 0) return reply.send({ updated: 0 })
+
+      const fileIds = files.map((f) => f.id)
+      await prisma.movieFile.updateMany({
+        where: { edition: from },
+        data: { edition: to ?? null },
+      })
+      await applyMovieRenames(fileIds)
+      return reply.send({ updated: fileIds.length })
+    },
+  )
+
   // POST /api/movies/:id/move — move movie folder to a different scan root
   app.post<{ Params: { id: string }; Body: { targetScanRootId: string } }>(
     '/movies/:id/move',

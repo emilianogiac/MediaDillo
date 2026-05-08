@@ -7,6 +7,7 @@ import type { ScanRootRecord, ScanLogRecord, ScheduleInterval } from '../api/set
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
   fetchScanLogs, fetchSchedule, updateSchedule, dedupShows, verifyIntegrity,
+  fetchAutoCleanup, updateAutoCleanup,
 } from '../api/settings.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -116,6 +117,7 @@ export function SettingsPage() {
       <DatabaseMaintenanceCard />
       <ScanRootsCard />
       <ScheduleCard />
+      <MatchBehaviorCard />
       <ScanLogsCard />
     </div>
   )
@@ -457,6 +459,52 @@ function ScanRootsCard() {
 // ---------------------------------------------------------------------------
 // Schedule card
 // ---------------------------------------------------------------------------
+
+function MatchBehaviorCard() {
+  const [autoCleanup, setAutoCleanup] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    fetchAutoCleanup().then(setAutoCleanup).finally(() => setLoading(false))
+  }, [])
+
+  async function toggle() {
+    const next = !autoCleanup
+    setSaving(true)
+    try {
+      await updateAutoCleanup(next)
+      setAutoCleanup(next)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-3">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Match Behavior</h2>
+      {loading ? (
+        <p className="text-sm text-gray-500">Loading…</p>
+      ) : (
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <button
+            role="switch"
+            aria-checked={autoCleanup}
+            onClick={toggle}
+            disabled={saving}
+            className={`relative w-10 h-5 rounded-full transition-colors disabled:opacity-40 ${autoCleanup ? 'bg-accent' : 'bg-gray-700'}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${autoCleanup ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+          <div>
+            <p className="text-sm text-gray-200">Auto-cleanup folder on match / re-match</p>
+            <p className="text-xs text-gray-500 mt-0.5">After every match or re-match, automatically delete old TMM artwork, stale NFOs, subtitles, and unknown files — same files the Folder Cleanup panel pre-selects.</p>
+          </div>
+        </label>
+      )}
+    </div>
+  )
+}
 
 const SCHEDULE_LABELS: Record<ScheduleInterval, string> = {
   disabled: 'Disabled',

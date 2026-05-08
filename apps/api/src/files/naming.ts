@@ -1,8 +1,9 @@
 const INVALID_CHARS = /[/\\:*?"<>|]/g
 const MULTI_SPACE = /\s{2,}/g
+const LEADING_DOTS = /^\.+\s*/
 
 export function sanitizeForFilename(str: string): string {
-  return str.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').trim()
+  return str.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').replace(LEADING_DOTS, '').trim()
 }
 
 export function canonicalMovieFolderName(title: string, year: number | null): string {

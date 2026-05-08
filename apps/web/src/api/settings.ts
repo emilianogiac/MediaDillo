@@ -71,3 +71,16 @@ export async function dedupShows(): Promise<{ merged: number; deleted: number }>
 export async function verifyIntegrity(): Promise<{ moviesRemoved: number; episodesLost: number }> {
   return apiFetch<{ moviesRemoved: number; episodesLost: number }>('/settings/verify-integrity', { method: 'POST' })
 }
+
+
+export async function fetchAutoCleanup(): Promise<boolean> {
+  const r = await apiFetch<{ enabled: boolean }>('/settings/auto-cleanup')
+  return r.enabled
+}
+
+export async function updateAutoCleanup(enabled: boolean): Promise<void> {
+  await apiFetch('/settings/auto-cleanup', {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  })
+}

@@ -5,6 +5,12 @@ import { getSchedule, setSchedule } from '../scheduler/index.js'
 import type { ScheduleInterval } from '../scheduler/index.js'
 
 const VALID_INTERVALS = new Set<ScheduleInterval>(['disabled', '1h', '6h', '12h', '24h'])
+const AUTO_CLEANUP_KEY = 'match.autoCleanupFolder'
+
+export async function getAutoCleanupSetting(): Promise<boolean> {
+  const s = await prisma.setting.findUnique({ where: { key: AUTO_CLEANUP_KEY } })
+  return s?.value === 'true'
+}
 
 export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/settings/schedule
@@ -21,6 +27,23 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     }
     await setSchedule(schedule as ScheduleInterval)
     return reply.send({ schedule })
+  })
+
+  // GET /api/settings/auto-cleanup
+  app.get('/settings/auto-cleanup', async (_req, reply) => {
+    const enabled = await getAutoCleanupSetting()
+    return reply.send({ enabled })
+  })
+
+  // PUT /api/settings/auto-cleanup
+  app.put<{ Body: { enabled: boolean } }>('/settings/auto-cleanup', async (req, reply) => {
+    const val = req.body.enabled ? 'true' : 'false'
+    await prisma.setting.upsert({
+      where: { key: AUTO_CLEANUP_KEY },
+      create: { key: AUTO_CLEANUP_KEY, value: val },
+      update: { value: val },
+    })
+    return reply.send({ enabled: req.body.enabled })
   })
 
   // GET /api/settings/scan-roots — all roots (including disabled)

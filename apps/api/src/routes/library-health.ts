@@ -7,6 +7,7 @@ import { config } from '../config.js'
 import { createJob, getJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
 import fs from 'node:fs/promises'
+import { getAutoCleanupSetting } from './settings.js'
 
 export interface HealthItem {
   id: string
@@ -289,6 +290,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
 
     const job = createJob(movies.length + shows.length)
     const client = new TmdbClient(config.TMDB_API_KEY, config.METADATA_LANGUAGE)
+    const autoCleanup = await getAutoCleanupSetting()
 
     const run = async () => {
       for (const m of movies) {
@@ -296,6 +298,13 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
         try {
           await enrichMovie(client, m.id, m.tmdbId)
           await downloadMovieArtwork(m.id, 'all', true)
+          if (autoCleanup) {
+            const scan = await scanMovieFolder(m.id)
+            if (scan) {
+              const toDelete = scan.files.filter((f) => BATCH_SAFE_TO_DELETE.has(f.category))
+              await Promise.all(toDelete.map((f) => fs.unlink(f.path).catch(() => {})))
+            }
+          }
         } catch (err) {
           failJob(job.id, `"${m.title}": ${err instanceof Error ? err.message : String(err)}`)
         }

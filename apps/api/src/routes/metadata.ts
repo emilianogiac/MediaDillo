@@ -7,6 +7,9 @@ import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
 import { config } from '../config.js'
 import { writeMovieNfo } from '../nfo/writer.js'
 import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
+import { getAutoCleanupSetting } from './settings.js'
+import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
+import fs from 'node:fs/promises'
 
 function getTmdbClient(): TmdbClient {
   if (!config.TMDB_API_KEY) throw new Error('TMDB_API_KEY is not configured')
@@ -136,6 +139,20 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
         await downloadMovieArtwork(movie.id, 'all', true)
       } catch (err) {
         app.log.warn(err, `Post-match auto-ops failed for movie ${movie.id}`)
+      }
+
+      // Optional auto-cleanup: delete stale TMM/extra files after artwork is fresh.
+      try {
+        const autoCleanup = await getAutoCleanupSetting()
+        if (autoCleanup) {
+          const scan = await scanMovieFolder(movie.id)
+          if (scan) {
+            const toDelete = scan.files.filter((f) => BATCH_SAFE_TO_DELETE.has(f.category))
+            await Promise.all(toDelete.map((f) => fs.unlink(f.path).catch(() => {})))
+          }
+        }
+      } catch (err) {
+        app.log.warn(err, `Auto-cleanup after match failed for movie ${movie.id}`)
       }
 
       const updated = await prisma.movie.findUnique({ where: { id: movie.id } })

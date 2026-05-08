@@ -124,3 +124,15 @@ export async function updateFileEdition(fileId: string, edition: string | null):
     body: JSON.stringify({ edition }),
   })
 }
+
+export async function fetchEditions(): Promise<string[]> {
+  const r = await apiFetch<{ editions: string[] }>('/movies/editions')
+  return r.editions
+}
+
+export async function renameEdition(from: string, to: string | null): Promise<{ updated: number }> {
+  return apiFetch('/movies/editions/rename', {
+    method: 'POST',
+    body: JSON.stringify({ from, to }),
+  })
+}
