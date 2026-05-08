@@ -77,3 +77,10 @@ export async function refreshMetadata(
     body: JSON.stringify({ movieIds, showIds }),
   })
 }
+
+export async function cleanupBatch(movieIds: string[]): Promise<{ jobId: string; total: number }> {
+  return apiFetch('/library-health/cleanup', {
+    method: 'POST',
+    body: JSON.stringify({ movieIds }),
+  })
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
 import { fetchMovies, fetchScanRoots } from '../api/movies.js'
-import { refreshMetadata } from '../api/library-health.js'
+import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
 import { PosterCard } from '../components/PosterCard.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
@@ -300,6 +300,18 @@ export function MoviesPage() {
     }
   }
 
+  async function handleBatchCleanup() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    try {
+      const { jobId, total } = await cleanupBatch(ids)
+      trackJob({ label: `Cleaning ${total} folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      setSelected(new Set())
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
+    }
+  }
+
   // Batch rename helpers
   function startBatch(action: 'rename') {
     const queue = [...selected]
@@ -539,6 +551,12 @@ export function MoviesPage() {
             className="text-xs px-3 py-1.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 hover:bg-orange-500/30 transition-colors"
           >
             Rename
+          </button>
+          <button
+            onClick={() => { void handleBatchCleanup() }}
+            className="text-xs px-3 py-1.5 rounded bg-amber-500/20 border border-amber-500/40 text-amber-300 hover:bg-amber-500/30 transition-colors"
+          >
+            Cleanup
           </button>
           <button
             onClick={() => setSelected(new Set())}

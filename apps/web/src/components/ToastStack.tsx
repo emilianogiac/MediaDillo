@@ -38,7 +38,9 @@ function JobToastItem({ t, dismiss }: { t: JobToast; dismiss: (id: number) => vo
           />
         </div>
         {job && job.errors.length > 0 && (
-          <p className="text-xs text-yellow-400">{job.errors.length} error{job.errors.length !== 1 ? 's' : ''}</p>
+          <ul className="text-xs text-yellow-400 space-y-0.5 max-h-16 overflow-y-auto">
+            {job.errors.map((e, i) => <li key={i} className="truncate">• {e}</li>)}
+          </ul>
         )}
       </div>
     </div>

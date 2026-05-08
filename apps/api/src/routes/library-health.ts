@@ -5,6 +5,8 @@ import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { config } from '../config.js'
 import { createJob, getJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
+import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
+import fs from 'node:fs/promises'
 
 export interface HealthItem {
   id: string
@@ -274,13 +276,13 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
       movieIds.length > 0
         ? prisma.movie.findMany({
             where: { id: { in: movieIds }, tmdbId: { not: null } },
-            select: { id: true, tmdbId: true },
+            select: { id: true, title: true, tmdbId: true },
           })
         : [],
       showIds.length > 0
         ? prisma.tvShow.findMany({
             where: { id: { in: showIds }, tmdbId: { not: null } },
-            select: { id: true, tmdbId: true },
+            select: { id: true, title: true, tmdbId: true },
           })
         : [],
     ])
@@ -295,7 +297,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
           await enrichMovie(client, m.id, m.tmdbId)
           await downloadMovieArtwork(m.id, 'all', true)
         } catch (err) {
-          failJob(job.id, `movie:${m.id}: ${err instanceof Error ? err.message : String(err)}`)
+          failJob(job.id, `"${m.title}": ${err instanceof Error ? err.message : String(err)}`)
         }
         tickJob(job.id)
       }
@@ -305,7 +307,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
           await enrichTvShow(client, s.id, s.tmdbId)
           await downloadShowArtwork(s.id, 'all', true)
         } catch (err) {
-          failJob(job.id, `show:${s.id}: ${err instanceof Error ? err.message : String(err)}`)
+          failJob(job.id, `"${s.title}": ${err instanceof Error ? err.message : String(err)}`)
         }
         tickJob(job.id)
       }
@@ -314,6 +316,46 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
 
     run().catch((err: unknown) => {
       app.log.error(err, 'Metadata refresh failed')
+      finishJob(job.id)
+    })
+
+    return reply.code(202).send({ jobId: job.id, total: job.total })
+  })
+
+  // POST /library-health/cleanup — batch delete safe-to-delete files across multiple movie folders
+  app.post<{ Body: { movieIds?: string[] } }>('/library-health/cleanup', async (req, reply) => {
+    const { movieIds = [] } = req.body
+    if (movieIds.length === 0) {
+      return reply.code(400).send({ error: 'No movies provided' })
+    }
+
+    const movies = await prisma.movie.findMany({
+      where: { id: { in: movieIds } },
+      select: { id: true, title: true },
+    })
+
+    const job = createJob(movies.length)
+
+    const run = async () => {
+      for (const movie of movies) {
+        try {
+          const scanned = await scanMovieFolder(movie.id)
+          if (scanned) {
+            const toDelete = scanned.files.filter((f) => BATCH_SAFE_TO_DELETE.has(f.category))
+            for (const f of toDelete) {
+              try { await fs.unlink(f.path) } catch { /* skip unreadable */ }
+            }
+          }
+        } catch (err) {
+          failJob(job.id, `"${movie.title}": ${err instanceof Error ? err.message : String(err)}`)
+        }
+        tickJob(job.id)
+      }
+      finishJob(job.id)
+    }
+
+    run().catch((err: unknown) => {
+      app.log.error(err, 'Batch cleanup failed')
       finishJob(job.id)
     })
 
