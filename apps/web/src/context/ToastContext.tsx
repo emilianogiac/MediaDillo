@@ -45,7 +45,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const trackJob = useCallback((opts: { label: string; jobId: string; onComplete?: () => void }) => {
     const id = ++counter.current
-    setToasts((prev) => [...prev, { type: 'job', id, label: opts.label, jobId: opts.jobId, job: null, onComplete: opts.onComplete }])
+    setToasts((prev) => [...prev, { type: 'job', id, label: opts.label, jobId: opts.jobId, job: null, ...(opts.onComplete ? { onComplete: opts.onComplete } : {}) }])
   }, [])
 
   // Poll all running job toasts
