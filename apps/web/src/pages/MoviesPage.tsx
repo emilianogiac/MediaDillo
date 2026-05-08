@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
-import { fetchMovies, fetchScanRoots, fetchMovieCandidates, matchMovie } from '../api/movies.js'
+import { fetchMovies, fetchScanRoots } from '../api/movies.js'
+import { refreshMetadata } from '../api/library-health.js'
 import { PosterCard } from '../components/PosterCard.js'
 import { TechBadge } from '../components/TechBadge.js'
-import { MatchModal } from '../components/MatchModal.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
+import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
+import { useToast } from '../context/ToastContext.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
@@ -81,8 +83,8 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
         </div>
 
         {/* Title + year */}
-        <div className="w-48 flex-shrink-0 min-w-0">
-          <p className="text-sm font-medium text-gray-100 truncate">{movie.title}</p>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-gray-100">{movie.title}</p>
           <p className="text-xs text-gray-500">{movie.year ?? '—'}</p>
         </div>
 
@@ -132,6 +134,7 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
 }
 
 export function MoviesPage() {
+  const { toast } = useToast()
   const [movies, setMovies] = useState<MovieSummary[]>([])
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [loading, setLoading] = useState(true)
@@ -143,9 +146,9 @@ export function MoviesPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
-  // Batch action state: queue of movie ids + which action + current index
+  // Batch action state: rename only (rematch is now a direct API call)
   const [batchQueue, setBatchQueue] = useState<string[]>([])
-  const [batchAction, setBatchAction] = useState<'rematch' | 'rename' | null>(null)
+  const [batchAction, setBatchAction] = useState<'rename' | null>(null)
   const [batchIdx, setBatchIdx] = useState(0)
 
   // Derive filter from URL — survives back-navigation
@@ -282,8 +285,23 @@ export function MoviesPage() {
     }
   }
 
-  // Batch helpers
-  function startBatch(action: 'rematch' | 'rename') {
+  async function handleBatchRematch() {
+    const matchedIds = [...selected].filter((id) => movies.find((m) => m.id === id)?.tmdbId)
+    if (matchedIds.length === 0) {
+      toast({ type: 'error', message: 'No matched movies selected — rematch only works on already-matched items' })
+      return
+    }
+    try {
+      const { total } = await refreshMetadata(matchedIds, [])
+      toast({ type: 'success', message: `Refreshing metadata for ${total} movie${total !== 1 ? 's' : ''}…` })
+      setSelected(new Set())
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
+    }
+  }
+
+  // Batch rename helpers
+  function startBatch(action: 'rename') {
     const queue = [...selected]
     if (queue.length === 0) return
     setBatchQueue(queue)
@@ -455,7 +473,16 @@ export function MoviesPage() {
       </div>
 
       {/* Content */}
-      {loading && <div className="flex items-center justify-center py-16 text-gray-500">Loading…</div>}
+      {loading && filter.view === 'grid' && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+          {Array.from({ length: 20 }, (_, i) => <SkeletonCard key={i} />)}
+        </div>
+      )}
+      {loading && filter.view === 'list' && (
+        <div className="bg-surface-raised border border-gray-800 rounded-lg divide-y divide-gray-800">
+          {Array.from({ length: 10 }, (_, i) => <SkeletonRow key={i} />)}
+        </div>
+      )}
       {!loading && error && <div className="text-red-400 py-8 text-center text-sm">{error}</div>}
       {!loading && !error && movies.length === 0 && <div className="text-gray-500 py-16 text-center text-sm">No movies found.</div>}
 
@@ -502,7 +529,7 @@ export function MoviesPage() {
           <span className="text-sm text-gray-300 font-medium">{selected.size} selected</span>
           <div className="w-px h-4 bg-gray-700" />
           <button
-            onClick={() => startBatch('rematch')}
+            onClick={() => { void handleBatchRematch() }}
             className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors"
           >
             Rematch
@@ -520,21 +547,6 @@ export function MoviesPage() {
             Deselect
           </button>
         </div>
-      )}
-
-      {/* Batch rematch modal */}
-      {batchAction === 'rematch' && currentBatchMovie && (
-        <MatchModal
-          key={currentBatchMovie.id}
-          mediaType="movie"
-          id={currentBatchMovie.id}
-          currentTitle={currentBatchMovie.title}
-          currentTmdbId={currentBatchMovie.tmdbId}
-          fetchCandidates={(id) => fetchMovieCandidates(id).then((r) => ({ candidates: r.candidates }))}
-          onMatch={(id, tmdbId) => matchMovie(id, tmdbId)}
-          onClose={cancelBatch}
-          onMatched={advanceBatch}
-        />
       )}
 
       {/* Batch rename modal */}

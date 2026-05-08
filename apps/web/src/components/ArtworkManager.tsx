@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { ImageCandidate } from '../api/types.js'
+import { useToast } from '../context/ToastContext.js'
 
 interface ArtworkApi {
   download: (type: 'poster' | 'backdrop' | 'all') => Promise<void>
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function ArtworkManager({ posterDownloaded, backdropDownloaded, api, onUpdated }: Props) {
+  const { toast } = useToast()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<{ posters: ImageCandidate[]; backdrops: ImageCandidate[] } | null>(null)
@@ -26,8 +28,11 @@ export function ArtworkManager({ posterDownloaded, backdropDownloaded, api, onUp
     try {
       await api.download(type)
       onUpdated()
+      toast({ type: 'success', message: `${type === 'all' ? 'Artwork' : type.charAt(0).toUpperCase() + type.slice(1)} downloaded` })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Download failed')
+      const msg = e instanceof Error ? e.message : 'Download failed'
+      setError(msg)
+      toast({ type: 'error', message: msg })
     } finally {
       setBusy(false)
     }
@@ -56,8 +61,11 @@ export function ArtworkManager({ posterDownloaded, backdropDownloaded, api, onUp
       setCandidates(null)
       setPickerType(null)
       onUpdated()
+      toast({ type: 'success', message: `${pickerType.charAt(0).toUpperCase() + pickerType.slice(1)} updated` })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save image')
+      const msg = e instanceof Error ? e.message : 'Failed to save image'
+      setError(msg)
+      toast({ type: 'error', message: msg })
     } finally {
       setBusy(false)
     }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder, moveMovie } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
 import type { ScanRoot } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -9,6 +9,7 @@ import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { MovieFilesPanel } from '../components/MovieFilesPanel.js'
 import { MovieFolderCleanupPanel } from '../components/MovieFolderCleanupPanel.js'
+import { useToast } from '../context/ToastContext.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -26,10 +27,12 @@ function formatDuration(seconds: number | null): string {
 export function MovieDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [movie, setMovie] = useState<MovieDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
+  const [rematching, setRematching] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<string | null>(null)
@@ -39,6 +42,9 @@ export function MovieDetailPage() {
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
   const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
+  const [editingEditionFileId, setEditingEditionFileId] = useState<string | null>(null)
+  const [editionInput, setEditionInput] = useState('')
+  const [savingEdition, setSavingEdition] = useState(false)
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -71,8 +77,38 @@ export function MovieDetailPage() {
       load()
     } catch {
       setRescanResult('Rescan failed')
+      toast({ type: 'error', message: 'Rescan failed' })
     } finally {
       setRescanning(false)
+    }
+  }
+
+  async function handleRematch() {
+    if (!id || !movie?.tmdbId) return
+    setRematching(true)
+    try {
+      await matchMovie(id, movie.tmdbId)
+      load()
+      toast({ type: 'success', message: 'Metadata refreshed from TMDB' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
+    } finally {
+      setRematching(false)
+    }
+  }
+
+  async function handleSaveEdition(fileId: string) {
+    setSavingEdition(true)
+    try {
+      await updateFileEdition(fileId, editionInput.trim() || null)
+      load()
+      toast({ type: 'success', message: 'Edition updated' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Failed to save edition' })
+    } finally {
+      setSavingEdition(false)
+      setEditingEditionFileId(null)
+      setEditionInput('')
     }
   }
 
@@ -245,12 +281,22 @@ export function MovieDetailPage() {
                 </a>
               )}
             </div>
-            <button
-              onClick={() => setShowMatchModal(true)}
-              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
-            >
-              {movie.tmdbId ? 'Re-match' : '⚠ Match to TMDB'}
-            </button>
+            {movie.tmdbId ? (
+              <button
+                onClick={() => { void handleRematch() }}
+                disabled={rematching}
+                className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              >
+                {rematching ? 'Refreshing…' : 'Re-match'}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowMatchModal(true)}
+                className="text-xs px-2.5 py-1 rounded border border-yellow-700/60 hover:border-accent/60 text-yellow-400 hover:text-accent transition-colors"
+              >
+                ⚠ Match to TMDB
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -308,11 +354,43 @@ export function MovieDetailPage() {
                 className="bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2"
               >
                 <div className="flex items-center gap-2">
-                  {file.edition ? (
-                    <TechBadge label={file.edition} variant="edition" />
+                  {editingEditionFileId === file.id ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <input
+                        autoFocus
+                        value={editionInput}
+                        onChange={(e) => setEditionInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') void handleSaveEdition(file.id)
+                          if (e.key === 'Escape') { setEditingEditionFileId(null); setEditionInput('') }
+                        }}
+                        placeholder="e.g. Director's Cut"
+                        className="bg-gray-800 border border-accent/60 rounded px-2 py-0.5 text-xs text-gray-100 placeholder-gray-600 focus:outline-none w-36"
+                      />
+                      <button onClick={() => void handleSaveEdition(file.id)} disabled={savingEdition} className="text-xs text-accent hover:underline disabled:opacity-40">save</button>
+                      <button onClick={() => { setEditingEditionFileId(null); setEditionInput('') }} className="text-xs text-gray-500 hover:text-gray-300">cancel</button>
+                    </div>
+                  ) : file.edition ? (
+                    <button
+                      onClick={() => { setEditingEditionFileId(file.id); setEditionInput(file.edition ?? '') }}
+                      className="flex items-center gap-1 group"
+                      title="Edit edition"
+                    >
+                      <TechBadge label={file.edition} variant="edition" />
+                      <span className="text-gray-600 group-hover:text-gray-400 text-xs">✎</span>
+                    </button>
                   ) : fileOrder.length > 1 ? (
                     <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
                   ) : null}
+                  {!editingEditionFileId && (
+                    <button
+                      onClick={() => { setEditingEditionFileId(file.id); setEditionInput(file.edition ?? '') }}
+                      className="text-xs text-gray-600 hover:text-gray-400 transition-colors shrink-0"
+                      title="Set edition"
+                    >
+                      {file.edition ? null : '＋ edition'}
+                    </button>
+                  )}
                   <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
                   {fileOrder.length > 1 && (
                     <div className="flex flex-col gap-0.5 shrink-0">

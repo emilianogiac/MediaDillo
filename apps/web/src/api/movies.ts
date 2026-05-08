@@ -116,3 +116,10 @@ export async function cleanupMovieFolder(movieId: string, paths: string[]): Prom
     body: JSON.stringify({ paths }),
   })
 }
+
+export async function updateFileEdition(fileId: string, edition: string | null): Promise<void> {
+  await apiFetch(`/movies/files/${fileId}/edition`, {
+    method: 'PATCH',
+    body: JSON.stringify({ edition }),
+  })
+}

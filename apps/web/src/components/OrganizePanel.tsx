@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react'
 import type { OrganizePreview, OrganizeRenameItem, OrganizeRemoval } from '../api/shows.js'
 import { fetchOrganizePreview, applyOrganize } from '../api/shows.js'
+import { useToast } from '../context/ToastContext.js'
 
 interface Props {
   showId: string
@@ -16,6 +17,7 @@ function shortPath(full: string, base: string) {
 }
 
 export function OrganizePanel({ showId, onDone }: Props) {
+  const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -88,11 +90,15 @@ export function OrganizePanel({ showId, onDone }: Props) {
       const res = await applyOrganize(showId, [...selectedRenames], [...selectedTrash])
       setResult(res)
       if (res.renamed > 0 || res.trashed > 0) {
+        const parts = [res.renamed > 0 && `${res.renamed} renamed`, res.trashed > 0 && `${res.trashed} trashed`].filter(Boolean)
+        toast({ type: 'success', message: parts.join(', ') })
         setPreview(null)
         onDone?.()
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Apply failed')
+      const msg = e instanceof Error ? e.message : 'Apply failed'
+      setError(msg)
+      toast({ type: 'error', message: msg })
     } finally {
       setApplying(false)
     }

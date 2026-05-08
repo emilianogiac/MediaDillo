@@ -7,6 +7,7 @@ import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
+import { useToast } from '../context/ToastContext.js'
 
 function completenessBar(owned: number, total: number) {
   if (total === 0) return null
@@ -28,10 +29,12 @@ function completenessBar(owned: number, total: number) {
 export function ShowDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { toast } = useToast()
   const [show, setShow] = useState<ShowDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
+  const [rematching, setRematching] = useState(false)
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
@@ -48,6 +51,20 @@ export function ShowDetailPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+
+  async function handleRematch() {
+    if (!id || !show?.tmdbId) return
+    setRematching(true)
+    try {
+      await matchShow(id, show.tmdbId)
+      load()
+      toast({ type: 'success', message: 'Metadata refreshed from TMDB' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
+    } finally {
+      setRematching(false)
+    }
+  }
 
   async function handleMove() {
     if (!id || !moveTarget) return
@@ -195,12 +212,22 @@ export function ShowDetailPage() {
                 </a>
               )}
             </div>
-            <button
-              onClick={() => setShowMatchModal(true)}
-              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
-            >
-              {show.tmdbId ? 'Re-match' : '⚠ Match to TMDB'}
-            </button>
+            {show.tmdbId ? (
+              <button
+                onClick={() => { void handleRematch() }}
+                disabled={rematching}
+                className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              >
+                {rematching ? 'Refreshing…' : 'Re-match'}
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowMatchModal(true)}
+                className="text-xs px-2.5 py-1 rounded border border-yellow-700/60 hover:border-accent/60 text-yellow-400 hover:text-accent transition-colors"
+              >
+                ⚠ Match to TMDB
+              </button>
+            )}
           </div>
         </div>
       </div>

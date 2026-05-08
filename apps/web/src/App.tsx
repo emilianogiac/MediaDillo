@@ -1,4 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { ToastProvider } from './context/ToastContext'
+import { ToastStack } from './components/ToastStack'
 import { AppLayout } from './layouts/AppLayout'
 import { DashboardPage } from './pages/DashboardPage'
 import { MoviesPage } from './pages/MoviesPage'
@@ -13,7 +15,9 @@ import { SettingsPage } from './pages/SettingsPage'
 
 export default function App() {
   return (
+    <ToastProvider>
     <BrowserRouter>
+      <ToastStack />
       <Routes>
         <Route path="/" element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
@@ -30,5 +34,6 @@ export default function App() {
         </Route>
       </Routes>
     </BrowserRouter>
+    </ToastProvider>
   )
 }

@@ -1,15 +1,15 @@
 import path from 'node:path'
 import { readdir, stat } from 'node:fs/promises'
 
-// Jellyfin-standard bare names
-const POSTER_NAMES = new Set(['poster', 'folder'])
-const BACKDROP_NAMES = new Set(['backdrop', 'fanart', 'background', 'art', 'extrafanart'])
+// Priority-ordered canonical names: poster wins over folder
+const POSTER_PRIORITY = ['poster', 'folder']
+const BACKDROP_PRIORITY = ['backdrop', 'fanart', 'background', 'art', 'extrafanart']
 
 // TMM-style suffixes appended to the video basename: Movie (2020)-poster.jpg
 const POSTER_SUFFIXES = ['-poster', '_poster']
 const BACKDROP_SUFFIXES = ['-fanart', '_fanart', '-backdrop', '_backdrop', '-landscape', '_landscape', '-background', '_background']
 
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+const IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.webp']
 
 export interface ArtworkPresence {
   hasPoster: boolean
@@ -39,34 +39,32 @@ async function fileExistsOnDisk(filePath: string): Promise<boolean> {
 }
 
 export async function findArtworkPaths(folderPath: string): Promise<{ posterPath: string | null; backdropPath: string | null }> {
-  const files = await listFolder(folderPath)
   let posterPath: string | null = null
   let backdropPath: string | null = null
 
-  // Two-pass: exact canonical names win over TMM suffix-named files.
-  // This ensures a freshly downloaded poster.jpg is always preferred over
-  // an existing MovieName (2020)-poster.jpg left by TMM.
-  for (const file of files) {
-    const ext = path.extname(file).toLowerCase()
-    if (!IMAGE_EXTS.has(ext)) continue
-    const base = path.basename(file, ext).toLowerCase()
-
-    if (!posterPath && POSTER_NAMES.has(base)) {
-      const candidate = path.join(folderPath, file)
-      if (await fileExistsOnDisk(candidate)) posterPath = candidate
+  // First pass: canonical names checked in explicit priority order (poster > folder).
+  // Direct stat checks avoid any dependency on readdir alphabetical ordering.
+  for (const name of POSTER_PRIORITY) {
+    for (const ext of IMAGE_EXTS) {
+      const candidate = path.join(folderPath, name + ext)
+      if (await fileExistsOnDisk(candidate)) { posterPath = candidate; break }
     }
-    if (!backdropPath && BACKDROP_NAMES.has(base)) {
-      const candidate = path.join(folderPath, file)
-      if (await fileExistsOnDisk(candidate)) backdropPath = candidate
+    if (posterPath) break
+  }
+  for (const name of BACKDROP_PRIORITY) {
+    for (const ext of IMAGE_EXTS) {
+      const candidate = path.join(folderPath, name + ext)
+      if (await fileExistsOnDisk(candidate)) { backdropPath = candidate; break }
     }
-    if (posterPath && backdropPath) break
+    if (backdropPath) break
   }
 
   // Second pass: fall back to suffix-named files (TMM convention) if no canonical file found
   if (!posterPath || !backdropPath) {
+    const files = await listFolder(folderPath)
     for (const file of files) {
       const ext = path.extname(file).toLowerCase()
-      if (!IMAGE_EXTS.has(ext)) continue
+      if (!IMAGE_EXTS.includes(ext)) continue
       const base = path.basename(file, ext).toLowerCase()
 
       if (!posterPath && POSTER_SUFFIXES.some(s => base.endsWith(s))) {

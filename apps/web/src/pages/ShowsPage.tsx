@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { ShowSummary } from '../api/types.js'
-import { fetchShows, fetchShowCandidates, matchShow } from '../api/shows.js'
-import { MatchModal } from '../components/MatchModal.js'
+import { fetchShows } from '../api/shows.js'
+import { refreshMetadata } from '../api/library-health.js'
+import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
+import { useToast } from '../context/ToastContext.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
@@ -140,7 +142,7 @@ function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-100 truncate">{show.title}</p>
+          <p className="text-sm font-medium text-gray-100">{show.title}</p>
           <p className="text-xs text-gray-500">{show.year ?? '—'}</p>
         </div>
 
@@ -164,6 +166,7 @@ function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
 }
 
 export function ShowsPage() {
+  const { toast } = useToast()
   const [shows, setShows] = useState<ShowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -173,11 +176,6 @@ export function ShowsPage() {
   // Selection state
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
-
-  // Batch rematch state
-  const [batchQueue, setBatchQueue] = useState<string[]>([])
-  const [batchRematch, setBatchRematch] = useState(false)
-  const [batchIdx, setBatchIdx] = useState(0)
 
   const rawDuplicates = searchParams.get('duplicates')
   const filter = {
@@ -255,35 +253,20 @@ export function ShowsPage() {
     }
   }
 
-  function startBatchRematch() {
-    const queue = [...selected]
-    if (queue.length === 0) return
-    setBatchQueue(queue)
-    setBatchRematch(true)
-    setBatchIdx(0)
-  }
-
-  function advanceBatch() {
-    if (batchIdx + 1 >= batchQueue.length) {
-      setBatchRematch(false)
-      setBatchQueue([])
-      setBatchIdx(0)
+  async function handleBatchRematch() {
+    const matchedIds = [...selected].filter((id) => shows.find((s) => s.id === id)?.tmdbId)
+    if (matchedIds.length === 0) {
+      toast({ type: 'error', message: 'No matched shows selected — rematch only works on already-matched items' })
+      return
+    }
+    try {
+      const { total } = await refreshMetadata([], matchedIds)
+      toast({ type: 'success', message: `Refreshing metadata for ${total} show${total !== 1 ? 's' : ''}…` })
       setSelected(new Set())
-      load()
-    } else {
-      setBatchIdx((i) => i + 1)
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
   }
-
-  function cancelBatch() {
-    setBatchRematch(false)
-    setBatchQueue([])
-    setBatchIdx(0)
-    load()
-  }
-
-  const currentBatchId = batchRematch ? batchQueue[batchIdx] : null
-  const currentBatchShow = currentBatchId ? shows.find((s) => s.id === currentBatchId) ?? null : null
 
   return (
     <div className="p-6 space-y-4">
@@ -311,15 +294,19 @@ export function ShowsPage() {
           {QUALITY_TIERS.map((q) => <option key={q} value={q}>{q}</option>)}
         </select>
 
-        <label className="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer select-none">
-          <input type="checkbox" checked={filter.missingArtwork} onChange={(e) => setPartial({ missingArtwork: e.target.checked })} className="accent-accent" />
+        <button
+          onClick={() => setPartial({ missingArtwork: !filter.missingArtwork })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingArtwork ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
           Missing artwork
-        </label>
+        </button>
 
-        <label className="flex items-center gap-1.5 text-sm text-gray-400 cursor-pointer select-none">
-          <input type="checkbox" checked={filter.unmatched} onChange={(e) => setPartial({ unmatched: e.target.checked })} className="accent-accent" />
+        <button
+          onClick={() => setPartial({ unmatched: !filter.unmatched })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.unmatched ? 'bg-red-500/20 border-red-500/60 text-red-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
           Unmatched
-        </label>
+        </button>
 
         <button
           onClick={() => setPartial({ needsOrganizing: !filter.needsOrganizing })}
@@ -362,7 +349,16 @@ export function ShowsPage() {
         </div>
       </div>
 
-      {loading && <div className="flex items-center justify-center py-16 text-gray-500">Loading…</div>}
+      {loading && filter.view === 'grid' && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+          {Array.from({ length: 20 }, (_, i) => <SkeletonCard key={i} />)}
+        </div>
+      )}
+      {loading && filter.view === 'list' && (
+        <div className="bg-surface-raised border border-gray-800 rounded-lg divide-y divide-gray-800">
+          {Array.from({ length: 10 }, (_, i) => <SkeletonRow key={i} />)}
+        </div>
+      )}
       {!loading && error && <div className="text-red-400 py-8 text-center text-sm">{error}</div>}
       {!loading && !error && shows.length === 0 && <div className="text-gray-500 py-16 text-center text-sm">No shows found.</div>}
 
@@ -405,7 +401,7 @@ export function ShowsPage() {
           <span className="text-sm text-gray-300 font-medium">{selected.size} selected</span>
           <div className="w-px h-4 bg-gray-700" />
           <button
-            onClick={startBatchRematch}
+            onClick={() => { void handleBatchRematch() }}
             className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors"
           >
             Rematch
@@ -419,20 +415,6 @@ export function ShowsPage() {
         </div>
       )}
 
-      {/* Batch rematch modal */}
-      {batchRematch && currentBatchShow && (
-        <MatchModal
-          key={currentBatchShow.id}
-          mediaType="show"
-          id={currentBatchShow.id}
-          currentTitle={currentBatchShow.title}
-          currentTmdbId={currentBatchShow.tmdbId}
-          fetchCandidates={(id) => fetchShowCandidates(id).then((r) => ({ candidates: r.candidates }))}
-          onMatch={(id, tmdbId) => matchShow(id, tmdbId)}
-          onClose={cancelBatch}
-          onMatched={advanceBatch}
-        />
-      )}
     </div>
   )
 }

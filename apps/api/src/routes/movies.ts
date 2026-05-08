@@ -197,6 +197,19 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  // PATCH /api/movies/files/:fileId/edition — set or clear edition label
+  app.patch<{ Params: { fileId: string }; Body: { edition: string | null } }>(
+    '/movies/files/:fileId/edition',
+    async (req, reply) => {
+      const { edition } = req.body
+      const file = await prisma.movieFile.update({
+        where: { id: req.params.fileId },
+        data: { edition: edition ?? null },
+      })
+      return reply.send({ id: file.id, edition: file.edition })
+    },
+  )
+
   // POST /api/movies/:id/move — move movie folder to a different scan root
   app.post<{ Params: { id: string }; Body: { targetScanRootId: string } }>(
     '/movies/:id/move',
