@@ -60,8 +60,8 @@ export async function deleteScanRoot(id: string): Promise<void> {
   await apiFetch(`/settings/scan-roots/${id}`, { method: 'DELETE' })
 }
 
-export async function fetchScanLogs(): Promise<ScanLogRecord[]> {
-  return apiFetch<ScanLogRecord[]>('/settings/scan-logs')
+export async function fetchScanLogs(limit = 10): Promise<ScanLogRecord[]> {
+  return apiFetch<ScanLogRecord[]>(`/settings/scan-logs?limit=${limit}`)
 }
 
 export async function dedupShows(): Promise<{ merged: number; deleted: number }> {

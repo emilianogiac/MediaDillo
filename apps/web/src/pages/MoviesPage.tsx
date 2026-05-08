@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
 import { fetchMovies, fetchScanRoots } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
+import { fetchRenamePreview, applyRenames } from '../api/files.js'
 import { PosterCard } from '../components/PosterCard.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
@@ -312,6 +313,24 @@ export function MoviesPage() {
     }
   }
 
+  async function handleBatchRenameAll() {
+    if (selected.size === 0) return
+    try {
+      const previews = await fetchRenamePreview('movies', [...selected])
+      const toRename = previews.filter((i) => i.needsRename)
+      if (toRename.length === 0) {
+        toast({ type: 'success', message: 'All files are already canonical — nothing to rename' })
+        return
+      }
+      await applyRenames('movies', toRename.map((i) => i.id))
+      toast({ type: 'success', message: `Renamed ${toRename.length} file${toRename.length !== 1 ? 's' : ''}` })
+      setSelected(new Set())
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+    }
+  }
+
   // Batch rename helpers
   function startBatch(action: 'rename') {
     const queue = [...selected]
@@ -551,6 +570,12 @@ export function MoviesPage() {
             className="text-xs px-3 py-1.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 hover:bg-orange-500/30 transition-colors"
           >
             Rename
+          </button>
+          <button
+            onClick={() => { void handleBatchRenameAll() }}
+            className="text-xs px-3 py-1.5 rounded bg-orange-500/10 border border-orange-500/30 text-orange-400 hover:bg-orange-500/20 transition-colors"
+          >
+            Rename All
           </button>
           <button
             onClick={() => { void handleBatchCleanup() }}

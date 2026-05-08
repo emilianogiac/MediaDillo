@@ -49,7 +49,7 @@ export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === backdropRef.current) onCancel() }}
     >
-      <div className="bg-surface-raised border border-gray-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl">
+      <div className="bg-surface-raised border border-gray-700 rounded-xl w-full max-w-2xl mx-4 shadow-2xl">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
           <div>
@@ -72,8 +72,8 @@ export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel
             <div className="space-y-2">
               {items.map((item) => (
                 <div key={item.id} className="text-xs font-mono space-y-0.5">
-                  <p className="text-gray-400 line-through">{basename(item.currentPath)}</p>
-                  <p className="text-green-400">{basename(item.proposedPath)}</p>
+                  <p className="text-gray-400 line-through break-all">{basename(item.currentPath)}</p>
+                  <p className="text-green-400 break-all">{basename(item.proposedPath)}</p>
                 </div>
               ))}
             </div>

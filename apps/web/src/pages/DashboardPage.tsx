@@ -4,6 +4,8 @@ import type { LibraryStats } from '../api/stats.js'
 import { fetchStats, formatBytes } from '../api/stats.js'
 import { apiFetch } from '../api/client.js'
 import type { ScanRoot } from '../api/types.js'
+import { fetchScanLogs } from '../api/settings.js'
+import type { ScanLogRecord } from '../api/settings.js'
 
 function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
   return (
@@ -145,33 +147,76 @@ function ScanButton() {
   )
 }
 
-function LastScanCard({ scan }: { scan: NonNullable<LibraryStats['lastScan']> }) {
-  const started = new Date(scan.startedAt)
-  const finished = scan.finishedAt ? new Date(scan.finishedAt) : null
-  const duration = finished
-    ? Math.round((finished.getTime() - started.getTime()) / 1000)
-    : null
+function ScanHistoryCard() {
+  const [logs, setLogs] = useState<ScanLogRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchScanLogs(10).then(setLogs).finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-4">
+      <h2 className="text-sm font-semibold text-gray-400 mb-3">Scan History</h2>
+      <p className="text-sm text-gray-500">Loading…</p>
+    </div>
+  )
+
+  if (logs.length === 0) return null
+
+  const latest = logs[0]!
+  const rest = logs.slice(1)
+
+  function duration(log: ScanLogRecord) {
+    if (!log.finishedAt) return null
+    return Math.round((new Date(log.finishedAt).getTime() - new Date(log.startedAt).getTime()) / 1000)
+  }
 
   return (
-    <div className="bg-surface-raised border border-gray-700 rounded-lg p-4">
-      <h2 className="text-sm font-semibold text-gray-400 mb-3">Last Scan</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-        {[
-          { label: 'Added', value: scan.filesAdded },
-          { label: 'Changed', value: scan.filesChanged },
-          { label: 'Removed', value: scan.filesRemoved },
-          { label: 'Stale', value: scan.staleFilesFound },
-        ].map(({ label, value }) => (
-          <div key={label} className="space-y-0.5">
-            <div className="text-xl font-bold text-gray-200">{value}</div>
-            <div className="text-xs text-gray-500">{label}</div>
-          </div>
-        ))}
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-4 space-y-4">
+      <h2 className="text-sm font-semibold text-gray-400">Scan History</h2>
+
+      {/* Latest scan — prominent stats */}
+      <div className="space-y-2">
+        <p className="text-xs text-gray-500">
+          {new Date(latest.startedAt).toLocaleString()}
+          {duration(latest) != null && ` — ${duration(latest)}s`}
+        </p>
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {[
+            { label: 'Added', value: latest.filesAdded, color: 'text-green-400' },
+            { label: 'Changed', value: latest.filesChanged, color: 'text-blue-400' },
+            { label: 'Removed', value: latest.filesRemoved, color: 'text-red-400' },
+            { label: 'Stale', value: latest.staleFilesFound, color: 'text-yellow-400' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="space-y-0.5">
+              <div className={`text-xl font-bold ${value > 0 ? color : 'text-gray-600'}`}>{value}</div>
+              <div className="text-xs text-gray-500">{label}</div>
+            </div>
+          ))}
+        </div>
       </div>
-      <p className="text-xs text-gray-600 mt-3">
-        {started.toLocaleString()}
-        {duration != null && ` — ${duration}s`}
-      </p>
+
+      {/* Older scans — compact rows */}
+      {rest.length > 0 && (
+        <div className="space-y-1 border-t border-gray-800 pt-3">
+          {rest.map((log) => {
+            const dur = duration(log)
+            const hasActivity = log.filesAdded > 0 || log.filesChanged > 0 || log.filesRemoved > 0
+            return (
+              <div key={log.id} className="flex items-center justify-between text-xs text-gray-500 py-0.5">
+                <span>{new Date(log.startedAt).toLocaleString()}</span>
+                <span className={hasActivity ? 'text-gray-300' : ''}>
+                  {hasActivity
+                    ? `+${log.filesAdded} ~${log.filesChanged} -${log.filesRemoved}${log.staleFilesFound > 0 ? ` · ${log.staleFilesFound} stale` : ''}`
+                    : 'no changes'}
+                </span>
+                {dur != null && <span className="text-gray-600 w-10 text-right">{dur}s</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -253,11 +298,7 @@ export function DashboardPage() {
       </div>
 
       {/* Last scan */}
-      {stats?.lastScan && <LastScanCard scan={stats.lastScan} />}
-
-      {!loading && !stats?.lastScan && (
-        <p className="text-sm text-gray-500">No scans yet. Trigger a scan to populate your library.</p>
-      )}
+      <ScanHistoryCard />
     </div>
   )
 }
