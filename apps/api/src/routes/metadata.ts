@@ -6,7 +6,7 @@ import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
 import { config } from '../config.js'
 import { writeMovieNfo } from '../nfo/writer.js'
-import { downloadMovieArtwork } from '../artwork/downloader.js'
+import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
 
 function getTmdbClient(): TmdbClient {
   if (!config.TMDB_API_KEY) throw new Error('TMDB_API_KEY is not configured')
@@ -53,16 +53,18 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ movies, shows, total: movies.length + shows.length })
   })
 
-  // GET /api/metadata/movies/:id/candidates — search TMDB for manual selection
-  // If movie has imdbId, prepend the direct IMDb→TMDB lookup result as the first candidate
-  app.get<{ Params: { id: string } }>('/metadata/movies/:id/candidates', async (req, reply) => {
+  // GET /api/metadata/movies/:id/candidates?q= — search TMDB for manual selection
+  // Optional ?q= overrides the stored title for the TMDB search.
+  // If movie has imdbId and no ?q= is given, prepend the direct IMDb→TMDB lookup result.
+  app.get<{ Params: { id: string }; Querystring: { q?: string } }>('/metadata/movies/:id/candidates', async (req, reply) => {
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
 
     const client = getTmdbClient()
+    const customQuery = req.query.q?.trim()
 
     let imdbCandidate: MovieCandidate | null = null
-    if (movie.imdbId) {
+    if (!customQuery && movie.imdbId) {
       try {
         const found = await client.findByImdbId(movie.imdbId)
         const r = found.movie_results[0]
@@ -81,7 +83,9 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    const searchResults = await searchMovieCandidates(client, movie.title, movie.year)
+    const searchTitle = customQuery ?? movie.title
+    const searchYear = customQuery ? null : movie.year
+    const searchResults = await searchMovieCandidates(client, searchTitle, searchYear)
     // Deduplicate: remove from search results if same tmdbId as IMDb result
     const deduped = imdbCandidate
       ? searchResults.filter((c) => c.tmdbId !== imdbCandidate!.tmdbId)
@@ -161,6 +165,12 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       } catch (err) {
         // Enrichment failure is non-fatal — the tmdbId is already saved
         app.log.error(err, `enrichTvShow failed for show ${show.id} (tmdbId ${tmdbId}); match persisted`)
+      }
+
+      try {
+        await downloadShowArtwork(show.id, 'all', true)
+      } catch (err) {
+        app.log.warn(err, `Post-match artwork download failed for show ${show.id}`)
       }
 
       const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })

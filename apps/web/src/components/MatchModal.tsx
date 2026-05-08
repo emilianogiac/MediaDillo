@@ -6,7 +6,7 @@ interface Props {
   id: string
   currentTitle: string
   currentTmdbId: number | null
-  fetchCandidates: (id: string) => Promise<{ candidates: MovieCandidate[] }>
+  fetchCandidates: (id: string, query?: string) => Promise<{ candidates: MovieCandidate[] }>
   onMatch: (id: string, tmdbId: number) => Promise<void>
   onClose: () => void
   onMatched: () => void
@@ -18,6 +18,8 @@ export function MatchModal({ mediaType, id, currentTitle, currentTmdbId, fetchCa
   const [error, setError] = useState<string | null>(null)
   const [matching, setMatching] = useState<number | null>(null)
   const [manualId, setManualId] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching] = useState(false)
   const backdropRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -26,6 +28,20 @@ export function MatchModal({ mediaType, id, currentTitle, currentTmdbId, fetchCa
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load candidates'))
       .finally(() => setLoading(false))
   }, [id, fetchCandidates])
+
+  async function handleSearch() {
+    if (!searchQuery.trim()) return
+    setSearching(true)
+    setError(null)
+    try {
+      const r = await fetchCandidates(id, searchQuery.trim())
+      setCandidates(r.candidates)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Search failed')
+    } finally {
+      setSearching(false)
+    }
+  }
 
   async function applyMatch(tmdbId: number) {
     setMatching(tmdbId)
@@ -83,6 +99,27 @@ export function MatchModal({ mediaType, id, currentTitle, currentTmdbId, fetchCa
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {error && (
             <p className="text-sm text-red-400 bg-red-900/20 border border-red-800/40 rounded px-3 py-2">{error}</p>
+          )}
+
+          {/* Search input (movies only) */}
+          {mediaType === 'movie' && (
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleSearch() }}
+                placeholder="Search TMDB by title…"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent"
+              />
+              <button
+                onClick={() => { void handleSearch() }}
+                disabled={searching || !searchQuery.trim()}
+                className="px-4 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-sm font-medium disabled:opacity-40 transition-colors"
+              >
+                {searching ? 'Searching…' : 'Search'}
+              </button>
+            </div>
           )}
 
           {/* Candidate list */}

@@ -91,6 +91,7 @@ export function MovieDetailPage() {
     try {
       await matchMovie(id, movie.tmdbId)
       load()
+      setArtworkVersion(Date.now())
       toast({ type: 'success', message: 'Metadata refreshed from TMDB' })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
@@ -486,7 +487,7 @@ export function MovieDetailPage() {
           fetchCandidates={fetchMovieCandidates}
           onMatch={matchMovie}
           onClose={() => setShowMatchModal(false)}
-          onMatched={() => { setShowMatchModal(false); load() }}
+          onMatched={() => { setShowMatchModal(false); load(); setArtworkVersion(Date.now()) }}
         />
       )}
     </div>

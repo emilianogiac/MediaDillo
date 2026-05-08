@@ -64,8 +64,9 @@ export async function cleanupTvContamination(): Promise<{ deleted: number }> {
   return apiFetch('/movies/cleanup-tv-contamination', { method: 'POST' })
 }
 
-export async function fetchMovieCandidates(id: string): Promise<{ movie: { id: string; title: string; year: number | null }; candidates: import('./types.js').MovieCandidate[] }> {
-  return apiFetch(`/metadata/movies/${id}/candidates`)
+export async function fetchMovieCandidates(id: string, query?: string): Promise<{ movie: { id: string; title: string; year: number | null }; candidates: import('./types.js').MovieCandidate[] }> {
+  const qs = query ? `?q=${encodeURIComponent(query)}` : ''
+  return apiFetch(`/metadata/movies/${id}/candidates${qs}`)
 }
 
 export async function matchMovie(id: string, tmdbId: number): Promise<void> {
