@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { fetchMovieFolderScan, cleanupMovieFolder } from '../api/movies.js'
 import type { FolderFile } from '../api/movies.js'
 
@@ -22,9 +22,10 @@ const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo'])
 
 interface Props {
   movieId: string
+  autoScanTrigger?: number
 }
 
-export function MovieFolderCleanupPanel({ movieId }: Props) {
+export function MovieFolderCleanupPanel({ movieId, autoScanTrigger }: Props) {
   const [open, setOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [files, setFiles] = useState<FolderFile[] | null>(null)
@@ -33,6 +34,16 @@ export function MovieFolderCleanupPanel({ movieId }: Props) {
   const [deleting, setDeleting] = useState(false)
   const [deleted, setDeleted] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const prevTrigger = useRef(autoScanTrigger)
+
+  useEffect(() => {
+    if (autoScanTrigger === undefined) return
+    if (autoScanTrigger === prevTrigger.current) return
+    prevTrigger.current = autoScanTrigger
+    setOpen(true)
+    void scan()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScanTrigger])
 
   async function scan() {
     setScanning(true)

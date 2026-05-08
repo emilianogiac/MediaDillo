@@ -42,6 +42,7 @@ export function MovieDetailPage() {
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
   const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
+  const [cleanupTrigger, setCleanupTrigger] = useState(0)
   const [editingEditionFileId, setEditingEditionFileId] = useState<string | null>(null)
   const [editionInput, setEditionInput] = useState('')
   const [savingEdition, setSavingEdition] = useState(false)
@@ -74,6 +75,7 @@ export function MovieDetailPage() {
       const r = await rescanMovie(id)
       const parts = [r.added > 0 && `${r.added} added`, r.changed > 0 && `${r.changed} changed`, r.removed > 0 && `${r.removed} removed`].filter(Boolean)
       setRescanResult(parts.length > 0 ? parts.join(', ') : 'Up to date')
+      setCleanupTrigger((n) => n + 1)
       load()
     } catch {
       setRescanResult('Rescan failed')
@@ -282,13 +284,23 @@ export function MovieDetailPage() {
               )}
             </div>
             {movie.tmdbId ? (
-              <button
-                onClick={() => { void handleRematch() }}
-                disabled={rematching}
-                className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
-              >
-                {rematching ? 'Refreshing…' : 'Re-match'}
-              </button>
+              <>
+                <button
+                  onClick={() => { void handleRematch() }}
+                  disabled={rematching}
+                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+                  title="Refresh metadata from TMDB using current match"
+                >
+                  {rematching ? 'Refreshing…' : 'Re-match'}
+                </button>
+                <button
+                  onClick={() => setShowMatchModal(true)}
+                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+                  title="Assign a different TMDB entry"
+                >
+                  Match
+                </button>
+              </>
             ) : (
               <button
                 onClick={() => setShowMatchModal(true)}
@@ -382,13 +394,13 @@ export function MovieDetailPage() {
                   ) : fileOrder.length > 1 ? (
                     <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
                   ) : null}
-                  {!editingEditionFileId && (
+                  {!editingEditionFileId && !file.edition && (
                     <button
-                      onClick={() => { setEditingEditionFileId(file.id); setEditionInput(file.edition ?? '') }}
-                      className="text-xs text-gray-600 hover:text-gray-400 transition-colors shrink-0"
-                      title="Set edition"
+                      onClick={() => { setEditingEditionFileId(file.id); setEditionInput('') }}
+                      className="text-xs px-1.5 py-0.5 rounded border border-dashed border-gray-700 text-gray-500 hover:border-teal-600/60 hover:text-teal-400 transition-colors shrink-0"
+                      title="Set edition label"
                     >
-                      {file.edition ? null : '＋ edition'}
+                      ＋ edition
                     </button>
                   )}
                   <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
@@ -450,7 +462,7 @@ export function MovieDetailPage() {
 
       {/* Folder cleanup */}
       {movie.files.length > 0 && (
-        <MovieFolderCleanupPanel movieId={movie.id} />
+        <MovieFolderCleanupPanel movieId={movie.id} autoScanTrigger={cleanupTrigger} />
       )}
 
       {/* Artwork Manager */}

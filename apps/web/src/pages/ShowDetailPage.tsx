@@ -213,13 +213,23 @@ export function ShowDetailPage() {
               )}
             </div>
             {show.tmdbId ? (
-              <button
-                onClick={() => { void handleRematch() }}
-                disabled={rematching}
-                className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
-              >
-                {rematching ? 'Refreshing…' : 'Re-match'}
-              </button>
+              <>
+                <button
+                  onClick={() => { void handleRematch() }}
+                  disabled={rematching}
+                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+                  title="Refresh metadata from TMDB using current match"
+                >
+                  {rematching ? 'Refreshing…' : 'Re-match'}
+                </button>
+                <button
+                  onClick={() => setShowMatchModal(true)}
+                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+                  title="Assign a different TMDB entry"
+                >
+                  Match
+                </button>
+              </>
             ) : (
               <button
                 onClick={() => setShowMatchModal(true)}

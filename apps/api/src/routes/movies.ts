@@ -312,7 +312,8 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       } else if (SUBTITLE_EXTS.has(ext)) {
         category = 'subtitle'
       } else if (ext === '.nfo') {
-        category = name === canonicalNfoName ? 'nfo' : 'extra-nfo'
+        // movie.nfo is the Jellyfin standard name MediaDillo always writes; also accept Title (Year).nfo
+        category = (name === 'movie.nfo' || name === canonicalNfoName) ? 'nfo' : 'extra-nfo'
       } else {
         category = 'unknown'
       }
