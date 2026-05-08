@@ -75,7 +75,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         status: true,
         scanRoot: { select: { id: true, label: true, path: true } },
         files: {
-          select: { path: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
+          select: { path: true, edition: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
           orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }],
         },
       },
