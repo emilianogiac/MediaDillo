@@ -59,7 +59,7 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
     movie.files.forEach((file, idx) => {
       const ext = path.extname(file.path)
       const partNumber = isMulti ? idx + 1 : null
-      const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber)
+      const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
       const proposedPath = path.join(folderPath, fileName)
 
       items.push({
@@ -103,7 +103,7 @@ export async function applyMovieRenames(
     const isMulti = movie.files.length > 1
     const fileIndex = movie.files.findIndex((f) => f.id === file.id)
     const partNumber = isMulti ? fileIndex + 1 : null
-    const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber)
+    const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
     const proposedPath = path.join(folderPath, fileName)
 
     if (file.path === proposedPath) continue

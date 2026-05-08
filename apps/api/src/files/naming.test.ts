@@ -51,6 +51,22 @@ describe('canonicalMovieFileName', () => {
   it('no year', () => {
     expect(canonicalMovieFileName('Dune', null, '.mp4')).toBe('Dune.mp4')
   })
+
+  it('includes edition token when provided', () => {
+    expect(canonicalMovieFileName('The Godfather', 1972, '.mkv', null, "Director's Cut")).toBe(
+      "The Godfather (1972) {edition-Director's Cut}.mkv",
+    )
+  })
+
+  it('edition token placed after part suffix', () => {
+    expect(canonicalMovieFileName('The Godfather', 1972, '.mkv', 1, "Extended")).toBe(
+      'The Godfather (1972) - part1 {edition-Extended}.mkv',
+    )
+  })
+
+  it('omits edition token when null', () => {
+    expect(canonicalMovieFileName('Dune', 2021, '.mkv', null, null)).toBe('Dune (2021).mkv')
+  })
 })
 
 describe('canonicalSeasonFolderName', () => {

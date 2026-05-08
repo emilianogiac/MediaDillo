@@ -5,6 +5,7 @@ import { prisma } from '@mediadillo/db'
 import { runMovieFolderScan, isScanRunning } from '../scanner/index.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/naming.js'
+import { applyMovieRenames } from '../files/rename.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
@@ -197,7 +198,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
-  // PATCH /api/movies/files/:fileId/edition — set or clear edition label
+  // PATCH /api/movies/files/:fileId/edition — set or clear edition label, then rename the file
   app.patch<{ Params: { fileId: string }; Body: { edition: string | null } }>(
     '/movies/files/:fileId/edition',
     async (req, reply) => {
@@ -206,7 +207,10 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         where: { id: req.params.fileId },
         data: { edition: edition ?? null },
       })
-      return reply.send({ id: file.id, edition: file.edition })
+      // Rename the physical file so the {edition-...} token stays in sync with the DB value
+      await applyMovieRenames([file.id])
+      const updated = await prisma.movieFile.findUnique({ where: { id: file.id } })
+      return reply.send({ id: file.id, edition: file.edition, path: updated?.path })
     },
   )
 
