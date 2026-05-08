@@ -146,16 +146,20 @@ function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
           <p className="text-xs text-gray-500">{show.year ?? '—'}</p>
         </div>
 
-        {show.totalEpisodes > 0 && (
-          <div className="flex-shrink-0 w-24 space-y-0.5">
-            <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
-              <div className={`h-full rounded-full ${completenessColor(show.ownedEpisodes, show.totalEpisodes)}`} style={{ width: `${pct}%` }} />
-            </div>
-            <p className="text-xs text-gray-500 text-right">{show.ownedEpisodes}/{show.totalEpisodes}</p>
-          </div>
-        )}
+        {/* Completeness bar — always rendered to keep columns aligned */}
+        <div className="flex-shrink-0 w-24 space-y-0.5">
+          {show.totalEpisodes > 0 && (
+            <>
+              <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
+                <div className={`h-full rounded-full ${completenessColor(show.ownedEpisodes, show.totalEpisodes)}`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-xs text-gray-500 text-right">{show.ownedEpisodes}/{show.totalEpisodes}</p>
+            </>
+          )}
+        </div>
 
-        <div className="flex-shrink-0 flex gap-1 items-center">
+        {/* Status chips — fixed width so all rows align */}
+        <div className="flex-shrink-0 w-28 flex gap-1 items-center">
           {unmatched && <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Unmatched</span>}
           {isDuplicate && <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">{show.duplicateCount}×</span>}
           {show.isOrganized && <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>}

@@ -113,8 +113,8 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
           {movie.scanRoot?.label ?? '—'}
         </div>
 
-        {/* Status chips */}
-        <div className="flex-shrink-0 flex gap-1 items-center">
+        {/* Status chips — fixed width so all rows align */}
+        <div className="flex-shrink-0 w-28 flex gap-1 items-center">
           {missingFile && (
             <span className="bg-red-700/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Missing</span>
           )}
