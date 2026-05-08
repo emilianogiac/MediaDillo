@@ -96,3 +96,23 @@ export async function moveMovie(movieId: string, targetScanRootId: string): Prom
     body: JSON.stringify({ targetScanRootId }),
   })
 }
+
+export type FolderFileCategory = 'video' | 'artwork' | 'subtitle' | 'nfo' | 'extra-art' | 'extra-nfo' | 'unknown'
+
+export interface FolderFile {
+  name: string
+  path: string
+  size: number
+  category: FolderFileCategory
+}
+
+export async function fetchMovieFolderScan(movieId: string): Promise<{ folderPath: string; files: FolderFile[] }> {
+  return apiFetch(`/movies/${movieId}/folder-scan`)
+}
+
+export async function cleanupMovieFolder(movieId: string, paths: string[]): Promise<{ deleted: number }> {
+  return apiFetch(`/movies/${movieId}/cleanup`, {
+    method: 'POST',
+    body: JSON.stringify({ paths }),
+  })
+}

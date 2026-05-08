@@ -8,6 +8,7 @@ import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { MovieFilesPanel } from '../components/MovieFilesPanel.js'
+import { MovieFolderCleanupPanel } from '../components/MovieFolderCleanupPanel.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -367,6 +368,11 @@ export function MovieDetailPage() {
       {/* Rename & Organize */}
       {movie.files.length > 0 && (
         <MovieFilesPanel movieId={movie.id} onDone={load} />
+      )}
+
+      {/* Folder cleanup */}
+      {movie.files.length > 0 && (
+        <MovieFolderCleanupPanel movieId={movie.id} />
       )}
 
       {/* Artwork Manager */}

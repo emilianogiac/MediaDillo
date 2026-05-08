@@ -43,27 +43,42 @@ export async function findArtworkPaths(folderPath: string): Promise<{ posterPath
   let posterPath: string | null = null
   let backdropPath: string | null = null
 
+  // Two-pass: exact canonical names win over TMM suffix-named files.
+  // This ensures a freshly downloaded poster.jpg is always preferred over
+  // an existing MovieName (2020)-poster.jpg left by TMM.
   for (const file of files) {
     const ext = path.extname(file).toLowerCase()
     if (!IMAGE_EXTS.has(ext)) continue
     const base = path.basename(file, ext).toLowerCase()
 
-    if (!posterPath && (POSTER_NAMES.has(base) || POSTER_SUFFIXES.some(s => base.endsWith(s)))) {
+    if (!posterPath && POSTER_NAMES.has(base)) {
       const candidate = path.join(folderPath, file)
-      // Verify the file actually exists and is non-empty on disk before claiming
-      // it as valid artwork. readdir alone cannot detect zero-byte or deleted files
-      // that still appear as directory entries (e.g. on some network filesystems).
-      if (await fileExistsOnDisk(candidate)) {
-        posterPath = candidate
-      }
+      if (await fileExistsOnDisk(candidate)) posterPath = candidate
     }
-    if (!backdropPath && (BACKDROP_NAMES.has(base) || BACKDROP_SUFFIXES.some(s => base.endsWith(s)))) {
+    if (!backdropPath && BACKDROP_NAMES.has(base)) {
       const candidate = path.join(folderPath, file)
-      if (await fileExistsOnDisk(candidate)) {
-        backdropPath = candidate
-      }
+      if (await fileExistsOnDisk(candidate)) backdropPath = candidate
     }
     if (posterPath && backdropPath) break
+  }
+
+  // Second pass: fall back to suffix-named files (TMM convention) if no canonical file found
+  if (!posterPath || !backdropPath) {
+    for (const file of files) {
+      const ext = path.extname(file).toLowerCase()
+      if (!IMAGE_EXTS.has(ext)) continue
+      const base = path.basename(file, ext).toLowerCase()
+
+      if (!posterPath && POSTER_SUFFIXES.some(s => base.endsWith(s))) {
+        const candidate = path.join(folderPath, file)
+        if (await fileExistsOnDisk(candidate)) posterPath = candidate
+      }
+      if (!backdropPath && BACKDROP_SUFFIXES.some(s => base.endsWith(s))) {
+        const candidate = path.join(folderPath, file)
+        if (await fileExistsOnDisk(candidate)) backdropPath = candidate
+      }
+      if (posterPath && backdropPath) break
+    }
   }
 
   return { posterPath, backdropPath }

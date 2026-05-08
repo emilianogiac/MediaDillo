@@ -241,4 +241,100 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ moved: true, newFolder })
     },
   )
+
+  // GET /api/movies/:id/folder-scan — list folder contents with cleanup categories
+  app.get<{ Params: { id: string } }>('/movies/:id/folder-scan', async (req, reply) => {
+    const movie = await prisma.movie.findUnique({
+      where: { id: req.params.id },
+      include: { files: { orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] }, scanRoot: true },
+    })
+    if (!movie) return reply.code(404).send({ error: 'Not found' })
+    if (!movie.files.length) return reply.code(422).send({ error: 'No files' })
+
+    const firstFile = movie.files[0]!
+    const fileDir = path.dirname(firstFile.path)
+    const scanRootPath = movie.scanRoot?.path ?? ''
+    const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
+      ? path.dirname(fileDir)
+      : fileDir
+
+    const knownPaths = new Set(movie.files.map((f) => f.path))
+    const canonicalNfoName = `${canonicalMovieFolderName(movie.title, movie.year)}.nfo`
+
+    const VIDEO_EXTS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.iso', '.m2ts', '.wmv'])
+    const SUBTITLE_EXTS = new Set(['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx', '.sup', '.mks'])
+    const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+    const CANONICAL_ART = new Set(['poster.jpg', 'backdrop.jpg', 'folder.jpg'])
+    const POSTER_SFX = ['-poster', '_poster']
+    const BACKDROP_SFX = ['-fanart', '_fanart', '-backdrop', '_backdrop', '-landscape', '_landscape', '-background', '_background']
+
+    let entries: string[] = []
+    try { entries = await fs.readdir(folderPath) } catch {
+      return reply.code(500).send({ error: 'Cannot read folder' })
+    }
+
+    type FileCategory = 'video' | 'artwork' | 'subtitle' | 'nfo' | 'extra-art' | 'extra-nfo' | 'unknown'
+
+    const items = await Promise.all(entries.map(async (name) => {
+      const fullPath = path.join(folderPath, name)
+      const ext = path.extname(name).toLowerCase()
+      const base = path.basename(name, ext).toLowerCase()
+      let size = 0
+      try {
+        const s = await fs.stat(fullPath)
+        if (!s.isFile()) return null
+        size = s.size
+      } catch { return null }
+
+      let category: FileCategory
+      if (knownPaths.has(fullPath)) {
+        category = 'video'
+      } else if (VIDEO_EXTS.has(ext)) {
+        category = 'unknown'
+      } else if (CANONICAL_ART.has(name.toLowerCase())) {
+        category = 'artwork'
+      } else if (IMAGE_EXTS.has(ext)) {
+        category = (POSTER_SFX.some((s) => base.endsWith(s)) || BACKDROP_SFX.some((s) => base.endsWith(s)))
+          ? 'extra-art' : 'unknown'
+      } else if (SUBTITLE_EXTS.has(ext)) {
+        category = 'subtitle'
+      } else if (ext === '.nfo') {
+        category = name === canonicalNfoName ? 'nfo' : 'extra-nfo'
+      } else {
+        category = 'unknown'
+      }
+
+      return { name, path: fullPath, size, category }
+    }))
+
+    return reply.send({ folderPath, files: items.filter(Boolean) })
+  })
+
+  // POST /api/movies/:id/cleanup — delete specified files (safety-checked to folder)
+  app.post<{ Params: { id: string }; Body: { paths: string[] } }>(
+    '/movies/:id/cleanup',
+    async (req, reply) => {
+      const movie = await prisma.movie.findUnique({
+        where: { id: req.params.id },
+        include: { files: { take: 1, orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }] }, scanRoot: true },
+      })
+      if (!movie) return reply.code(404).send({ error: 'Not found' })
+      if (!movie.files.length) return reply.code(422).send({ error: 'No files' })
+
+      const firstFile = movie.files[0]!
+      const fileDir = path.dirname(firstFile.path)
+      const scanRootPath = movie.scanRoot?.path ?? ''
+      const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
+        ? path.dirname(fileDir)
+        : fileDir
+
+      const safe = req.body.paths.filter((p) => p.startsWith(folderPath + '/') || p.startsWith(folderPath + path.sep))
+      let deleted = 0
+      for (const p of safe) {
+        try { await fs.unlink(p); deleted++ } catch { /* skip unreadable */ }
+      }
+
+      return reply.send({ deleted })
+    },
+  )
 }
