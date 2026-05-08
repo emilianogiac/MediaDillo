@@ -18,7 +18,8 @@ const CATEGORY_LABEL: Record<string, { label: string; color: string }> = {
   unknown: { label: 'Unknown', color: 'text-orange-400' },
 }
 
-const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo'])
+// Pre-select everything except what MediaDillo creates/needs: video, canonical artwork, canonical nfo
+const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo', 'subtitle', 'unknown'])
 
 interface Props {
   movieId: string
