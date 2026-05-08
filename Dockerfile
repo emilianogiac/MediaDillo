@@ -15,7 +15,7 @@ RUN pnpm --filter @mediadillo/web build
 RUN pnpm --filter @mediadillo/api build
 
 FROM node:22-alpine AS runtime
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl ffmpeg
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-workspace.yaml ./
