@@ -132,13 +132,15 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
         app.log.error(err, `enrichMovie failed for movie ${movie.id} (tmdbId ${tmdbId}); match persisted`)
       }
 
-      // Auto-post-match: write NFO and download artwork.
-      // All non-fatal — match is already persisted above.
       try {
         await writeMovieNfo(movie.id)
+      } catch (err) {
+        app.log.warn(err, `writeMovieNfo failed for movie ${movie.id}`)
+      }
+      try {
         await downloadMovieArtwork(movie.id, 'all', true)
       } catch (err) {
-        app.log.warn(err, `Post-match auto-ops failed for movie ${movie.id}`)
+        app.log.warn(err, `downloadMovieArtwork failed for movie ${movie.id}`)
       }
 
       // Optional auto-cleanup: delete stale TMM/extra files after artwork is fresh.

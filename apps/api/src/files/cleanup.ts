@@ -55,11 +55,6 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
     return null
   }
 
-  // Pre-compute which canonical art types exist so we can mark TMM duplicates as extra-art
-  const entrySet = new Set(entries.map((e) => e.toLowerCase()))
-  const hasCanonicalPoster = entrySet.has('poster.jpg') || entrySet.has('folder.jpg')
-  const hasCanonicalBackdrop = entrySet.has('backdrop.jpg')
-
   const items = await Promise.all(entries.map(async (name): Promise<ScannedFolderFile | null> => {
     const fullPath = path.join(folderPath, name)
     const ext = path.extname(name).toLowerCase()
@@ -79,15 +74,8 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
     } else if (CANONICAL_ART.has(name.toLowerCase())) {
       category = 'artwork'
     } else if (IMAGE_EXTS.has(ext)) {
-      const isPosterSfx = POSTER_SFX.some((s) => base.endsWith(s))
-      const isBackdropSfx = BACKDROP_SFX.some((s) => base.endsWith(s))
-      if (isPosterSfx || isBackdropSfx) {
-        // Extra only when a canonical replacement already exists; otherwise it's the sole copy
-        const isDuplicate = (isPosterSfx && hasCanonicalPoster) || (isBackdropSfx && hasCanonicalBackdrop)
-        category = isDuplicate ? 'extra-art' : 'artwork'
-      } else {
-        category = 'unknown'
-      }
+      category = (POSTER_SFX.some((s) => base.endsWith(s)) || BACKDROP_SFX.some((s) => base.endsWith(s)))
+        ? 'extra-art' : 'unknown'
     } else if (SUBTITLE_EXTS.has(ext)) {
       category = 'subtitle'
     } else if (ext === '.nfo') {

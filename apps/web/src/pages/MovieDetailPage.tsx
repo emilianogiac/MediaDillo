@@ -63,9 +63,9 @@ export function MovieDetailPage() {
   }
 
   const load = useCallback(() => {
-    if (!id) return
+    if (!id) return Promise.resolve()
     setLoading(true)
-    fetchMovie(id)
+    return fetchMovie(id)
       .then((m) => { setMovie(m); setFileOrder(m.files) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
       .finally(() => setLoading(false))
@@ -94,7 +94,7 @@ export function MovieDetailPage() {
     setRematching(true)
     try {
       await matchMovie(id, movie.tmdbId)
-      load()
+      await load()
       setArtworkVersion(Date.now())
       toast({ type: 'success', message: 'Metadata refreshed from TMDB' })
     } catch (e) {
@@ -591,7 +591,7 @@ export function MovieDetailPage() {
           fetchCandidates={fetchMovieCandidates}
           onMatch={matchMovie}
           onClose={() => setShowMatchModal(false)}
-          onMatched={() => { setShowMatchModal(false); load(); setArtworkVersion(Date.now()) }}
+          onMatched={() => { setShowMatchModal(false); void load().then(() => setArtworkVersion(Date.now())) }}
         />
       )}
     </div>
