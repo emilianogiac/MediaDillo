@@ -12,6 +12,7 @@ export interface MoviesFilter {
   organized?: boolean
   duplicates?: 'only' | 'hide'
   search?: string
+  edition?: string
 }
 
 export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSummary[]> {
@@ -26,6 +27,7 @@ export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSumma
   if (filter.organized === false) params.set('organized', 'false')
   if (filter.duplicates) params.set('duplicates', filter.duplicates)
   if (filter.search) params.set('search', filter.search)
+  if (filter.edition) params.set('edition', filter.edition)
   const qs = params.toString()
   return apiFetch<MovieSummary[]>(`/movies${qs ? `?${qs}` : ''}`)
 }

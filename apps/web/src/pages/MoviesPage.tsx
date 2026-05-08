@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
-import { fetchMovies, fetchScanRoots } from '../api/movies.js'
+import { fetchMovies, fetchScanRoots, fetchEditions } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
 import { fetchRenamePreview, applyRenames } from '../api/files.js'
 import { PosterCard } from '../components/PosterCard.js'
@@ -138,6 +138,7 @@ export function MoviesPage() {
   const { toast, trackJob } = useToast()
   const [movies, setMovies] = useState<MovieSummary[]>([])
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
+  const [editionLabels, setEditionLabels] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
@@ -165,6 +166,7 @@ export function MoviesPage() {
     needsRename: searchParams.has('needsrename'),
     needsOrganizing: searchParams.has('unorganized'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
+    edition: searchParams.get('edition') ?? '',
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
   }
 
@@ -179,6 +181,7 @@ export function MoviesPage() {
     needsRename?: boolean
     needsOrganizing?: boolean
     duplicates?: 'only' | 'hide' | ''
+    edition?: string
     view?: 'grid' | 'list'
   }) {
     setSearchParams(
@@ -214,6 +217,9 @@ export function MoviesPage() {
         if ('duplicates' in partial) {
           partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates')
         }
+        if ('edition' in partial) {
+          partial.edition ? next.set('edition', partial.edition) : next.delete('edition')
+        }
         if ('view' in partial) {
           partial.view === 'list' ? next.set('view', 'list') : next.delete('view')
         }
@@ -227,6 +233,7 @@ export function MoviesPage() {
     fetchScanRoots()
       .then((roots) => setScanRoots(roots.filter((r) => r.type === 'movies')))
       .catch(() => {})
+    fetchEditions().then(setEditionLabels).catch(() => {})
   }, [])
 
   function load() {
@@ -243,6 +250,7 @@ export function MoviesPage() {
     if (filter.needsRename) movieFilter.needsRename = true
     if (filter.needsOrganizing) movieFilter.organized = false
     if (filter.duplicates) movieFilter.duplicates = filter.duplicates
+    if (filter.edition) movieFilter.edition = filter.edition
     fetchMovies(movieFilter)
       .then((data) => { setMovies(data); setListNonce(Date.now()) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
@@ -257,7 +265,7 @@ export function MoviesPage() {
   )
 
   const hasActiveFilter =
-    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.needsOrganizing || filter.duplicates
+    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.needsOrganizing || filter.duplicates || filter.edition
 
   // Selection helpers
   const allIds = movies.map((m) => m.id)
@@ -475,9 +483,23 @@ export function MoviesPage() {
           {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
         </button>
 
+        {editionLabels.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap">
+            {editionLabels.map((label) => (
+              <button
+                key={label}
+                onClick={() => setPartial({ edition: filter.edition === label ? '' : label })}
+                className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.edition === label ? 'bg-teal-500/20 border-teal-500/60 text-teal-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {hasActiveFilter && (
           <button
-            onClick={() => setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, missingFile: false, needsRename: false, needsOrganizing: false, duplicates: '' })}
+            onClick={() => setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, missingFile: false, needsRename: false, needsOrganizing: false, duplicates: '', edition: '' })}
             className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
           >
             Clear filters
