@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition } from '../api/movies.js'
+import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
 import type { ScanRoot } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -34,6 +34,9 @@ export function MovieDetailPage() {
   const [showMatchModal, setShowMatchModal] = useState(false)
   const [rematching, setRematching] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deletePreview, setDeletePreview] = useState<{ folderPath: string; files: import('../api/movies.js').FolderFile[] } | null>(null)
+  const [deletingWithFiles, setDeletingWithFiles] = useState(false)
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<string | null>(null)
   const [fileOrder, setFileOrder] = useState<MovieFile[]>([])
@@ -59,6 +62,30 @@ export function MovieDetailPage() {
       navigate(-1)
     } catch {
       setDeleting(false)
+    }
+  }
+
+  async function openDeleteWithFilesModal() {
+    if (!id) return
+    try {
+      const scan = await fetchMovieFolderScan(id)
+      setDeletePreview(scan)
+      setShowDeleteModal(true)
+    } catch {
+      toast({ type: 'error', message: 'Could not read folder contents' })
+    }
+  }
+
+  async function confirmDeleteWithFiles() {
+    if (!id) return
+    setDeletingWithFiles(true)
+    try {
+      const { deleted } = await deleteMovieWithFiles(id)
+      toast({ type: 'success', message: `Deleted ${deleted} file${deleted !== 1 ? 's' : ''} from disk` })
+      navigate(-1)
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+      setDeletingWithFiles(false)
     }
   }
 
@@ -386,6 +413,14 @@ export function MovieDetailPage() {
             >
               {rescanning ? 'Rescanning…' : 'Rescan folder'}
             </button>
+            {movie.files.length > 0 && (
+              <button
+                onClick={openDeleteWithFilesModal}
+                className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors"
+              >
+                Delete from disk
+              </button>
+            )}
           </div>
         </div>
 
@@ -581,6 +616,42 @@ export function MovieDetailPage() {
         }}
         onUpdated={() => { load(); setArtworkVersion((v) => v + 1) }}
       />
+
+      {showDeleteModal && deletePreview && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-gray-700 rounded-xl w-full max-w-lg space-y-4 p-6">
+            <h2 className="text-lg font-semibold text-red-400">Delete movie from disk</h2>
+            <p className="text-sm text-gray-400">
+              The following files will be <span className="text-red-400 font-medium">permanently deleted</span>. This cannot be undone.
+            </p>
+            <div className="bg-gray-900 rounded-lg border border-gray-700 divide-y divide-gray-800 max-h-64 overflow-y-auto text-xs">
+              {deletePreview.files.map((f) => (
+                <div key={f.path} className="flex items-center justify-between px-3 py-2 gap-3">
+                  <span className="text-gray-300 break-all">{f.name}</span>
+                  <span className="text-gray-500 shrink-0">{f.size > 0 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : '—'}</span>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-500 break-all">{deletePreview.folderPath}</p>
+            <div className="flex justify-end gap-3 pt-1">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                disabled={deletingWithFiles}
+                className="text-sm px-4 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteWithFiles}
+                disabled={deletingWithFiles}
+                className="text-sm px-4 py-1.5 rounded bg-red-700/30 border border-red-700/60 text-red-300 hover:bg-red-700/50 transition-colors disabled:opacity-40"
+              >
+                {deletingWithFiles ? 'Deleting…' : 'Permanently delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showMatchModal && (
         <MatchModal

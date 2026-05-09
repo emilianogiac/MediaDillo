@@ -82,6 +82,10 @@ export async function deleteMovie(id: string): Promise<void> {
   await apiFetch(`/movies/${id}`, { method: 'DELETE' })
 }
 
+export async function deleteMovieWithFiles(id: string): Promise<{ deleted: number; folderPath: string }> {
+  return apiFetch(`/movies/${id}/with-files`, { method: 'DELETE' })
+}
+
 export async function rescanMovie(id: string): Promise<{ added: number; changed: number; removed: number }> {
   return apiFetch(`/movies/${id}/rescan`, { method: 'POST' })
 }

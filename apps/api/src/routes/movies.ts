@@ -308,6 +308,32 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(result)
   })
 
+  // DELETE /api/movies/:id/with-files — permanently delete all files in the movie folder + DB record
+  app.delete<{ Params: { id: string } }>('/movies/:id/with-files', async (req, reply) => {
+    const scanned = await scanMovieFolder(req.params.id)
+    if (!scanned) {
+      return reply.code(422).send({ error: 'Movie has no files — use DELETE /movies/:id to remove the stale record' })
+    }
+
+    // Delete every file in the folder
+    let deleted = 0
+    for (const f of scanned.files) {
+      try { await fs.unlink(f.path); deleted++ } catch { /* skip */ }
+    }
+
+    // Remove the folder itself if it is now empty
+    try {
+      const remaining = await fs.readdir(scanned.folderPath)
+      if (remaining.length === 0) await fs.rmdir(scanned.folderPath)
+    } catch { /* skip if folder not empty or already gone */ }
+
+    // Remove DB record (cascade deletes MovieFile rows via schema)
+    await prisma.movie.delete({ where: { id: req.params.id } })
+
+    triggerLibraryRefresh(app.log).catch(() => {})
+    return reply.send({ deleted, folderPath: scanned.folderPath })
+  })
+
   // POST /api/movies/:id/cleanup — delete specified files (safety-checked to folder)
   app.post<{ Params: { id: string }; Body: { paths: string[] } }>(
     '/movies/:id/cleanup',
