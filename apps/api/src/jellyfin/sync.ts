@@ -11,7 +11,10 @@ export async function syncJellyfinIds(logger?: { warn: (msg: string) => void }):
   const client = getJellyfinClient()
   if (!client) return
   try {
-    const movies = await client.getAllMoviesWithIds()
+    const users = await client.getUsers()
+    const userId = users[0]?.Id
+    if (!userId) return
+    const movies = await client.getAllMoviesWithIds(userId)
     const knownTmdbIds: number[] = []
     for (const { jellyfinId, tmdbId } of movies) {
       if (!tmdbId || !jellyfinId) continue

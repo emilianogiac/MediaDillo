@@ -64,6 +64,28 @@ describe('JellyfinClient', () => {
     expect(paths[0]).toBe('/nas/tv/Breaking Bad/Season 01/ep.mkv')
   })
 
+  it('getAllMoviesWithIds uses user-scoped endpoint and maps tmdbId', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        Items: [
+          { Id: 'jf-abc', ProviderIds: { Tmdb: '27205' } },
+          { Id: 'jf-def', ProviderIds: {} },
+          { Id: 'jf-ghi', ProviderIds: { Tmdb: '155' } },
+        ],
+      }),
+    )
+    const movies = await client.getAllMoviesWithIds('user-1')
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/Users/user-1/Items'),
+      expect.anything(),
+    )
+    expect(movies).toEqual([
+      { jellyfinId: 'jf-abc', tmdbId: 27205 },
+      { jellyfinId: 'jf-def', tmdbId: null },
+      { jellyfinId: 'jf-ghi', tmdbId: 155 },
+    ])
+  })
+
   it('throws on non-ok response', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ error: 'Unauthorized' }, 401))
     await expect(client.ping()).rejects.toThrow('HTTP 401')

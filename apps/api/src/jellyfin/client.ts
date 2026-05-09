@@ -67,9 +67,9 @@ export class JellyfinClient {
     return info.Id
   }
 
-  async getAllMoviesWithIds(): Promise<{ jellyfinId: string; tmdbId: number | null }[]> {
+  async getAllMoviesWithIds(userId: string): Promise<{ jellyfinId: string; tmdbId: number | null }[]> {
     const data = await this.get<{ Items: { Id: string; ProviderIds?: { Tmdb?: string } }[] }>(
-      '/Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds',
+      `/Users/${userId}/Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds`,
     )
     return data.Items.map((item) => ({
       jellyfinId: item.Id,
