@@ -8,12 +8,14 @@ interface Props {
   onApplied: () => void
   onSkip: () => void
   onCancel: () => void
+  onApplyAll?: () => Promise<void>
 }
 
-export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel }: Props) {
+export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel, onApplyAll }: Props) {
   const [items, setItems] = useState<RenamePreviewItem[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState(false)
+  const [applyingAll, setApplyingAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
 
@@ -36,6 +38,21 @@ export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel
     } catch {
       setError('Rename failed')
       setApplying(false)
+    }
+  }
+
+  async function handleApplyAll() {
+    if (!onApplyAll) return
+    setApplyingAll(true)
+    setError(null)
+    try {
+      if (items && items.length > 0) {
+        await applyRenames('movies', items.map((i) => i.id))
+      }
+      await onApplyAll()
+    } catch {
+      setError('Rename failed')
+      setApplyingAll(false)
     }
   }
 
@@ -90,17 +107,26 @@ export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel
           </button>
           <button
             onClick={onSkip}
-            disabled={applying}
+            disabled={applying || applyingAll}
             className="text-xs px-3 py-1.5 rounded border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
           >
             Skip
           </button>
+          {onApplyAll && remaining > 1 && (
+            <button
+              onClick={() => { void handleApplyAll() }}
+              disabled={applying || applyingAll || loading}
+              className="text-xs px-3 py-1.5 rounded bg-orange-500/20 border border-orange-500/40 text-orange-300 hover:bg-orange-500/30 transition-colors disabled:opacity-40"
+            >
+              {applyingAll ? 'Applying…' : `Apply all ${remaining}`}
+            </button>
+          )}
           <button
-            onClick={handleApply}
-            disabled={applying || loading || items?.length === 0}
+            onClick={() => { void handleApply() }}
+            disabled={applying || applyingAll || loading || items?.length === 0}
             className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors disabled:opacity-40"
           >
-            {applying ? 'Applying…' : items?.length === 0 ? 'Nothing to rename' : `Apply`}
+            {applying ? 'Applying…' : items?.length === 0 ? 'Nothing to rename' : 'Apply'}
           </button>
         </div>
       </div>

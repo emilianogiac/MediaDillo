@@ -5,6 +5,7 @@ import {
   applyMovieRenames,
   previewEpisodeRenames,
   applyEpisodeRenames,
+  revertRenameLog,
   deleteToTrash,
   type RenamePreviewItem,
 } from '../files/rename.js'
@@ -123,6 +124,14 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
       take: 200,
     })
     return reply.send(logs)
+  })
+
+  // POST /api/files/rename-log/:id/revert — undo a rename by moving the file back
+  app.post<{ Params: { id: string } }>('/files/rename-log/:id/revert', async (req, reply) => {
+    const result = await revertRenameLog(req.params.id)
+    if (!result.ok) return reply.code(400).send({ error: result.error })
+    triggerLibraryRefresh(app.log).catch(() => {})
+    return reply.send({ ok: true })
   })
 
   // GET /api/files/episode-files — list all episode files with current mapping for remap UI

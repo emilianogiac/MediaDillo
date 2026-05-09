@@ -416,6 +416,21 @@ export function MoviesPage() {
     }
   }
 
+  async function handleBatchApplyAll() {
+    const remainingIds = batchQueue.slice(batchIdx + 1)
+    if (remainingIds.length > 0) {
+      try {
+        const { jobId, total } = await renameBatch(remainingIds)
+        if (jobId) {
+          trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+        }
+      } catch (e) {
+        toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+      }
+    }
+    cancelBatch()
+  }
+
   function startBatch(action: 'rename') {
     const queue = [...selected]
     if (queue.length === 0) return
@@ -814,6 +829,7 @@ export function MoviesPage() {
           onApplied={advanceBatch}
           onSkip={advanceBatch}
           onCancel={cancelBatch}
+          {...(batchQueue.length - batchIdx > 1 ? { onApplyAll: handleBatchApplyAll } : {})}
         />
       )}
 

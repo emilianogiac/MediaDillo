@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { fetchRenamePreview, applyRenames, fetchRenameLog, type RenamePreviewItem, type RenameLogEntry } from '../api/files.js'
+import { fetchRenamePreview, applyRenames, fetchRenameLog, revertRename, type RenamePreviewItem, type RenameLogEntry } from '../api/files.js'
 
 interface Props {
   movieId: string
@@ -14,6 +14,8 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
   const [result, setResult] = useState<string | null>(null)
   const [log, setLog] = useState<RenameLogEntry[]>([])
   const [showLog, setShowLog] = useState(false)
+  const [revertingId, setRevertingId] = useState<string | null>(null)
+  const [revertResult, setRevertResult] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -47,6 +49,21 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
       await load()
     } finally {
       setApplying(false)
+    }
+  }
+
+  async function handleRevert(logId: string) {
+    setRevertingId(logId)
+    setRevertResult(null)
+    try {
+      await revertRename(logId)
+      setRevertResult('Reverted')
+      onDone()
+      await load()
+    } catch (e) {
+      setRevertResult(e instanceof Error ? e.message : 'Revert failed')
+    } finally {
+      setRevertingId(null)
     }
   }
 
@@ -98,7 +115,7 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
 
             <div className="flex items-center gap-3">
               <button
-                onClick={handleApply}
+                onClick={() => { void handleApply() }}
                 disabled={applying || selected.size === 0}
                 className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors disabled:opacity-40"
               >
@@ -122,13 +139,28 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
 
           {showLog && (
             <div className="bg-surface-raised border border-gray-700 rounded-lg divide-y divide-gray-700/60">
+              {revertResult && (
+                <div className="px-4 py-2">
+                  <span className="text-xs text-gray-400">{revertResult}</span>
+                </div>
+              )}
               {log.map((entry) => (
-                <div key={entry.id} className="px-4 py-2 space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{formatDate(entry.createdAt)}</span>
-                    <span className={`text-xs px-1 rounded ${entry.trigger === 'manual' ? 'bg-gray-700 text-gray-400' : 'bg-yellow-900/60 text-yellow-400'}`}>
-                      {entry.trigger}
-                    </span>
+                <div key={entry.id} className="px-4 py-2 space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">{formatDate(entry.createdAt)}</span>
+                      <span className={`text-xs px-1 rounded ${entry.trigger === 'manual' ? 'bg-gray-700 text-gray-400' : 'bg-yellow-900/60 text-yellow-400'}`}>
+                        {entry.trigger}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => { void handleRevert(entry.id) }}
+                      disabled={revertingId !== null}
+                      className="text-xs px-2 py-0.5 rounded border border-gray-700 text-gray-500 hover:border-orange-600/50 hover:text-orange-400 transition-colors disabled:opacity-40 shrink-0"
+                      title="Move file back to this name"
+                    >
+                      {revertingId === entry.id ? 'Reverting…' : 'Revert'}
+                    </button>
                   </div>
                   <p className="text-xs font-mono text-gray-500 line-through">{basename(entry.fromPath)}</p>
                   <p className="text-xs font-mono text-gray-300">{basename(entry.toPath)}</p>

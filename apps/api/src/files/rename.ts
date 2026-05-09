@@ -351,6 +351,34 @@ async function migrateSidecars(oldFolder: string, newFolder: string): Promise<vo
   }
 }
 
+export async function revertRenameLog(logId: string): Promise<{ ok: boolean; error?: string }> {
+  const entry = await prisma.renameLog.findUnique({ where: { id: logId } })
+  if (!entry) return { ok: false, error: 'Log entry not found' }
+  if (!entry.fileId) return { ok: false, error: 'No file associated with this log entry' }
+
+  const { fromPath, toPath, fileId, movieId } = entry
+
+  try {
+    await fs.access(toPath)
+  } catch {
+    return { ok: false, error: 'File not found at expected location — may have already been moved' }
+  }
+
+  try {
+    await fs.mkdir(path.dirname(fromPath), { recursive: true })
+    await fs.rename(toPath, fromPath)
+    await prisma.movieFile.update({ where: { id: fileId }, data: { path: fromPath } })
+    const expiresAt = new Date()
+    expiresAt.setDate(expiresAt.getDate() + RENAME_LOG_TTL_DAYS)
+    await prisma.renameLog.create({
+      data: { movieId, fileId, fromPath: toPath, toPath: fromPath, trigger: RenameTrigger.manual, expiresAt },
+    })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export async function detectStaleFilesForMovie(movieId: string): Promise<string[]> {
   const movie = await prisma.movie.findUnique({
     where: { id: movieId },

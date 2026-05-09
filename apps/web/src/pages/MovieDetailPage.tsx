@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import type { MovieDetail, MovieFile } from '../api/types.js'
 import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
@@ -22,6 +25,189 @@ function formatDuration(seconds: number | null): string {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function GripIcon() {
+  return (
+    <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor">
+      <circle cx="3" cy="4" r="1.5" /><circle cx="7" cy="4" r="1.5" />
+      <circle cx="3" cy="8" r="1.5" /><circle cx="7" cy="8" r="1.5" />
+      <circle cx="3" cy="12" r="1.5" /><circle cx="7" cy="12" r="1.5" />
+    </svg>
+  )
+}
+
+interface FileCardHandlers {
+  openEditionPicker: (fileId: string, current: string) => void
+  closeEditionPicker: () => void
+  setEditionInput: (v: string) => void
+  saveEdition: (fileId: string) => void
+  setEditingGlobalEdition: (ed: string | null) => void
+  setGlobalRenameInput: (v: string) => void
+  globalRename: (from: string) => void
+}
+
+interface SortableFileCardProps {
+  file: MovieFile
+  idx: number
+  totalFiles: number
+  editingEditionFileId: string | null
+  editionInput: string
+  savingEdition: boolean
+  editions: string[]
+  editingGlobalEdition: string | null
+  globalRenameInput: string
+  renamingGlobal: boolean
+  handlers: FileCardHandlers
+}
+
+function SortableFileCard({
+  file, idx, totalFiles,
+  editingEditionFileId, editionInput, savingEdition, editions,
+  editingGlobalEdition, globalRenameInput, renamingGlobal,
+  handlers,
+}: SortableFileCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: file.id })
+  const style = { transform: CSS.Transform.toString(transform), transition }
+
+  const qualityTier = file.videoQualityTier
+  const isEditing = editingEditionFileId === file.id
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2 ${isDragging ? 'opacity-50 shadow-2xl' : ''}`}
+    >
+      <div className="flex items-center gap-2">
+        {/* Drag handle */}
+        {totalFiles > 1 && (
+          <button
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing text-gray-600 hover:text-gray-400 shrink-0 touch-none"
+            title="Drag to reorder"
+          >
+            <GripIcon />
+          </button>
+        )}
+
+        {/* Edition badge / label */}
+        {!isEditing && file.edition ? (
+          <button
+            onClick={() => handlers.openEditionPicker(file.id, file.edition ?? '')}
+            className="flex items-center gap-1 group shrink-0"
+            title="Edit edition"
+          >
+            <TechBadge label={file.edition} variant="edition" />
+            <span className="text-gray-600 group-hover:text-gray-400 text-xs">✎</span>
+          </button>
+        ) : !isEditing && totalFiles > 1 ? (
+          <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
+        ) : null}
+        {!isEditing && !file.edition && (
+          <button
+            onClick={() => handlers.openEditionPicker(file.id, '')}
+            className="text-xs px-1.5 py-0.5 rounded border border-dashed border-gray-700 text-gray-500 hover:border-teal-600/60 hover:text-teal-400 transition-colors shrink-0"
+            title="Set edition label"
+          >
+            ＋ edition
+          </button>
+        )}
+
+        <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
+      </div>
+
+      {/* Edition picker panel */}
+      {isEditing && (
+        <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-3 space-y-3">
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={editionInput}
+              onChange={(e) => handlers.setEditionInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handlers.saveEdition(file.id)
+                if (e.key === 'Escape') handlers.closeEditionPicker()
+              }}
+              placeholder="e.g. Director's Cut"
+              className="flex-1 bg-gray-800 border border-accent/60 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-600 focus:outline-none"
+            />
+            <button onClick={() => handlers.saveEdition(file.id)} disabled={savingEdition} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">
+              {savingEdition ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={handlers.closeEditionPicker} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+          </div>
+
+          {editions.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">Existing editions — click to reuse, ✎ to rename globally:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {editions.map((ed) => (
+                  <div key={ed} className="flex items-center gap-0.5">
+                    <button
+                      onClick={() => handlers.setEditionInput(ed)}
+                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${editionInput === ed ? 'bg-teal-700/60 border-teal-500/60 text-teal-100' : 'bg-teal-900/30 border-teal-700/40 text-teal-300 hover:bg-teal-800/50'}`}
+                    >
+                      {ed}
+                    </button>
+                    <button
+                      onClick={() => { handlers.setEditingGlobalEdition(ed); handlers.setGlobalRenameInput(ed) }}
+                      title={`Rename "${ed}" on all movies`}
+                      className="text-xs text-gray-600 hover:text-gray-300 px-0.5 transition-colors"
+                    >
+                      ✎
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {editingGlobalEdition && (
+                <div className="border-t border-gray-700 pt-2 space-y-1.5">
+                  <p className="text-xs text-gray-400">Rename <span className="text-teal-300">"{editingGlobalEdition}"</span> across all movies:</p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={globalRenameInput}
+                      onChange={(e) => handlers.setGlobalRenameInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handlers.globalRename(editingGlobalEdition)
+                        if (e.key === 'Escape') { handlers.setEditingGlobalEdition(null); handlers.setGlobalRenameInput('') }
+                      }}
+                      placeholder="New edition name…"
+                      className="flex-1 bg-gray-800 border border-teal-700/60 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-600 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => handlers.globalRename(editingGlobalEdition)}
+                      disabled={renamingGlobal || !globalRenameInput.trim()}
+                      className="text-xs px-2.5 py-1 rounded bg-teal-800/40 border border-teal-600/40 text-teal-200 hover:bg-teal-700/50 disabled:opacity-40 transition-colors"
+                    >
+                      {renamingGlobal ? 'Renaming…' : 'Rename all'}
+                    </button>
+                    <button onClick={() => { handlers.setEditingGlobalEdition(null); handlers.setGlobalRenameInput('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-1.5 items-center">
+        {qualityTier && <TechBadge label={qualityTier} variant="quality" />}
+        {file.hdr && <TechBadge label="HDR" variant="hdr" />}
+        {file.videoCodec && <TechBadge label={file.videoCodec} />}
+        {file.videoResolution && <TechBadge label={file.videoResolution} />}
+        {file.audioCodec && <TechBadge label={file.audioCodec} />}
+        {file.audioChannels && <TechBadge label={file.audioChannels} />}
+        {file.audioQualityTier && <TechBadge label={file.audioQualityTier} />}
+        <span className="text-xs text-gray-500 ml-auto">
+          {formatSize(Number(file.sizeBytes))}
+          {file.durationS ? ` · ${formatDuration(file.durationS)}` : ''}
+        </span>
+      </div>
+    </div>
+  )
 }
 
 export function MovieDetailPage() {
@@ -184,12 +370,14 @@ export function MovieDetailPage() {
     }
   }
 
-  function moveFile(index: number, dir: -1 | 1) {
-    const next = [...fileOrder]
-    const target = index + dir
-    if (target < 0 || target >= next.length) return
-    ;[next[index], next[target]] = [next[target]!, next[index]!]
-    setFileOrder(next)
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setFileOrder((items) => {
+      const oldIdx = items.findIndex((f) => f.id === String(active.id))
+      const newIdx = items.findIndex((f) => f.id === String(over.id))
+      return arrayMove(items, oldIdx, newIdx)
+    })
   }
 
   async function handleSaveOrder() {
@@ -438,153 +626,39 @@ export function MovieDetailPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {fileOrder.map((file, idx) => (
-              <div
-                key={file.id}
-                className="bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2"
-              >
-                <div className="flex items-center gap-2">
-                  {editingEditionFileId !== file.id && file.edition ? (
-                    <button
-                      onClick={() => openEditionPicker(file.id, file.edition ?? '')}
-                      className="flex items-center gap-1 group shrink-0"
-                      title="Edit edition"
-                    >
-                      <TechBadge label={file.edition} variant="edition" />
-                      <span className="text-gray-600 group-hover:text-gray-400 text-xs">✎</span>
-                    </button>
-                  ) : editingEditionFileId !== file.id && fileOrder.length > 1 ? (
-                    <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
-                  ) : null}
-                  {editingEditionFileId !== file.id && !file.edition && (
-                    <button
-                      onClick={() => openEditionPicker(file.id, '')}
-                      className="text-xs px-1.5 py-0.5 rounded border border-dashed border-gray-700 text-gray-500 hover:border-teal-600/60 hover:text-teal-400 transition-colors shrink-0"
-                      title="Set edition label"
-                    >
-                      ＋ edition
-                    </button>
-                  )}
-                  <p className="text-xs text-gray-400 font-mono break-all flex-1">{file.path}</p>
-                  {fileOrder.length > 1 && (
-                    <div className="flex flex-col gap-0.5 shrink-0">
-                      <button
-                        onClick={() => moveFile(idx, -1)}
-                        disabled={idx === 0}
-                        className="text-gray-500 hover:text-accent disabled:opacity-20 leading-none"
-                        title="Move up"
-                      >▲</button>
-                      <button
-                        onClick={() => moveFile(idx, 1)}
-                        disabled={idx === fileOrder.length - 1}
-                        className="text-gray-500 hover:text-accent disabled:opacity-20 leading-none"
-                        title="Move down"
-                      >▼</button>
-                    </div>
-                  )}
+            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={fileOrder.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {fileOrder.map((file, idx) => (
+                    <SortableFileCard
+                      key={file.id}
+                      file={file}
+                      idx={idx}
+                      totalFiles={fileOrder.length}
+                      editingEditionFileId={editingEditionFileId}
+                      editionInput={editionInput}
+                      savingEdition={savingEdition}
+                      editions={editions}
+                      editingGlobalEdition={editingGlobalEdition}
+                      globalRenameInput={globalRenameInput}
+                      renamingGlobal={renamingGlobal}
+                      handlers={{
+                        openEditionPicker,
+                        closeEditionPicker,
+                        setEditionInput,
+                        saveEdition: (fileId) => { void handleSaveEdition(fileId) },
+                        setEditingGlobalEdition,
+                        setGlobalRenameInput,
+                        globalRename: (from) => { void handleGlobalRename(from) },
+                      }}
+                    />
+                  ))}
                 </div>
-                {/* Edition picker panel */}
-                {editingEditionFileId === file.id && (
-                  <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-3 space-y-3">
-                    {/* Input for this file */}
-                    <div className="flex items-center gap-2">
-                      <input
-                        autoFocus
-                        value={editionInput}
-                        onChange={(e) => setEditionInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleSaveEdition(file.id)
-                          if (e.key === 'Escape') closeEditionPicker()
-                        }}
-                        placeholder="e.g. Director's Cut"
-                        className="flex-1 bg-gray-800 border border-accent/60 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-600 focus:outline-none"
-                      />
-                      <button onClick={() => void handleSaveEdition(file.id)} disabled={savingEdition} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">
-                        {savingEdition ? 'Saving…' : 'Save'}
-                      </button>
-                      <button onClick={closeEditionPicker} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
-                    </div>
-
-                    {/* Existing editions */}
-                    {editions.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs text-gray-500">Existing editions — click to reuse, ✎ to rename globally:</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {editions.map((ed) => (
-                            <div key={ed} className="flex items-center gap-0.5">
-                              <button
-                                onClick={() => setEditionInput(ed)}
-                                className={`text-xs px-2 py-0.5 rounded border transition-colors ${editionInput === ed ? 'bg-teal-700/60 border-teal-500/60 text-teal-100' : 'bg-teal-900/30 border-teal-700/40 text-teal-300 hover:bg-teal-800/50'}`}
-                              >
-                                {ed}
-                              </button>
-                              <button
-                                onClick={() => { setEditingGlobalEdition(ed); setGlobalRenameInput(ed) }}
-                                title={`Rename "${ed}" on all movies`}
-                                className="text-xs text-gray-600 hover:text-gray-300 px-0.5 transition-colors"
-                              >
-                                ✎
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Global rename inline */}
-                        {editingGlobalEdition && (
-                          <div className="border-t border-gray-700 pt-2 space-y-1.5">
-                            <p className="text-xs text-gray-400">Rename <span className="text-teal-300">"{editingGlobalEdition}"</span> across all movies:</p>
-                            <div className="flex items-center gap-2">
-                              <input
-                                autoFocus
-                                value={globalRenameInput}
-                                onChange={(e) => setGlobalRenameInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') void handleGlobalRename(editingGlobalEdition)
-                                  if (e.key === 'Escape') { setEditingGlobalEdition(null); setGlobalRenameInput('') }
-                                }}
-                                placeholder="New edition name…"
-                                className="flex-1 bg-gray-800 border border-teal-700/60 rounded px-2 py-1 text-xs text-gray-100 placeholder-gray-600 focus:outline-none"
-                              />
-                              <button
-                                onClick={() => void handleGlobalRename(editingGlobalEdition)}
-                                disabled={renamingGlobal || !globalRenameInput.trim()}
-                                className="text-xs px-2.5 py-1 rounded bg-teal-800/40 border border-teal-600/40 text-teal-200 hover:bg-teal-700/50 disabled:opacity-40 transition-colors"
-                              >
-                                {renamingGlobal ? 'Renaming…' : 'Rename all'}
-                              </button>
-                              <button onClick={() => { setEditingGlobalEdition(null); setGlobalRenameInput('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex flex-wrap gap-1.5 items-center">
-                  {file.videoQualityTier && (
-                    <TechBadge label={file.videoQualityTier} variant="quality" />
-                  )}
-                  {file.hdr && <TechBadge label="HDR" variant="hdr" />}
-                  {file.videoCodec && <TechBadge label={file.videoCodec} />}
-                  {file.videoResolution && (
-                    <TechBadge label={file.videoResolution} />
-                  )}
-                  {file.audioCodec && <TechBadge label={file.audioCodec} />}
-                  {file.audioChannels && <TechBadge label={file.audioChannels} />}
-                  {file.audioQualityTier && (
-                    <TechBadge label={file.audioQualityTier} />
-                  )}
-                  <span className="text-xs text-gray-500 ml-auto">
-                    {formatSize(Number(file.sizeBytes))}
-                    {file.durationS ? ` · ${formatDuration(file.durationS)}` : ''}
-                  </span>
-                </div>
-              </div>
-            ))}
+              </SortableContext>
+            </DndContext>
             {fileOrder.length > 1 && (
               <button
-                onClick={handleSaveOrder}
+                onClick={() => { void handleSaveOrder() }}
                 disabled={savingOrder}
                 className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
               >

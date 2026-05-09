@@ -141,3 +141,7 @@ export interface RenameLogEntry {
 export async function fetchRenameLog(movieId: string): Promise<RenameLogEntry[]> {
   return apiFetch<RenameLogEntry[]>(`/files/rename-log?movieId=${movieId}`)
 }
+
+export async function revertRename(logId: string): Promise<void> {
+  await apiFetch(`/files/rename-log/${logId}/revert`, { method: 'POST' })
+}
