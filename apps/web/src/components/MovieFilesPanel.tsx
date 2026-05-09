@@ -11,7 +11,7 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
   const [applying, setApplying] = useState(false)
   const [items, setItems] = useState<RenamePreviewItem[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [result, setResult] = useState<string | null>(null)
+  const [result, setResult] = useState<{ message: string; errors: string[] } | null>(null)
   const [log, setLog] = useState<RenameLogEntry[]>([])
   const [showLog, setShowLog] = useState(false)
   const [revertingId, setRevertingId] = useState<string | null>(null)
@@ -42,11 +42,14 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
     setResult(null)
     try {
       const r = await applyRenames('movies', [...selected])
-      setResult(r.errors.length > 0
+      const message = r.errors.length > 0
         ? `${r.renamed} renamed, ${r.errors.length} error(s)`
-        : r.renamed > 0 ? `${r.renamed} file(s) renamed` : 'Nothing to rename')
+        : r.renamed > 0 ? `${r.renamed} file(s) renamed` : 'Nothing to rename'
+      setResult({ message, errors: r.errors })
       onDone()
       await load()
+    } catch (e) {
+      setResult({ message: e instanceof Error ? e.message : 'Rename failed', errors: [] })
     } finally {
       setApplying(false)
     }
@@ -121,7 +124,14 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
               >
                 {applying ? 'Applying…' : `Apply (${selected.size})`}
               </button>
-              {result && <span className="text-xs text-gray-400">{result}</span>}
+              {result && (
+                <div className="text-xs space-y-0.5">
+                  <span className={result.errors.length > 0 ? 'text-yellow-400' : 'text-gray-400'}>{result.message}</span>
+                  {result.errors.map((e, i) => (
+                    <p key={i} className="text-red-400 font-mono">{e}</p>
+                  ))}
+                </div>
+              )}
             </div>
           </>
         )}
