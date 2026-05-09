@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
-import { fetchMovies, fetchScanRoots, fetchEditions, triggerMovieDownload } from '../api/movies.js'
+import { fetchMovies, fetchScanRoots, fetchEditions, triggerMovieDownload, deleteMovie } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
 import { renameBatch } from '../api/files.js'
 import { PosterCard } from '../components/PosterCard.js'
@@ -9,6 +9,7 @@ import { TechBadge } from '../components/TechBadge.js'
 import { BatchRenameModal } from '../components/BatchRenameModal.js'
 import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
 import { useToast } from '../context/ToastContext.js'
+import { ConfirmModal } from '../components/ConfirmModal.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 const QUALITY_RANK: Record<string, number> = { '4K': 6, '1440p': 5, '1080p': 4, '720p': 3, '576p': 2, '480p': 1, '360p': 0 }
@@ -174,6 +175,7 @@ export function MoviesPage() {
   const [batchQueue, setBatchQueue] = useState<string[]>([])
   const [batchAction, setBatchAction] = useState<'rename' | null>(null)
   const [batchIdx, setBatchIdx] = useState(0)
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   const [lastScanAt, setLastScanAt] = useState<string | null>(() => localStorage.getItem('mediaDillo.lastScanAt'))
 
@@ -410,6 +412,27 @@ export function MoviesPage() {
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
+  }
+
+  function handleBatchDelete() {
+    const ids = [...selected]
+    if (ids.length === 0) return
+    setConfirm({
+      title: 'Remove records',
+      message: `Remove ${ids.length} movie record${ids.length !== 1 ? 's' : ''} from the database? Files on disk are not affected.`,
+      onConfirm: async () => {
+        setConfirm(null)
+        const results = await Promise.allSettled(ids.map((id) => deleteMovie(id)))
+        const failed = results.filter((r) => r.status === 'rejected').length
+        if (failed > 0) {
+          toast({ type: 'error', message: `${failed} record${failed !== 1 ? 's' : ''} could not be removed` })
+        } else {
+          toast({ type: 'success', message: `${ids.length} record${ids.length !== 1 ? 's' : ''} removed` })
+        }
+        setSelected(new Set())
+        load()
+      },
+    })
   }
 
   async function handleBatchCleanup() {
@@ -888,12 +911,28 @@ export function MoviesPage() {
             Cleanup
           </button>
           <button
+            onClick={handleBatchDelete}
+            className="text-xs px-3 py-1.5 rounded bg-red-700/20 border border-red-700/40 text-red-400 hover:bg-red-700/30 transition-colors"
+          >
+            Remove records
+          </button>
+          <button
             onClick={() => setSelected(new Set())}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
           >
             Deselect
           </button>
         </div>
+      )}
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel="Remove"
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       {/* Batch rename modal */}

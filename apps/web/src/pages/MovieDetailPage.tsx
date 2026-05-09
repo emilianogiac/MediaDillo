@@ -14,6 +14,7 @@ import { MovieFilesPanel } from '../components/MovieFilesPanel.js'
 import { MovieFolderCleanupPanel } from '../components/MovieFolderCleanupPanel.js'
 import { useToast } from '../context/ToastContext.js'
 import { fetchJellyfinStatus, fetchJellyfinMovieUrl } from '../api/jellyfin.js'
+import { ConfirmModal } from '../components/ConfirmModal.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -237,6 +238,7 @@ export function MovieDetailPage() {
   const [showMatchModal, setShowMatchModal] = useState(false)
   const [rematching, setRematching] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deletePreview, setDeletePreview] = useState<{ folderPath: string; files: import('../api/movies.js').FolderFile[] } | null>(null)
   const [deletingWithFiles, setDeletingWithFiles] = useState(false)
@@ -270,15 +272,22 @@ export function MovieDetailPage() {
   const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
   const [openingJellyfin, setOpeningJellyfin] = useState(false)
 
-  async function handleDelete() {
-    if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
-    setDeleting(true)
-    try {
-      await deleteMovie(id)
-      navigate(backToMovies, { replace: true })
-    } catch {
-      setDeleting(false)
-    }
+  function handleDelete() {
+    if (!id) return
+    setConfirm({
+      title: 'Remove record',
+      message: 'Remove this movie from the database? Files on disk are not affected.',
+      onConfirm: async () => {
+        setConfirm(null)
+        setDeleting(true)
+        try {
+          await deleteMovie(id)
+          navigate(backToMovies, { replace: true })
+        } catch {
+          setDeleting(false)
+        }
+      },
+    })
   }
 
   async function openDeleteWithFilesModal() {
@@ -462,20 +471,26 @@ export function MovieDetailPage() {
     setEditValue(current)
   }
 
-  async function handleDeleteFileSingle(fileId: string) {
+  function handleDeleteFileSingle(fileId: string) {
     const file = fileOrder.find((f) => f.id === fileId)
     const name = file?.path.split('/').pop() ?? 'this file'
-    if (!window.confirm(`Delete "${name}" from disk? This cannot be undone.`)) return
-    setDeletingFileId(fileId)
-    try {
-      await deleteMovieFileSingle(fileId)
-      toast({ type: 'success', message: 'File deleted from disk' })
-      load()
-    } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
-    } finally {
-      setDeletingFileId(null)
-    }
+    setConfirm({
+      title: 'Delete file from disk',
+      message: `Permanently delete "${name}"? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirm(null)
+        setDeletingFileId(fileId)
+        try {
+          await deleteMovieFileSingle(fileId)
+          toast({ type: 'success', message: 'File deleted from disk' })
+          load()
+        } catch (e) {
+          toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+        } finally {
+          setDeletingFileId(null)
+        }
+      },
+    })
   }
 
   async function handleConsolidate() {
@@ -536,24 +551,30 @@ export function MovieDetailPage() {
     }
   }
 
-  async function handleDeleteSibling(siblingId: string) {
+  function handleDeleteSibling(siblingId: string) {
     const sibling = siblings.find((s) => s.id === siblingId)
     const label = sibling?.scanRoot?.label ?? 'this copy'
-    if (!window.confirm(`Delete "${label}" and its files from disk? This cannot be undone.`)) return
-    setDeletingSiblingId(siblingId)
-    try {
-      if ((sibling?.fileCount ?? 0) > 0) {
-        await deleteMovieWithFiles(siblingId)
-      } else {
-        await deleteMovie(siblingId)
-      }
-      setSiblings((prev) => prev.filter((s) => s.id !== siblingId))
-      toast({ type: 'success', message: 'Duplicate copy deleted' })
-    } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
-    } finally {
-      setDeletingSiblingId(null)
-    }
+    setConfirm({
+      title: 'Delete duplicate copy',
+      message: `Permanently delete "${label}" and its files from disk? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirm(null)
+        setDeletingSiblingId(siblingId)
+        try {
+          if ((sibling?.fileCount ?? 0) > 0) {
+            await deleteMovieWithFiles(siblingId)
+          } else {
+            await deleteMovie(siblingId)
+          }
+          setSiblings((prev) => prev.filter((s) => s.id !== siblingId))
+          toast({ type: 'success', message: 'Duplicate copy deleted' })
+        } catch (e) {
+          toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+        } finally {
+          setDeletingSiblingId(null)
+        }
+      },
+    })
   }
 
   async function handleOpenInJellyfin() {
@@ -1176,6 +1197,16 @@ export function MovieDetailPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel="Delete"
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
       )}
 
       {showMatchModal && (

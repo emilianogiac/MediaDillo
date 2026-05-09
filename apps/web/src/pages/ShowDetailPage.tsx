@@ -8,6 +8,7 @@ import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
 import { useToast } from '../context/ToastContext.js'
+import { ConfirmModal } from '../components/ConfirmModal.js'
 
 function completenessBar(owned: number, total: number) {
   if (total === 0) return null
@@ -39,6 +40,7 @@ export function ShowDetailPage() {
   const [rematching, setRematching] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
@@ -102,16 +104,23 @@ export function ShowDetailPage() {
     }
   }
 
-  async function handleDelete() {
-    if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
-    setDeleting(true)
-    try {
-      await deleteShow(id)
-      navigate(backToShows, { replace: true })
-    } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
-      setDeleting(false)
-    }
+  function handleDelete() {
+    if (!id) return
+    setConfirm({
+      title: 'Remove record',
+      message: 'Remove this show from the database? Files on disk are not affected.',
+      onConfirm: async () => {
+        setConfirm(null)
+        setDeleting(true)
+        try {
+          await deleteShow(id)
+          navigate(backToShows, { replace: true })
+        } catch (e) {
+          toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+          setDeleting(false)
+        }
+      },
+    })
   }
 
   if (loading) return <div className="p-6 text-gray-500">Loading…</div>
@@ -368,6 +377,16 @@ export function ShowDetailPage() {
         }}
         onUpdated={() => { load(); setArtworkVersion((v) => v + 1) }}
       />
+
+      {confirm && (
+        <ConfirmModal
+          title={confirm.title}
+          message={confirm.message}
+          confirmLabel="Remove"
+          onConfirm={confirm.onConfirm}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
 
       {showMatchModal && (
         <MatchModal
