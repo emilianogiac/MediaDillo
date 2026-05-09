@@ -16,7 +16,8 @@ export async function syncJellyfinIds(logger?: { warn: (msg: string) => void }):
     for (const { jellyfinId, tmdbId } of movies) {
       if (!tmdbId || !jellyfinId) continue
       knownTmdbIds.push(tmdbId)
-      await prisma.movie.updateMany({ where: { tmdbId }, data: { jellyfinId } })
+      const movie = await prisma.movie.findFirst({ where: { tmdbId } })
+      if (movie) await prisma.movie.update({ where: { id: movie.id }, data: { jellyfinId } })
     }
     // Clear stale jellyfinId for movies no longer in Jellyfin
     if (knownTmdbIds.length > 0) {

@@ -63,10 +63,11 @@ interface ListRowProps {
   selected: boolean
   index: number
   nonce: number
+  isNew: boolean
   onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps) {
+function MovieListRow({ movie, selected, index, nonce, isNew, onToggle }: ListRowProps) {
   const file = movie.files[0]
   const qualityTier = file?.videoQualityTier
   const videoCodec = file?.videoCodec
@@ -131,6 +132,9 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
         </div>
 
         <div className="flex-shrink-0 w-28 flex gap-1 items-center">
+          {isNew && (
+            <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>
+          )}
           {missingFile && (
             <span className="bg-red-700/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Missing</span>
           )}
@@ -168,6 +172,8 @@ export function MoviesPage() {
   const [batchAction, setBatchAction] = useState<'rename' | null>(null)
   const [batchIdx, setBatchIdx] = useState(0)
 
+  const [lastScanAt, setLastScanAt] = useState<string | null>(() => localStorage.getItem('mediaDillo.lastScanAt'))
+
   const rawDuplicates = searchParams.get('duplicates')
   const filter = {
     scanRootId: searchParams.get('root') ?? '',
@@ -181,6 +187,7 @@ export function MoviesPage() {
     needsOrganizing: searchParams.has('unorganized'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
     edition: searchParams.get('edition') ?? '',
+    newOnly: searchParams.has('new'),
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
     sort: searchParams.get('sort') ?? 'title_asc',
   }
@@ -197,6 +204,7 @@ export function MoviesPage() {
     needsOrganizing?: boolean
     duplicates?: 'only' | 'hide' | ''
     edition?: string
+    newOnly?: boolean
     view?: 'grid' | 'list'
     sort?: string
   }) {
@@ -236,6 +244,9 @@ export function MoviesPage() {
         if ('edition' in partial) {
           partial.edition ? next.set('edition', partial.edition) : next.delete('edition')
         }
+        if ('newOnly' in partial) {
+          partial.newOnly ? next.set('new', '1') : next.delete('new')
+        }
         if ('view' in partial) {
           partial.view === 'list' ? next.set('view', 'list') : next.delete('view')
         }
@@ -270,6 +281,7 @@ export function MoviesPage() {
     if (filter.needsOrganizing) movieFilter.organized = false
     if (filter.duplicates) movieFilter.duplicates = filter.duplicates
     if (filter.edition) movieFilter.edition = filter.edition
+    if (filter.newOnly && lastScanAt) movieFilter.addedSince = lastScanAt
     fetchMovies(movieFilter)
       .then((data) => { setMovies(data); setListNonce(Date.now()) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
@@ -593,6 +605,30 @@ export function MoviesPage() {
           ))}
         </select>
 
+        {lastScanAt && (
+          <button
+            onClick={() => setPartial({ newOnly: !filter.newOnly })}
+            className={['text-xs px-2.5 py-1 rounded border transition-colors flex items-center gap-1.5', filter.newOnly ? 'bg-sky-500/20 border-sky-500/60 text-sky-300' : 'border-sky-800/60 text-sky-500 hover:text-sky-300'].join(' ')}
+          >
+            ✦ New
+            <span
+              role="button"
+              tabIndex={0}
+              title="Clear new items highlight"
+              onClick={(e) => {
+                e.stopPropagation()
+                localStorage.removeItem('mediaDillo.lastScanAt')
+                setLastScanAt(null)
+                setPartial({ newOnly: false })
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); localStorage.removeItem('mediaDillo.lastScanAt'); setLastScanAt(null); setPartial({ newOnly: false }) } }}
+              className="text-sky-700 hover:text-sky-400 leading-none cursor-pointer"
+            >
+              ×
+            </span>
+          </button>
+        )}
+
         <button
           onClick={() => setPartial({ missingArtwork: !filter.missingArtwork })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingArtwork ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
@@ -770,11 +806,13 @@ export function MoviesPage() {
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
           {sortedMovies.map((movie) => {
             const needsArt = !movie.posterDownloaded || !movie.backdropDownloaded
+            const isNew = lastScanAt ? new Date(movie.createdAt) >= new Date(lastScanAt) : false
             return (
               <PosterCard
                 key={movie.id}
                 movie={movie}
                 version={listNonce}
+                isNew={isNew}
                 {...(needsArt ? { onArtworkDownload: () => { void handleArtworkDownload(movie.id) } } : {})}
               />
             )
@@ -797,16 +835,20 @@ export function MoviesPage() {
             </span>
           </div>
 
-          {sortedMovies.map((movie, idx) => (
-            <MovieListRow
-              key={movie.id}
-              movie={movie}
-              selected={selected.has(movie.id)}
-              index={idx}
-              nonce={listNonce}
-              onToggle={(e) => toggleOne(movie.id, idx, e.shiftKey)}
-            />
-          ))}
+          {sortedMovies.map((movie, idx) => {
+            const isNew = lastScanAt ? new Date(movie.createdAt) >= new Date(lastScanAt) : false
+            return (
+              <MovieListRow
+                key={movie.id}
+                movie={movie}
+                selected={selected.has(movie.id)}
+                index={idx}
+                nonce={listNonce}
+                isNew={isNew}
+                onToggle={(e) => toggleOne(movie.id, idx, e.shiftKey)}
+              />
+            )
+          })}
         </div>
       )}
 

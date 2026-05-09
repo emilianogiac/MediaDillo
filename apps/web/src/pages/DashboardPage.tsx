@@ -25,6 +25,8 @@ interface ScanProgress {
   startedAt: string | null
 }
 
+const LAST_SCAN_KEY = 'mediaDillo.lastScanAt'
+
 function ScanButton() {
   const [triggered, setTriggered] = useState(false)
   const [progress, setProgress] = useState<ScanProgress | null>(null)
@@ -32,6 +34,7 @@ function ScanButton() {
   const [roots, setRoots] = useState<ScanRoot[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const scanStartedAtRef = useRef<string | null>(null)
 
   useEffect(() => {
     apiFetch<ScanRoot[]>('/scan-roots')
@@ -62,6 +65,10 @@ function ScanButton() {
         stopPolling()
         setTriggered(false)
         setMsg(`Scan complete — ${p.filesProcessed} files processed`)
+        if (scanStartedAtRef.current) {
+          localStorage.setItem(LAST_SCAN_KEY, scanStartedAtRef.current)
+          scanStartedAtRef.current = null
+        }
       }
     } catch {
       // ignore transient errors
@@ -74,10 +81,11 @@ function ScanButton() {
     setProgress(null)
     const rootIds = selectedIds.size > 0 ? [...selectedIds] : null
     try {
-      await apiFetch('/scan', {
+      const scanRes = await apiFetch<{ startedAt: string }>('/scan', {
         method: 'POST',
         ...(rootIds ? { body: JSON.stringify({ rootIds }) } : {}),
       })
+      scanStartedAtRef.current = scanRes.startedAt
       pollRef.current = setInterval(() => { void pollProgress() }, 2000)
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Failed')

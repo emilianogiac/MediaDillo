@@ -51,7 +51,7 @@ interface FileCardHandlers {
 
 interface SortableFileCardProps {
   file: MovieFile
-  idx: number
+  partLabel: string | null
   totalFiles: number
   editingEditionFileId: string | null
   editionInput: string
@@ -64,7 +64,7 @@ interface SortableFileCardProps {
 }
 
 function SortableFileCard({
-  file, idx, totalFiles,
+  file, partLabel, totalFiles,
   editingEditionFileId, editionInput, savingEdition, editions,
   editingGlobalEdition, globalRenameInput, renamingGlobal,
   handlers,
@@ -104,8 +104,8 @@ function SortableFileCard({
             <TechBadge label={file.edition} variant="edition" />
             <span className="text-gray-600 group-hover:text-gray-400 text-xs">✎</span>
           </button>
-        ) : !isEditing && totalFiles > 1 ? (
-          <span className="text-xs text-gray-500 font-mono w-12 shrink-0">part {idx + 1}</span>
+        ) : !isEditing && partLabel ? (
+          <span className="text-xs text-gray-500 font-mono w-12 shrink-0">{partLabel}</span>
         ) : null}
         {!isEditing && !file.edition && (
           <button
@@ -883,11 +883,23 @@ export function MovieDetailPage() {
             <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={fileOrder.map((f) => f.id)} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
-                  {fileOrder.map((file, idx) => (
+                  {(() => {
+                    const editionGroupSize = new Map<string | null, number>()
+                    for (const f of fileOrder) {
+                      const key = f.edition ?? null
+                      editionGroupSize.set(key, (editionGroupSize.get(key) ?? 0) + 1)
+                    }
+                    const editionGroupIndex = new Map<string | null, number>()
+                    return fileOrder.map((file) => {
+                      const key = file.edition ?? null
+                      const groupIdx = editionGroupIndex.get(key) ?? 0
+                      editionGroupIndex.set(key, groupIdx + 1)
+                      const partLabel = (editionGroupSize.get(key) ?? 1) > 1 ? `part ${groupIdx + 1}` : null
+                      return (
                     <SortableFileCard
                       key={file.id}
                       file={file}
-                      idx={idx}
+                      partLabel={partLabel}
                       totalFiles={fileOrder.length}
                       editingEditionFileId={editingEditionFileId}
                       editionInput={editionInput}
@@ -907,7 +919,9 @@ export function MovieDetailPage() {
                         ...(movie.files.length > 1 ? { deleteFile: (fileId: string) => { void handleDeleteFileSingle(fileId) } } : {}),
                       }}
                     />
-                  ))}
+                      )
+                    })
+                  })()}
                 </div>
               </SortableContext>
             </DndContext>

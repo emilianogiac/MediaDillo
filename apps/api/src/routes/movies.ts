@@ -27,9 +27,10 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       organized?: string
       edition?: string
       tmdbId?: string
+      addedSince?: string
     }
   }>('/movies', async (req, reply) => {
-    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized, edition, tmdbId } = req.query
+    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized, edition, tmdbId, addedSince } = req.query
 
     // Always compute dup groups with count (needed for filter + duplicateCount badge).
     // Dismissed movies are excluded — they don't count as duplicates for others.
@@ -60,6 +61,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
       ...(edition ? { files: { some: { edition } } } : {}),
       ...(tmdbId ? { tmdbId: parseInt(tmdbId) } : {}),
+      ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
     }
 
     const andClauses = missingArtwork === 'true'
@@ -81,6 +83,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         backdropDownloaded: true,
         dismissedAsDuplicate: true,
         status: true,
+        createdAt: true,
         scanRoot: { select: { id: true, label: true, path: true } },
         files: {
           select: { path: true, edition: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
@@ -93,11 +96,23 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     function allFilesCanonical(movie: typeof movies[0]): boolean {
       if (!movie.scanRoot || movie.files.length === 0) return false
       const folderPath = path.join(movie.scanRoot.path, canonicalMovieFolderName(movie.title, movie.year))
-      const isMulti = movie.files.length > 1
-      return movie.files.every((file, idx) => {
+
+      // Mirror the rename logic: part numbers only within edition groups with >1 file
+      const editionGroupSize = new Map<string | null, number>()
+      for (const f of movie.files) {
+        const key = f.edition ?? null
+        editionGroupSize.set(key, (editionGroupSize.get(key) ?? 0) + 1)
+      }
+      const editionGroupIndex = new Map<string | null, number>()
+
+      return movie.files.every((file) => {
+        const key = file.edition ?? null
+        const groupIdx = editionGroupIndex.get(key) ?? 0
+        editionGroupIndex.set(key, groupIdx + 1)
+        const partNumber = (editionGroupSize.get(key) ?? 1) > 1 ? groupIdx + 1 : null
         const proposed = path.join(
           folderPath,
-          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), isMulti ? idx + 1 : null, file.edition ?? null),
+          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), partNumber, file.edition ?? null),
         )
         return file.path === proposed
       })
@@ -492,10 +507,24 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
 
   // DELETE /api/movies/files/:fileId/from-disk — delete one file from disk and remove its MovieFile record
   app.delete<{ Params: { fileId: string } }>('/movies/files/:fileId/from-disk', async (req, reply) => {
-    const file = await prisma.movieFile.findUnique({ where: { id: req.params.fileId } })
+    const file = await prisma.movieFile.findUnique({
+      where: { id: req.params.fileId },
+      include: { movie: { include: { scanRoot: true } } },
+    })
     if (!file) return reply.code(404).send({ error: 'File not found' })
     try { await fs.unlink(file.path) } catch { /* skip if already gone */ }
     await prisma.movieFile.delete({ where: { id: req.params.fileId } })
+
+    // Remove parent folder if it is now empty (and is not the scan root itself)
+    const dir = path.dirname(file.path)
+    const scanRootPath = file.movie.scanRoot?.path
+    if (scanRootPath && dir !== scanRootPath) {
+      try {
+        const remaining = await fs.readdir(dir)
+        if (remaining.length === 0) await fs.rmdir(dir)
+      } catch { /* skip */ }
+    }
+
     triggerLibraryRefresh(app.log).catch(() => {})
     return reply.send({ deleted: 1, path: file.path })
   })

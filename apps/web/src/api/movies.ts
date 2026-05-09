@@ -14,6 +14,7 @@ export interface MoviesFilter {
   search?: string
   edition?: string
   tmdbId?: number
+  addedSince?: string
 }
 
 export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSummary[]> {
@@ -30,6 +31,7 @@ export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSumma
   if (filter.search) params.set('search', filter.search)
   if (filter.edition) params.set('edition', filter.edition)
   if (filter.tmdbId) params.set('tmdbId', String(filter.tmdbId))
+  if (filter.addedSince) params.set('addedSince', filter.addedSince)
   const qs = params.toString()
   return apiFetch<MovieSummary[]>(`/movies${qs ? `?${qs}` : ''}`)
 }

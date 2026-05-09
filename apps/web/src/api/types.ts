@@ -24,6 +24,7 @@ export interface MovieSummary {
   isOrganized: boolean
   fileCount: number
   status: string
+  createdAt: string
   scanRoot: { id: string; label: string } | null
   files: { path: string | null; edition: string | null; videoQualityTier: string | null; videoCodec: string | null; audioQualityTier: string | null; audioChannels: string | null; audioCodec: string | null }[]
 }

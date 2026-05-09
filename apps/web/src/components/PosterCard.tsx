@@ -5,10 +5,11 @@ import { TechBadge } from './TechBadge.js'
 interface Props {
   movie: MovieSummary
   version: number
+  isNew?: boolean
   onArtworkDownload?: () => void
 }
 
-export function PosterCard({ movie, version, onArtworkDownload }: Props) {
+export function PosterCard({ movie, version, isNew, onArtworkDownload }: Props) {
   const qualityTier = movie.files[0]?.videoQualityTier
   const missingFile = movie.files.length === 0
   const missingPoster = !movie.posterDownloaded
@@ -36,6 +37,13 @@ export function PosterCard({ movie, version, onArtworkDownload }: Props) {
           </div>
         )}
       </div>
+
+      {/* New badge — top-left overlay */}
+      {isNew && (
+        <div className="absolute top-1.5 left-1.5">
+          <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>
+        </div>
+      )}
 
       {/* Health badges — top-right overlay */}
       {(missingFile || unmatched || missingPoster || missingBackdrop || isDuplicate) && (
