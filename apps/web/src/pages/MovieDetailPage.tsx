@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -225,7 +225,12 @@ function SortableFileCard({
 export function MovieDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const { toast } = useToast()
+
+  // Build the back URL using the search params passed as location state from the movies list.
+  // Falls back to /movies with no filters when navigating directly to a detail URL.
+  const backToMovies = `/movies${(location.state as { from?: string } | null)?.from ?? ''}`
   const [movie, setMovie] = useState<MovieDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -270,7 +275,7 @@ export function MovieDetailPage() {
     setDeleting(true)
     try {
       await deleteMovie(id)
-      navigate(-1)
+      navigate(backToMovies, { replace: true })
     } catch {
       setDeleting(false)
     }
@@ -293,7 +298,7 @@ export function MovieDetailPage() {
     try {
       const { deleted } = await deleteMovieWithFiles(id)
       toast({ type: 'success', message: `Deleted ${deleted} file${deleted !== 1 ? 's' : ''} from disk` })
-      navigate(-1)
+      navigate(backToMovies, { replace: true })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
       setDeletingWithFiles(false)
@@ -581,7 +586,7 @@ export function MovieDetailPage() {
     return (
       <div className="p-6 text-red-400">
         {error ?? 'Movie not found'}
-        <button onClick={() => navigate(-1)} className="block mt-2 text-sm text-accent hover:underline">
+        <button onClick={() => navigate(backToMovies)} className="block mt-2 text-sm text-accent hover:underline">
           ← Back to Movies
         </button>
       </div>
@@ -594,7 +599,7 @@ export function MovieDetailPage() {
   return (
     <div className="p-6 space-y-8 max-w-5xl">
       {/* Back link */}
-      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-accent transition-colors">
+      <button onClick={() => navigate(backToMovies)} className="text-sm text-gray-400 hover:text-accent transition-colors">
         ← Movies
       </button>
 

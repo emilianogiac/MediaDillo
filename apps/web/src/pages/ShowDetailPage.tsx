@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
 import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow } from '../api/shows.js'
@@ -29,6 +29,8 @@ function completenessBar(owned: number, total: number) {
 export function ShowDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const backToShows = `/shows${(location.state as { from?: string } | null)?.from ?? ''}`
   const { toast } = useToast()
   const [show, setShow] = useState<ShowDetail | null>(null)
   const [loading, setLoading] = useState(true)
@@ -86,7 +88,7 @@ export function ShowDetailPage() {
     setDeleting(true)
     try {
       await deleteShow(id)
-      navigate(-1)
+      navigate(backToShows, { replace: true })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
       setDeleting(false)
@@ -98,7 +100,7 @@ export function ShowDetailPage() {
     return (
       <div className="p-6 text-red-400">
         {error ?? 'Show not found'}
-        <Link to="/shows" className="block mt-2 text-sm text-accent hover:underline">
+        <Link to={backToShows} className="block mt-2 text-sm text-accent hover:underline">
           ← Back to Shows
         </Link>
       </div>
@@ -110,7 +112,7 @@ export function ShowDetailPage() {
 
   return (
     <div className="p-6 space-y-8 max-w-5xl">
-      <button onClick={() => navigate(-1)} className="text-sm text-gray-400 hover:text-accent transition-colors">
+      <button onClick={() => navigate(backToShows)} className="text-sm text-gray-400 hover:text-accent transition-colors">
         ← TV Shows
       </button>
 

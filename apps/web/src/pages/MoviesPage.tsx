@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
 import { fetchMovies, fetchScanRoots, fetchEditions, triggerMovieDownload } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
@@ -64,10 +64,11 @@ interface ListRowProps {
   index: number
   nonce: number
   isNew: boolean
+  listSearch: string
   onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function MovieListRow({ movie, selected, index, nonce, isNew, onToggle }: ListRowProps) {
+function MovieListRow({ movie, selected, index, nonce, isNew, listSearch, onToggle }: ListRowProps) {
   const file = movie.files[0]
   const qualityTier = file?.videoQualityTier
   const videoCodec = file?.videoCodec
@@ -91,6 +92,7 @@ function MovieListRow({ movie, selected, index, nonce, isNew, onToggle }: ListRo
 
       <Link
         to={`/movies/${movie.id}`}
+        state={{ from: listSearch }}
         className="flex flex-1 items-center gap-3 px-3 py-2 hover:bg-gray-800/40 transition-colors min-w-0"
       >
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
@@ -155,6 +157,7 @@ function MovieListRow({ movie, selected, index, nonce, isNew, onToggle }: ListRo
 
 export function MoviesPage() {
   const { toast, trackJob } = useToast()
+  const location = useLocation()
   const [movies, setMovies] = useState<MovieSummary[]>([])
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [editionLabels, setEditionLabels] = useState<string[]>([])
@@ -808,6 +811,7 @@ export function MoviesPage() {
                 movie={movie}
                 version={listNonce}
                 isNew={isNew}
+                listSearch={location.search}
                 {...(needsArt ? { onArtworkDownload: () => { void handleArtworkDownload(movie.id) } } : {})}
               />
             )
@@ -840,6 +844,7 @@ export function MoviesPage() {
                 index={idx}
                 nonce={listNonce}
                 isNew={isNew}
+                listSearch={location.search}
                 onToggle={(e) => toggleOne(movie.id, idx, e.shiftKey)}
               />
             )

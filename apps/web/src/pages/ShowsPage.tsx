@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import type { ShowSummary } from '../api/types.js'
 import { fetchShows } from '../api/shows.js'
 import { refreshMetadata } from '../api/library-health.js'
@@ -38,7 +38,7 @@ function ListIcon() {
   )
 }
 
-function ShowCard({ show, nonce, isNew }: { show: ShowSummary; nonce: number; isNew: boolean }) {
+function ShowCard({ show, nonce, isNew, listSearch }: { show: ShowSummary; nonce: number; isNew: boolean; listSearch: string }) {
   const unmatched = !show.tmdbId
   const missingArt = !show.posterDownloaded || !show.backdropDownloaded
   const isDuplicate = show.duplicateCount > 1
@@ -47,6 +47,7 @@ function ShowCard({ show, nonce, isNew }: { show: ShowSummary; nonce: number; is
   return (
     <Link
       to={`/shows/${show.id}`}
+      state={{ from: listSearch }}
       className="group relative flex flex-col rounded-lg overflow-hidden bg-surface-raised border border-gray-800 hover:border-accent/60 transition-colors"
     >
       <div className="aspect-[2/3] bg-gray-800 overflow-hidden">
@@ -110,10 +111,11 @@ interface ListRowProps {
   index: number
   nonce: number
   isNew: boolean
+  listSearch: string
   onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function ShowListRow({ show, selected, index, nonce, isNew, onToggle }: ListRowProps) {
+function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle }: ListRowProps) {
   const unmatched = !show.tmdbId
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
@@ -133,6 +135,7 @@ function ShowListRow({ show, selected, index, nonce, isNew, onToggle }: ListRowP
 
       <Link
         to={`/shows/${show.id}`}
+        state={{ from: listSearch }}
         className="flex flex-1 items-center gap-3 px-3 py-2 hover:bg-gray-800/40 transition-colors min-w-0"
       >
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
@@ -179,6 +182,7 @@ function ShowListRow({ show, selected, index, nonce, isNew, onToggle }: ListRowP
 
 export function ShowsPage() {
   const { toast, trackJob } = useToast()
+  const location = useLocation()
   const [shows, setShows] = useState<ShowSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -279,7 +283,7 @@ export function ShowsPage() {
     }
     try {
       const { jobId, total } = await refreshMetadata([], matchedIds)
-      trackJob({ label: `Re-matching ${total} show${total !== 1 ? 's' : ''}`, jobId })
+      trackJob({ label: `Re-matching ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
@@ -405,7 +409,7 @@ export function ShowsPage() {
 
       {!loading && !error && shows.length > 0 && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} />)}
+          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} listSearch={location.search} />)}
         </div>
       )}
 
@@ -431,6 +435,7 @@ export function ShowsPage() {
               index={idx}
               nonce={listNonce}
               isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)}
+              listSearch={location.search}
               onToggle={(e) => toggleOne(show.id, idx, e.shiftKey)}
             />
           ))}

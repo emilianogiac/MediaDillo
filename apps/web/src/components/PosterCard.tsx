@@ -7,9 +7,10 @@ interface Props {
   version: number
   isNew?: boolean
   onArtworkDownload?: () => void
+  listSearch?: string
 }
 
-export function PosterCard({ movie, version, isNew, onArtworkDownload }: Props) {
+export function PosterCard({ movie, version, isNew, onArtworkDownload, listSearch }: Props) {
   const qualityTier = movie.files[0]?.videoQualityTier
   const missingFile = movie.files.length === 0
   const missingPoster = !movie.posterDownloaded
@@ -20,6 +21,7 @@ export function PosterCard({ movie, version, isNew, onArtworkDownload }: Props) 
   return (
     <Link
       to={`/movies/${movie.id}`}
+      state={listSearch !== undefined ? { from: listSearch } : undefined}
       className="group relative flex flex-col rounded-lg overflow-hidden bg-surface-raised border border-gray-800 hover:border-accent/60 transition-colors"
     >
       {/* Poster image */}
