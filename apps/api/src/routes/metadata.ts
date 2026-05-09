@@ -4,29 +4,31 @@ import { TmdbClient } from '../metadata/tmdb-client.js'
 import { searchMovieCandidates, searchTvCandidates, type MovieCandidate } from '../metadata/matcher.js'
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 import { writeMovieNfo } from '../nfo/writer.js'
 import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
 import { getAutoCleanupSetting } from './settings.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
 import fs from 'node:fs/promises'
 
-function getTmdbClient(): TmdbClient {
-  if (!config.TMDB_API_KEY) throw new Error('TMDB_API_KEY is not configured')
-  return new TmdbClient(config.TMDB_API_KEY, config.METADATA_LANGUAGE)
+async function getTmdbClient(): Promise<TmdbClient> {
+  const cfg = await getApiConfig()
+  if (!cfg.tmdbApiKey) throw new Error('TMDB API key is not configured')
+  return new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
 }
 
 export async function metadataRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/metadata/scan — batch auto-match all unmatched items
   app.post('/metadata/scan', async (_req, reply) => {
-    if (!config.TMDB_API_KEY) {
-      return reply.code(422).send({ error: 'TMDB_API_KEY is not configured' })
+    const cfg = await getApiConfig()
+    if (!cfg.tmdbApiKey) {
+      return reply.code(422).send({ error: 'TMDB API key is not configured' })
     }
     if (isMetadataScanRunning()) {
       return reply.code(409).send({ error: 'Metadata scan already in progress' })
     }
 
-    const client = getTmdbClient()
+    const client = await getTmdbClient()
     runMetadataScan(client).catch((err: unknown) => {
       app.log.error(err, 'Metadata scan failed')
     })
@@ -63,7 +65,7 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
 
-    const client = getTmdbClient()
+    const client = await getTmdbClient()
     const customQuery = req.query.q?.trim()
 
     let imdbCandidate: MovieCandidate | null = null
@@ -103,7 +105,7 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
-    const client = getTmdbClient()
+    const client = await getTmdbClient()
     const candidates = await searchTvCandidates(client, show.title, show.year)
     return reply.send({ show: { id: show.id, title: show.title, year: show.year }, candidates })
   })
@@ -120,7 +122,7 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'tmdbId is required' })
       }
 
-      const client = getTmdbClient()
+      const client = await getTmdbClient()
 
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.movie.update({ where: { id: movie.id }, data: { tmdbId } })
@@ -174,7 +176,7 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
         return reply.code(400).send({ error: 'tmdbId is required' })
       }
 
-      const client = getTmdbClient()
+      const client = await getTmdbClient()
 
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.tvShow.update({ where: { id: show.id }, data: { tmdbId } })

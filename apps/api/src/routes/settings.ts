@@ -3,9 +3,28 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { getSchedule, setSchedule } from '../scheduler/index.js'
 import type { ScheduleInterval } from '../scheduler/index.js'
+import { getApiConfig, invalidateApiConfigCache, API_CONFIG_DB_KEYS } from '../api-config.js'
+import { testJellyfinConnection } from '../jellyfin/client.js'
 
 const VALID_INTERVALS = new Set<ScheduleInterval>(['disabled', '1h', '6h', '12h', '24h'])
 const AUTO_CLEANUP_KEY = 'match.autoCleanupFolder'
+
+function maskKey(key: string | undefined): string {
+  if (!key) return ''
+  if (key.length <= 4) return '****'
+  return `****${key.slice(-4)}`
+}
+
+async function testTmdbKey(apiKey: string): Promise<boolean> {
+  try {
+    const res = await fetch(`https://api.themoviedb.org/3/configuration?api_key=${apiKey}`, {
+      headers: { Accept: 'application/json' },
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
 
 export async function getAutoCleanupSetting(): Promise<boolean> {
   const s = await prisma.setting.findUnique({ where: { key: AUTO_CLEANUP_KEY } })
@@ -252,6 +271,62 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.send({ merged, deleted })
+  })
+
+  // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
+  app.get('/settings/api-keys', async (_req, reply) => {
+    const cfg = await getApiConfig()
+    return reply.send({
+      tmdbApiKey: maskKey(cfg.tmdbApiKey),
+      tvdbApiKey: maskKey(cfg.tvdbApiKey),
+      jellyfinUrl: cfg.jellyfinUrl ?? '',
+      jellyfinApiKey: maskKey(cfg.jellyfinApiKey),
+      metadataLanguage: cfg.metadataLanguage,
+    })
+  })
+
+  // PUT /api/settings/api-keys — partial update, auto-validates, invalidates cache
+  app.put<{
+    Body: {
+      tmdbApiKey?: string
+      tvdbApiKey?: string
+      jellyfinUrl?: string
+      jellyfinApiKey?: string
+      metadataLanguage?: string
+    }
+  }>('/settings/api-keys', async (req, reply) => {
+    const { tmdbApiKey, tvdbApiKey, jellyfinUrl, jellyfinApiKey, metadataLanguage } = req.body
+
+    if (tmdbApiKey) {
+      const valid = await testTmdbKey(tmdbApiKey)
+      if (!valid) return reply.code(422).send({ error: 'TMDB API key is invalid — could not connect to TMDB.' })
+    }
+
+    if (jellyfinUrl || jellyfinApiKey) {
+      const cfg = await getApiConfig()
+      const url = jellyfinUrl ?? cfg.jellyfinUrl
+      const key = jellyfinApiKey ?? cfg.jellyfinApiKey
+      if (url && key) {
+        const status = await testJellyfinConnection(url, key)
+        if (!status.connected) {
+          return reply.code(422).send({ error: `Jellyfin connection failed: ${status.error ?? 'unknown error'}` })
+        }
+      }
+    }
+
+    const updates: Array<[string, string]> = []
+    if (tmdbApiKey !== undefined) updates.push([API_CONFIG_DB_KEYS.tmdbApiKey, tmdbApiKey])
+    if (tvdbApiKey !== undefined) updates.push([API_CONFIG_DB_KEYS.tvdbApiKey, tvdbApiKey])
+    if (jellyfinUrl !== undefined) updates.push([API_CONFIG_DB_KEYS.jellyfinUrl, jellyfinUrl])
+    if (jellyfinApiKey !== undefined) updates.push([API_CONFIG_DB_KEYS.jellyfinApiKey, jellyfinApiKey])
+    if (metadataLanguage !== undefined) updates.push([API_CONFIG_DB_KEYS.metadataLanguage, metadataLanguage])
+
+    for (const [key, value] of updates) {
+      await prisma.setting.upsert({ where: { key }, create: { key, value }, update: { value } })
+    }
+
+    invalidateApiConfigCache()
+    return reply.send({ ok: true })
   })
 
   // GET /api/settings/scan-logs — recent scan history

@@ -3,7 +3,7 @@ import { prisma } from '@mediadillo/db'
 import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 import { createJob, getJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
 import fs from 'node:fs/promises'
@@ -262,8 +262,9 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
   app.post<{
     Body: { movieIds?: string[]; showIds?: string[] }
   }>('/library-health/metadata/refresh', async (req, reply) => {
-    if (!config.TMDB_API_KEY) {
-      return reply.code(422).send({ error: 'TMDB_API_KEY is not configured' })
+    const cfg = await getApiConfig()
+    if (!cfg.tmdbApiKey) {
+      return reply.code(422).send({ error: 'TMDB API key is not configured' })
     }
 
     const { movieIds = [], showIds = [] } = req.body
@@ -289,7 +290,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
     ])
 
     const job = createJob(movies.length + shows.length)
-    const client = new TmdbClient(config.TMDB_API_KEY, config.METADATA_LANGUAGE)
+    const client = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
     const autoCleanup = await getAutoCleanupSetting()
 
     const run = async () => {

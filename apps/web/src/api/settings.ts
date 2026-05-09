@@ -84,3 +84,21 @@ export async function updateAutoCleanup(enabled: boolean): Promise<void> {
     body: JSON.stringify({ enabled }),
   })
 }
+
+export interface ApiKeySettings {
+  tmdbApiKey: string
+  tvdbApiKey: string
+  jellyfinUrl: string
+  jellyfinApiKey: string
+  metadataLanguage: string
+}
+
+export async function fetchApiKeys(): Promise<ApiKeySettings> {
+  return apiFetch<ApiKeySettings>('/settings/api-keys')
+}
+
+export async function updateApiKeys(
+  data: Partial<ApiKeySettings>,
+): Promise<void> {
+  await apiFetch('/settings/api-keys', { method: 'PUT', body: JSON.stringify(data) })
+}

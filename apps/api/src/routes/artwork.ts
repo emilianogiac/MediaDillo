@@ -7,7 +7,7 @@ import { searchMovieImages, searchTvImages, tmdbImageUrl } from '../artwork/sear
 import { runBulkArtworkDownload, isBulkArtworkRunning } from '../artwork/index.js'
 import { saveImage } from '../artwork/downloader.js'
 import { findArtworkPaths } from '../scanner/artwork-detector.js'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import path from 'node:path'
 
@@ -190,25 +190,27 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /api/artwork/movies/:id/images — TMDB image candidates
   app.get<{ Params: { id: string } }>('/artwork/movies/:id/images', async (req, reply) => {
-    if (!config.TMDB_API_KEY) return reply.code(422).send({ error: 'TMDB_API_KEY not configured' })
+    const { tmdbApiKey } = await getApiConfig()
+    if (!tmdbApiKey) return reply.code(422).send({ error: 'TMDB API key not configured' })
 
     const movie = await prisma.movie.findUnique({ where: { id: req.params.id } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     if (!movie.tmdbId) return reply.send({ posters: [], backdrops: [] })
 
-    const images = await searchMovieImages(config.TMDB_API_KEY, movie.tmdbId)
+    const images = await searchMovieImages(tmdbApiKey, movie.tmdbId)
     return reply.send(images)
   })
 
   // GET /api/artwork/shows/:id/images
   app.get<{ Params: { id: string } }>('/artwork/shows/:id/images', async (req, reply) => {
-    if (!config.TMDB_API_KEY) return reply.code(422).send({ error: 'TMDB_API_KEY not configured' })
+    const { tmdbApiKey } = await getApiConfig()
+    if (!tmdbApiKey) return reply.code(422).send({ error: 'TMDB API key not configured' })
 
     const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
     if (!show.tmdbId) return reply.code(422).send({ error: 'Show has no TMDB ID — match it first' })
 
-    const images = await searchTvImages(config.TMDB_API_KEY, show.tmdbId)
+    const images = await searchTvImages(tmdbApiKey, show.tmdbId)
     return reply.send(images)
   })
 

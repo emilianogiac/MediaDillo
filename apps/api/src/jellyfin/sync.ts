@@ -1,14 +1,15 @@
 import { JellyfinClient } from './client.js'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 import { prisma } from '@mediadillo/db'
 
-export function getJellyfinClient(): JellyfinClient | null {
-  if (!config.JELLYFIN_URL || !config.JELLYFIN_API_KEY) return null
-  return new JellyfinClient(config.JELLYFIN_URL, config.JELLYFIN_API_KEY)
+export async function getJellyfinClient(): Promise<JellyfinClient | null> {
+  const cfg = await getApiConfig()
+  if (!cfg.jellyfinUrl || !cfg.jellyfinApiKey) return null
+  return new JellyfinClient(cfg.jellyfinUrl, cfg.jellyfinApiKey)
 }
 
 export async function syncJellyfinIds(logger?: { warn: (msg: string) => void }): Promise<void> {
-  const client = getJellyfinClient()
+  const client = await getJellyfinClient()
   if (!client) return
   try {
     const users = await client.getUsers()
@@ -36,7 +37,7 @@ export async function syncJellyfinIds(logger?: { warn: (msg: string) => void }):
 }
 
 export async function triggerLibraryRefresh(logger?: { warn: (msg: string) => void }): Promise<void> {
-  const client = getJellyfinClient()
+  const client = await getJellyfinClient()
   if (!client) return
 
   try {

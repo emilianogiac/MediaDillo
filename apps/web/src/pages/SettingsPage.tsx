@@ -3,11 +3,11 @@ import type { JellyfinStatus } from '../api/jellyfin.js'
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
 import { downloadJson, downloadMoviesCsv, downloadShowsCsv, writeBulkNfo } from '../api/export.js'
 import { cleanupTvContamination } from '../api/movies.js'
-import type { ScanRootRecord, ScanLogRecord, ScheduleInterval } from '../api/settings.js'
+import type { ScanRootRecord, ScanLogRecord, ScheduleInterval, ApiKeySettings } from '../api/settings.js'
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
   fetchScanLogs, fetchSchedule, updateSchedule, dedupShows, verifyIntegrity,
-  fetchAutoCleanup, updateAutoCleanup,
+  fetchAutoCleanup, updateAutoCleanup, fetchApiKeys, updateApiKeys,
 } from '../api/settings.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -66,8 +66,7 @@ function JellyfinCard() {
               <>
                 <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-600" />
                 <span className="text-sm text-gray-500">
-                  Not configured — set <code className="text-xs bg-gray-800 px-1 rounded">JELLYFIN_URL</code> and{' '}
-                  <code className="text-xs bg-gray-800 px-1 rounded">JELLYFIN_API_KEY</code> in your environment.
+                  Not configured — set the Jellyfin URL and API key in the API Keys card below.
                 </span>
               </>
             )}
@@ -93,6 +92,171 @@ function JellyfinCard() {
   )
 }
 
+function ApiKeysCard() {
+  const [current, setCurrent] = useState<ApiKeySettings | null>(null)
+  const [draft, setDraft] = useState<Partial<ApiKeySettings>>({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    fetchApiKeys()
+      .then((data) => {
+        setCurrent(data)
+        setDraft({ jellyfinUrl: data.jellyfinUrl, metadataLanguage: data.metadataLanguage })
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  function toggle(field: string) {
+    setRevealed((prev) => ({ ...prev, [field]: !prev[field] }))
+  }
+
+  async function save() {
+    const payload: Partial<ApiKeySettings> = {}
+    if (draft.tmdbApiKey) payload.tmdbApiKey = draft.tmdbApiKey
+    if (draft.tvdbApiKey) payload.tvdbApiKey = draft.tvdbApiKey
+    if (draft.jellyfinUrl !== undefined) payload.jellyfinUrl = draft.jellyfinUrl
+    if (draft.jellyfinApiKey) payload.jellyfinApiKey = draft.jellyfinApiKey
+    if (draft.metadataLanguage !== undefined) payload.metadataLanguage = draft.metadataLanguage
+
+    if (Object.keys(payload).length === 0) return
+
+    setSaving(true)
+    setError(null)
+    setSaved(false)
+    try {
+      await updateApiKeys(payload)
+      const updated = await fetchApiKeys()
+      setCurrent(updated)
+      setDraft({ jellyfinUrl: updated.jellyfinUrl, metadataLanguage: updated.metadataLanguage })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="bg-surface-raised border border-gray-700 rounded-lg p-5 space-y-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">API Keys</h2>
+
+      {loading && <p className="text-sm text-gray-500">Loading…</p>}
+
+      {!loading && current && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3">
+            <ApiKeyField
+              label="TMDB API Key"
+              placeholder={current.tmdbApiKey ? current.tmdbApiKey : 'Not set'}
+              value={draft.tmdbApiKey ?? ''}
+              onChange={(v) => setDraft((d) => ({ ...d, tmdbApiKey: v }))}
+              revealed={!!revealed['tmdb']}
+              onToggleReveal={() => toggle('tmdb')}
+              hint="v3 read access key from themoviedb.org — required for metadata and artwork"
+            />
+            <ApiKeyField
+              label="TVDB API Key"
+              placeholder={current.tvdbApiKey ? current.tvdbApiKey : 'Not set'}
+              value={draft.tvdbApiKey ?? ''}
+              onChange={(v) => setDraft((d) => ({ ...d, tvdbApiKey: v }))}
+              revealed={!!revealed['tvdb']}
+              onToggleReveal={() => toggle('tvdb')}
+              hint="From thetvdb.com — used for TV episode numbering cross-reference"
+            />
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-400">Jellyfin URL</label>
+              <input
+                type="text"
+                placeholder="e.g. http://192.168.1.10:8096"
+                value={draft.jellyfinUrl ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, jellyfinUrl: e.target.value }))}
+                className="w-full bg-surface border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent"
+              />
+            </div>
+            <ApiKeyField
+              label="Jellyfin API Key"
+              placeholder={current.jellyfinApiKey ? current.jellyfinApiKey : 'Not set'}
+              value={draft.jellyfinApiKey ?? ''}
+              onChange={(v) => setDraft((d) => ({ ...d, jellyfinApiKey: v }))}
+              revealed={!!revealed['jellyfin']}
+              onToggleReveal={() => toggle('jellyfin')}
+              hint="Dashboard → API Keys in Jellyfin"
+            />
+            <div className="space-y-1">
+              <label className="block text-xs text-gray-400">Metadata Language</label>
+              <input
+                type="text"
+                placeholder="e.g. en-US, it-IT"
+                value={draft.metadataLanguage ?? ''}
+                onChange={(e) => setDraft((d) => ({ ...d, metadataLanguage: e.target.value }))}
+                className="w-full bg-surface border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent"
+              />
+              <p className="text-xs text-gray-500">Language code for TMDB metadata — titles and overviews.</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="text-sm px-4 py-1.5 rounded bg-accent hover:bg-accent-hover text-white disabled:opacity-40 transition-colors"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            {saved && <span className="text-xs text-green-400">Saved and validated.</span>}
+            {error && <span className="text-xs text-red-400">{error}</span>}
+          </div>
+
+          <p className="text-xs text-gray-600">
+            Leave a key field empty to keep the existing value. Keys are validated against their respective APIs before saving.
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface ApiKeyFieldProps {
+  label: string
+  placeholder: string
+  value: string
+  onChange: (v: string) => void
+  revealed: boolean
+  onToggleReveal: () => void
+  hint?: string
+}
+
+function ApiKeyField({ label, placeholder, value, onChange, revealed, onToggleReveal, hint }: ApiKeyFieldProps) {
+  return (
+    <div className="space-y-1">
+      <label className="block text-xs text-gray-400">{label}</label>
+      <div className="flex gap-2">
+        <input
+          type={revealed ? 'text' : 'password'}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 bg-surface border border-gray-600 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent font-mono"
+        />
+        <button
+          type="button"
+          onClick={onToggleReveal}
+          className="px-2 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          aria-label={revealed ? 'Hide' : 'Show'}
+        >
+          {revealed ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      {hint && <p className="text-xs text-gray-500">{hint}</p>}
+    </div>
+  )
+}
+
 export function SettingsPage() {
   return (
     <div className="p-6 space-y-6">
@@ -100,18 +264,7 @@ export function SettingsPage() {
 
       <JellyfinCard />
 
-      <div className="bg-surface-raised border border-gray-700 rounded-lg p-5">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-3">
-          API Keys
-        </h2>
-        <p className="text-sm text-gray-500">
-          API keys are configured via environment variables in your <code className="text-xs bg-gray-800 px-1 rounded">.env</code> file:
-        </p>
-        <ul className="mt-2 space-y-1 text-sm text-gray-500">
-          <li><code className="text-xs bg-gray-800 px-1 rounded">TMDB_API_KEY</code> — required for metadata and artwork (v3 auth key from themoviedb.org)</li>
-          <li><code className="text-xs bg-gray-800 px-1 rounded">TVDB_API_KEY</code> — optional, used as fallback for TV episode numbering edge cases</li>
-        </ul>
-      </div>
+      <ApiKeysCard />
 
       <ExportCard />
       <DatabaseMaintenanceCard />

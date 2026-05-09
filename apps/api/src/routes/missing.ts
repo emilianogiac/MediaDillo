@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { searchMovieCandidates } from '../metadata/matcher.js'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 
 export async function missingRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/missing/shows — shows with at least one missing episode, sorted by missing count desc
@@ -125,9 +125,10 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const { q, year } = req.query
       if (!q) return reply.code(400).send({ error: 'q is required' })
-      if (!config.TMDB_API_KEY) return reply.code(422).send({ error: 'TMDB_API_KEY not configured' })
+      const { tmdbApiKey } = await getApiConfig()
+      if (!tmdbApiKey) return reply.code(422).send({ error: 'TMDB API key not configured' })
 
-      const client = new TmdbClient(config.TMDB_API_KEY)
+      const client = new TmdbClient(tmdbApiKey)
       const yearNum = year ? parseInt(year, 10) : null
       const candidates = await searchMovieCandidates(client, q, isNaN(yearNum ?? NaN) ? null : yearNum)
       return reply.send(candidates)

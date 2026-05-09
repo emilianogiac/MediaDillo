@@ -1,27 +1,29 @@
 import type { FastifyInstance } from 'fastify'
-import { config } from '../config.js'
+import { getApiConfig } from '../api-config.js'
 import { JellyfinClient, testJellyfinConnection } from '../jellyfin/client.js'
 import { triggerLibraryRefresh, syncJellyfinIds } from '../jellyfin/sync.js'
 import { prisma } from '@mediadillo/db'
 
-function getClient(): JellyfinClient | null {
-  if (!config.JELLYFIN_URL || !config.JELLYFIN_API_KEY) return null
-  return new JellyfinClient(config.JELLYFIN_URL, config.JELLYFIN_API_KEY)
+async function getClient(): Promise<JellyfinClient | null> {
+  const cfg = await getApiConfig()
+  if (!cfg.jellyfinUrl || !cfg.jellyfinApiKey) return null
+  return new JellyfinClient(cfg.jellyfinUrl, cfg.jellyfinApiKey)
 }
 
 export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/jellyfin/status — connection status
   app.get('/jellyfin/status', async (_req, reply) => {
-    if (!config.JELLYFIN_URL || !config.JELLYFIN_API_KEY) {
+    const cfg = await getApiConfig()
+    if (!cfg.jellyfinUrl || !cfg.jellyfinApiKey) {
       return reply.send({ configured: false, connected: false })
     }
-    const status = await testJellyfinConnection(config.JELLYFIN_URL, config.JELLYFIN_API_KEY)
+    const status = await testJellyfinConnection(cfg.jellyfinUrl, cfg.jellyfinApiKey)
     return reply.send(status)
   })
 
   // POST /api/jellyfin/refresh — manual library refresh
   app.post('/jellyfin/refresh', async (_req, reply) => {
-    const client = getClient()
+    const client = await getClient()
     if (!client) {
       return reply.code(422).send({ error: 'Jellyfin is not configured' })
     }
@@ -36,7 +38,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
 
   // GET /api/jellyfin/watched — watched movie TMDB IDs + episode file paths
   app.get('/jellyfin/watched', async (_req, reply) => {
-    const client = getClient()
+    const client = await getClient()
     if (!client) {
       return reply.send({ configured: false, movieTmdbIds: [], episodePaths: [] })
     }
@@ -73,7 +75,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     if (!movie.tmdbId) return reply.code(422).send({ error: 'Movie not matched to TMDB' })
 
-    const client = getClient()
+    const client = await getClient()
     if (!client) return reply.code(503).send({ error: 'Jellyfin not configured' })
 
     try {
