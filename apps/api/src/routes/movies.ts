@@ -25,9 +25,10 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       needsRename?: string
       organized?: string
       edition?: string
+      tmdbId?: string
     }
   }>('/movies', async (req, reply) => {
-    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized, edition } = req.query
+    const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized, edition, tmdbId } = req.query
 
     // Always compute dup groups with count (needed for filter + duplicateCount badge)
     const dupGroups = await prisma.movie.groupBy({
@@ -56,6 +57,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
       ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
       ...(edition ? { files: { some: { edition } } } : {}),
+      ...(tmdbId ? { tmdbId: parseInt(tmdbId) } : {}),
     }
 
     const andClauses = missingArtwork === 'true'

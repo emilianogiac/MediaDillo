@@ -4,9 +4,9 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan } from '../api/movies.js'
+import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
-import type { ScanRoot } from '../api/types.js'
+import type { ScanRoot, MovieSummary } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -239,6 +239,11 @@ export function MovieDetailPage() {
   const [editingGlobalEdition, setEditingGlobalEdition] = useState<string | null>(null)
   const [globalRenameInput, setGlobalRenameInput] = useState('')
   const [renamingGlobal, setRenamingGlobal] = useState(false)
+  const [siblings, setSiblings] = useState<MovieSummary[]>([])
+  const [deletingSiblingId, setDeletingSiblingId] = useState<string | null>(null)
+  const [editField, setEditField] = useState<'title' | 'year' | 'tagline' | 'overview' | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [savingField, setSavingField] = useState(false)
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -268,7 +273,7 @@ export function MovieDetailPage() {
     try {
       const { deleted } = await deleteMovieWithFiles(id)
       toast({ type: 'success', message: `Deleted ${deleted} file${deleted !== 1 ? 's' : ''} from disk` })
-      navigate(-1)
+      navigate('/movies')
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
       setDeletingWithFiles(false)
@@ -405,8 +410,55 @@ export function MovieDetailPage() {
     }
   }
 
+  async function handleSaveField() {
+    if (!id || !editField) return
+    setSavingField(true)
+    try {
+      const trimmed = editValue.trim()
+      const data: Parameters<typeof updateMovieMetadata>[1] =
+        editField === 'title' ? { ...(trimmed ? { title: trimmed } : {}) }
+        : editField === 'year' ? { year: editValue ? parseInt(editValue) : null }
+        : editField === 'tagline' ? { tagline: trimmed || null }
+        : { overview: trimmed || null }
+      await updateMovieMetadata(id, data)
+      await load()
+      setEditField(null)
+      setEditValue('')
+      toast({ type: 'success', message: 'Metadata updated' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Save failed' })
+    } finally {
+      setSavingField(false)
+    }
+  }
+
+  function startEdit(field: typeof editField, current: string) {
+    setEditField(field)
+    setEditValue(current)
+  }
+
+  async function handleDeleteSibling(siblingId: string) {
+    if (!window.confirm('Delete this duplicate record? Files on disk are not affected.')) return
+    setDeletingSiblingId(siblingId)
+    try {
+      await deleteMovie(siblingId)
+      setSiblings((prev) => prev.filter((s) => s.id !== siblingId))
+      toast({ type: 'success', message: 'Duplicate record removed' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+    } finally {
+      setDeletingSiblingId(null)
+    }
+  }
+
   useEffect(() => { load() }, [load])
   useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!movie?.tmdbId) { setSiblings([]); return }
+    fetchMovies({ tmdbId: movie.tmdbId })
+      .then((all) => setSiblings(all.filter((m) => m.id !== movie.id)))
+      .catch(() => {})
+  }, [movie?.tmdbId, movie?.id])
 
   if (loading) {
     return <div className="p-6 text-gray-500">Loading…</div>
@@ -452,14 +504,70 @@ export function MovieDetailPage() {
         {/* Metadata */}
         <div className="flex-1 space-y-3">
           <div>
-            <h1 className="text-3xl font-bold">{movie.title}</h1>
-            {movie.tagline && (
-              <p className="text-gray-400 italic mt-0.5">{movie.tagline}</p>
+            {editField === 'title' ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveField(); if (e.key === 'Escape') { setEditField(null); setEditValue('') } }}
+                  className="flex-1 text-2xl font-bold bg-gray-800 border border-accent/60 rounded px-2 py-0.5 text-gray-100 focus:outline-none"
+                />
+                <button onClick={() => void handleSaveField()} disabled={savingField} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">{savingField ? '…' : 'Save'}</button>
+                <button onClick={() => { setEditField(null); setEditValue('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group/title">
+                <h1 className="text-3xl font-bold">{movie.title}</h1>
+                <button onClick={() => startEdit('title', movie.title)} className="text-gray-600 opacity-0 group-hover/title:opacity-100 hover:text-gray-300 transition-all text-sm" title="Edit title">✎</button>
+              </div>
+            )}
+            {editField === 'tagline' ? (
+              <div className="flex items-center gap-2 mt-0.5">
+                <input
+                  autoFocus
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveField(); if (e.key === 'Escape') { setEditField(null); setEditValue('') } }}
+                  placeholder="Tagline…"
+                  className="flex-1 bg-gray-800 border border-accent/60 rounded px-2 py-0.5 text-sm text-gray-300 italic focus:outline-none"
+                />
+                <button onClick={() => void handleSaveField()} disabled={savingField} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">{savingField ? '…' : 'Save'}</button>
+                <button onClick={() => { setEditField(null); setEditValue('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 group/tag mt-0.5">
+                {movie.tagline ? (
+                  <p className="text-gray-400 italic">{movie.tagline}</p>
+                ) : (
+                  <span className="text-gray-600 text-xs italic">No tagline</span>
+                )}
+                <button onClick={() => startEdit('tagline', movie.tagline ?? '')} className="text-gray-600 opacity-0 group-hover/tag:opacity-100 hover:text-gray-300 transition-all text-xs" title="Edit tagline">✎</button>
+              </div>
             )}
           </div>
 
           <div className="flex flex-wrap gap-3 text-sm text-gray-400">
-            {movie.year && <span>{movie.year}</span>}
+            {editField === 'year' ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  type="number"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveField(); if (e.key === 'Escape') { setEditField(null); setEditValue('') } }}
+                  placeholder="Year"
+                  className="w-24 bg-gray-800 border border-accent/60 rounded px-2 py-0.5 text-sm text-gray-100 focus:outline-none"
+                />
+                <button onClick={() => void handleSaveField()} disabled={savingField} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">{savingField ? '…' : 'Save'}</button>
+                <button onClick={() => { setEditField(null); setEditValue('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+              </div>
+            ) : (
+              <span className="flex items-center gap-1 group/year">
+                {movie.year ?? <span className="text-gray-600">No year</span>}
+                <button onClick={() => startEdit('year', String(movie.year ?? ''))} className="text-gray-600 opacity-0 group-hover/year:opacity-100 hover:text-gray-300 transition-all text-xs" title="Edit year">✎</button>
+              </span>
+            )}
             {movie.runtime && <span>{movie.runtime} min</span>}
             {movie.rating !== null && (
               <span className="text-yellow-400">★ {movie.rating.toFixed(1)}</span>
@@ -506,8 +614,30 @@ export function MovieDetailPage() {
             </div>
           )}
 
-          {movie.overview && (
-            <p className="text-sm text-gray-300 leading-relaxed max-w-2xl">{movie.overview}</p>
+          {editField === 'overview' ? (
+            <div className="space-y-2 max-w-2xl">
+              <textarea
+                autoFocus
+                rows={4}
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') { setEditField(null); setEditValue('') } }}
+                className="w-full bg-gray-800 border border-accent/60 rounded px-2 py-1.5 text-sm text-gray-100 leading-relaxed focus:outline-none resize-none"
+              />
+              <div className="flex gap-2">
+                <button onClick={() => void handleSaveField()} disabled={savingField} className="text-xs px-2.5 py-1 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 disabled:opacity-40 transition-colors">{savingField ? '…' : 'Save'}</button>
+                <button onClick={() => { setEditField(null); setEditValue('') }} className="text-xs text-gray-500 hover:text-gray-300 transition-colors">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-start gap-1.5 group/overview max-w-2xl">
+              {movie.overview ? (
+                <p className="text-sm text-gray-300 leading-relaxed flex-1">{movie.overview}</p>
+              ) : (
+                <span className="text-gray-600 text-xs flex-1">No overview</span>
+              )}
+              <button onClick={() => startEdit('overview', movie.overview ?? '')} className="text-gray-600 opacity-0 group-hover/overview:opacity-100 hover:text-gray-300 transition-all text-xs shrink-0 mt-0.5" title="Edit overview">✎</button>
+            </div>
           )}
 
           {directors.length > 0 && (
@@ -570,6 +700,44 @@ export function MovieDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Duplicate copies */}
+      {siblings.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold text-orange-400">
+            Duplicate Copies
+            <span className="text-sm font-normal text-gray-500 ml-2">({siblings.length + 1} records share this TMDB ID)</span>
+          </h2>
+          <div className="bg-surface-raised border border-orange-700/30 rounded-lg divide-y divide-gray-700/60">
+            {siblings.map((s) => {
+              const file = s.files[0]
+              return (
+                <div key={s.id} className="flex items-center justify-between gap-4 px-4 py-3">
+                  <div className="flex-1 min-w-0 space-y-0.5">
+                    <p className="text-sm text-gray-200">{s.scanRoot?.label ?? 'Unknown collection'}</p>
+                    {file && (
+                      <p className="text-xs text-gray-500 font-mono truncate">
+                        {file.videoQualityTier && <span className="text-teal-400 mr-1">{file.videoQualityTier}</span>}
+                        {file.videoCodec && <span className="mr-1">{file.videoCodec}</span>}
+                        {file.audioCodec && <span className="mr-1">{file.audioCodec}</span>}
+                      </p>
+                    )}
+                    {s.files.length === 0 && <p className="text-xs text-red-400">No files (stale record)</p>}
+                  </div>
+                  <button
+                    onClick={() => { void handleDeleteSibling(s.id) }}
+                    disabled={deletingSiblingId === s.id}
+                    className="shrink-0 text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+                  >
+                    {deletingSiblingId === s.id ? 'Removing…' : 'Remove record'}
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-gray-600">Removing a record does not delete files from disk.</p>
+        </section>
+      )}
 
       {/* Cast */}
       {cast.length > 0 && (

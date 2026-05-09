@@ -345,6 +345,15 @@ export function MoviesPage() {
     [movies],
   )
 
+  // Counts for toggle filters — from current result set so user sees "within this view, N also match"
+  const counts = useMemo(() => ({
+    missingArtwork: movies.filter((m) => !m.posterDownloaded || !m.backdropDownloaded).length,
+    unmatched: movies.filter((m) => !m.tmdbId).length,
+    missingFile: movies.filter((m) => m.files.length === 0).length,
+    needsOrganizing: movies.filter((m) => !m.isOrganized).length,
+    duplicates: movies.filter((m) => m.isDuplicate).length,
+  }), [movies])
+
   const hasActiveFilter =
     filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.needsOrganizing || filter.duplicates || filter.edition
 
@@ -413,6 +422,25 @@ export function MoviesPage() {
       setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+    }
+  }
+
+  async function handleBatchArtworkDownload() {
+    const ids = [...selected].filter((id) => {
+      const m = sortedMovies.find((mv) => mv.id === id)
+      return m && (!m.posterDownloaded || !m.backdropDownloaded)
+    })
+    if (ids.length === 0) {
+      toast({ type: 'error', message: 'All selected movies already have artwork' })
+      return
+    }
+    try {
+      await Promise.all(ids.map((id) => triggerMovieDownload(id, 'all')))
+      toast({ type: 'success', message: `Downloading artwork for ${ids.length} movie${ids.length !== 1 ? 's' : ''}` })
+      setSelected(new Set())
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Artwork download failed' })
     }
   }
 
@@ -569,21 +597,21 @@ export function MoviesPage() {
           onClick={() => setPartial({ missingArtwork: !filter.missingArtwork })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingArtwork ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
-          Missing artwork
+          Missing artwork{!filter.missingArtwork && counts.missingArtwork > 0 && <span className="ml-1 opacity-60">({counts.missingArtwork})</span>}
         </button>
 
         <button
           onClick={() => setPartial({ unmatched: !filter.unmatched })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.unmatched ? 'bg-red-500/20 border-red-500/60 text-red-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
-          Unmatched
+          Unmatched{!filter.unmatched && counts.unmatched > 0 && <span className="ml-1 opacity-60">({counts.unmatched})</span>}
         </button>
 
         <button
           onClick={() => setPartial({ missingFile: !filter.missingFile })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingFile ? 'bg-red-700/20 border-red-700/60 text-red-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
-          Missing file
+          Missing file{!filter.missingFile && counts.missingFile > 0 && <span className="ml-1 opacity-60">({counts.missingFile})</span>}
         </button>
 
         <button
@@ -597,14 +625,14 @@ export function MoviesPage() {
           onClick={() => setPartial({ needsOrganizing: !filter.needsOrganizing })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.needsOrganizing ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
-          Needs organizing
+          Needs organizing{!filter.needsOrganizing && counts.needsOrganizing > 0 && <span className="ml-1 opacity-60">({counts.needsOrganizing})</span>}
         </button>
 
         <button
           onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.duplicates === 'only' ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : filter.duplicates === 'hide' ? 'bg-gray-700/60 border-gray-600 text-gray-400' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
-          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
+          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : <>Duplicates{!filter.duplicates && counts.duplicates > 0 && <span className="ml-1 opacity-60">({counts.duplicates})</span>}</>}
         </button>
 
         {editionLabels.length > 0 && (
@@ -792,6 +820,12 @@ export function MoviesPage() {
             className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors"
           >
             Rematch
+          </button>
+          <button
+            onClick={() => { void handleBatchArtworkDownload() }}
+            className="text-xs px-3 py-1.5 rounded bg-yellow-500/20 border border-yellow-500/40 text-yellow-300 hover:bg-yellow-500/30 transition-colors"
+          >
+            Download Art
           </button>
           <button
             onClick={() => startBatch('rename')}

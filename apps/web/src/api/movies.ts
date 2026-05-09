@@ -13,6 +13,7 @@ export interface MoviesFilter {
   duplicates?: 'only' | 'hide'
   search?: string
   edition?: string
+  tmdbId?: number
 }
 
 export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSummary[]> {
@@ -28,9 +29,11 @@ export async function fetchMovies(filter: MoviesFilter = {}): Promise<MovieSumma
   if (filter.duplicates) params.set('duplicates', filter.duplicates)
   if (filter.search) params.set('search', filter.search)
   if (filter.edition) params.set('edition', filter.edition)
+  if (filter.tmdbId) params.set('tmdbId', String(filter.tmdbId))
   const qs = params.toString()
   return apiFetch<MovieSummary[]>(`/movies${qs ? `?${qs}` : ''}`)
 }
+
 
 export async function fetchMovie(id: string): Promise<MovieDetail> {
   return apiFetch<MovieDetail>(`/movies/${id}`)
@@ -140,5 +143,15 @@ export async function renameEdition(from: string, to: string | null): Promise<{ 
   return apiFetch('/movies/editions/rename', {
     method: 'POST',
     body: JSON.stringify({ from, to }),
+  })
+}
+
+export async function updateMovieMetadata(
+  id: string,
+  data: { title?: string; year?: number | null; tagline?: string | null; overview?: string | null },
+): Promise<void> {
+  await apiFetch(`/metadata/movies/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
   })
 }
