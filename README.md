@@ -36,12 +36,14 @@ Self-hosted media library manager for Jellyfin — scan, match, rename, and trac
 - **Rename undo** — rename history shown on movie detail with a Revert button per entry; swaps file back to its previous name and updates the database record
 - **Drag-and-drop file ordering** — multi-file movies use a grip handle to drag files into the desired sort order; save button persists the new order
 - **Delete movie from disk** — "Delete from disk" button on movie detail page opens a confirmation modal listing every file and size in the folder; permanently deletes all files, removes the empty folder, and triggers a Jellyfin library refresh
-- **Duplicate resolution** — when a TMDB ID is shared by multiple records, a highlighted panel on the movie detail page shows all sibling records with collection and quality info; one-click "Remove record" deletes the DB entry without touching disk files
+- **Duplicate resolution** — when a TMDB ID is shared by multiple records, a highlighted panel on the movie detail page shows all sibling records with collection label, folder path, and filename; per-sibling actions: **Consolidate** (move sibling files into current folder), **Replace** (swap current files with sibling's), **Delete** (remove sibling and files from disk), **Browse** (navigate to sibling detail); **Dismiss** marks a pair as intentional so it's hidden from duplicate filters; dismissed copies shown in a muted section with Undo; cross-filesystem moves handled transparently
+- **Multi-edition rename fix** — Rename & Organize correctly handles multi-edition movies (e.g. Theatrical + Director's Cut); part numbers are only assigned within edition groups that have more than one file
+- **Per-file delete** — on multi-edition movies, each file card shows an individual "Delete from disk" button instead of a single global one
 - **Inline metadata editing** — hover any of title, year, tagline, or overview on the detail page to reveal a pencil icon; click to edit inline and save to the database; hover artwork card poster to reveal a "Get Art" quick-action button
 - **Auto-cleanup on match** — optional setting (Settings → Match Behavior) to automatically delete stale TMM artwork, extra NFOs, subtitles and unknown files after every match or re-match
 - **Toast notifications** — bottom-right toast stack for async action results; job toasts show a live progress bar with polling and auto-dismiss 5 s after completion; failing items listed by name
 - **Scan history** — Dashboard shows the last 10 scans with colour-coded stats (added / changed / removed / stale)
-- **Jellyfin integration** — auto-trigger library refresh after file operations; watched status sync (optional)
+- **Jellyfin integration** — auto-trigger library refresh after file operations; watched status sync; **Watch in Jellyfin ↗** deep-link on every matched movie detail page (instant after first sync via stored `jellyfinId`)
 - **Export** — JSON, CSV, and NFO sidecar files (Kodi / Jellyfin compatible)
 - **Scan scheduler** — configurable scan interval (1h / 6h / 12h / 24h) from the UI
 
