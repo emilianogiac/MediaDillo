@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { MovieSummary, ScanRoot } from '../api/types.js'
-import { fetchMovies, fetchScanRoots, fetchEditions } from '../api/movies.js'
+import { fetchMovies, fetchScanRoots, fetchEditions, triggerMovieDownload } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
 import { renameBatch } from '../api/files.js'
 import { PosterCard } from '../components/PosterCard.js'
@@ -11,6 +11,16 @@ import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
 import { useToast } from '../context/ToastContext.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
+const QUALITY_RANK: Record<string, number> = { '4K': 6, '1440p': 5, '1080p': 4, '720p': 3, '576p': 2, '480p': 1, '360p': 0 }
+
+const SORT_OPTIONS = [
+  { value: 'title_asc', label: 'Title A–Z' },
+  { value: 'title_desc', label: 'Title Z–A' },
+  { value: 'year_desc', label: 'Newest' },
+  { value: 'year_asc', label: 'Oldest' },
+  { value: 'rating_desc', label: 'Highest rated' },
+  { value: 'quality_desc', label: 'Best quality' },
+]
 
 function GridIcon() {
   return (
@@ -30,6 +40,21 @@ function ListIcon() {
       <rect x="1" y="7" width="14" height="2" rx="1" />
       <rect x="1" y="12" width="14" height="2" rx="1" />
     </svg>
+  )
+}
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 bg-gray-800 border border-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded-full">
+      {label}
+      <button
+        onClick={onRemove}
+        className="text-gray-500 hover:text-white leading-none ml-0.5"
+        aria-label={`Remove ${label} filter`}
+      >
+        ×
+      </button>
+    </span>
   )
 }
 
@@ -53,7 +78,6 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
 
   return (
     <div className={`flex items-center group ${rowBg}`}>
-      {/* Checkbox */}
       <div className="pl-3 pr-2 flex-shrink-0 flex items-center self-stretch">
         <input
           type="checkbox"
@@ -64,12 +88,10 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
         />
       </div>
 
-      {/* Row content — navigates to detail */}
       <Link
         to={`/movies/${movie.id}`}
         className="flex flex-1 items-center gap-3 px-3 py-2 hover:bg-gray-800/40 transition-colors min-w-0"
       >
-        {/* Poster thumbnail */}
         <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-gray-800">
           {(movie.posterDownloaded || movie.posterUrl) ? (
             <img
@@ -83,38 +105,31 @@ function MovieListRow({ movie, selected, index, nonce, onToggle }: ListRowProps)
           )}
         </div>
 
-        {/* Title + year */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-100">{movie.title}</p>
           <p className="text-xs text-gray-500">{movie.year ?? '—'}</p>
         </div>
 
-        {/* Quality */}
         <div className="flex-shrink-0 w-14">
           {qualityTier && <TechBadge label={qualityTier} variant="quality" />}
         </div>
 
-        {/* Video codec */}
         <div className="flex-shrink-0 w-12 text-xs text-gray-500 tabular-nums truncate">
           {videoCodec ?? '—'}
         </div>
 
-        {/* Audio */}
         <div className="flex-shrink-0 w-24 text-xs text-gray-500 tabular-nums truncate">
           {audioLabel || '—'}
         </div>
 
-        {/* File count */}
         <div className={`flex-shrink-0 w-8 text-xs text-right tabular-nums ${movie.fileCount > 1 ? 'text-yellow-400 font-medium' : 'text-gray-600'}`}>
           {movie.fileCount > 0 ? `${movie.fileCount}f` : '—'}
         </div>
 
-        {/* Scan root */}
         <div className="flex-shrink-0 w-28 text-xs text-gray-500 truncate text-right">
           {movie.scanRoot?.label ?? '—'}
         </div>
 
-        {/* Status chips — fixed width so all rows align */}
         <div className="flex-shrink-0 w-28 flex gap-1 items-center">
           {missingFile && (
             <span className="bg-red-700/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Missing</span>
@@ -143,17 +158,16 @@ export function MoviesPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const [listNonce, setListNonce] = useState(() => Date.now())
+  const [showShortcuts, setShowShortcuts] = useState(false)
+  const searchRef = useRef<HTMLInputElement>(null)
 
-  // Selection state
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
-  // Batch action state: rename only (rematch is now a direct API call)
   const [batchQueue, setBatchQueue] = useState<string[]>([])
   const [batchAction, setBatchAction] = useState<'rename' | null>(null)
   const [batchIdx, setBatchIdx] = useState(0)
 
-  // Derive filter from URL — survives back-navigation
   const rawDuplicates = searchParams.get('duplicates')
   const filter = {
     scanRootId: searchParams.get('root') ?? '',
@@ -168,6 +182,7 @@ export function MoviesPage() {
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
     edition: searchParams.get('edition') ?? '',
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
+    sort: searchParams.get('sort') ?? 'title_asc',
   }
 
   function setPartial(partial: {
@@ -183,6 +198,7 @@ export function MoviesPage() {
     duplicates?: 'only' | 'hide' | ''
     edition?: string
     view?: 'grid' | 'list'
+    sort?: string
   }) {
     setSearchParams(
       (prev) => {
@@ -223,6 +239,9 @@ export function MoviesPage() {
         if ('view' in partial) {
           partial.view === 'list' ? next.set('view', 'list') : next.delete('view')
         }
+        if ('sort' in partial) {
+          partial.sort && partial.sort !== 'title_asc' ? next.set('sort', partial.sort) : next.delete('sort')
+        }
         return next
       },
       { replace: true },
@@ -257,7 +276,69 @@ export function MoviesPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [searchParams.toString()])
+  // Exclude sort and view from the reload trigger — they don't affect server results
+  const filterTrigger = useMemo(() => {
+    const p = new URLSearchParams(searchParams)
+    p.delete('sort')
+    p.delete('view')
+    return p.toString()
+  }, [searchParams])
+
+  useEffect(() => { load() }, [filterTrigger])
+
+  // Client-side sort
+  const sortedMovies = useMemo(() => {
+    const arr = [...movies]
+    switch (filter.sort) {
+      case 'title_desc':
+        return arr.sort((a, b) => a.title.localeCompare(b.title) * -1)
+      case 'year_desc':
+        return arr.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+      case 'year_asc':
+        return arr.sort((a, b) => (a.year ?? 0) - (b.year ?? 0))
+      case 'rating_desc':
+        return arr.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+      case 'quality_desc':
+        return arr.sort((a, b) => (QUALITY_RANK[b.files[0]?.videoQualityTier ?? ''] ?? -1) - (QUALITY_RANK[a.files[0]?.videoQualityTier ?? ''] ?? -1))
+      default:
+        return arr // title_asc: already sorted by server
+    }
+  }, [movies, filter.sort])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const tag = (e.target as HTMLElement).tagName
+      const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
+
+      if (e.key === 'Escape') {
+        if (showShortcuts) { setShowShortcuts(false); return }
+        if (inField) { (e.target as HTMLElement).blur(); return }
+        return
+      }
+      if (inField) return
+
+      if (e.key === '?') { setShowShortcuts((v) => !v); return }
+      if (e.key === 'g') { setPartial({ view: 'grid' }); return }
+      if (e.key === 'l') { setPartial({ view: 'list' }); return }
+      if (e.key === '/') {
+        e.preventDefault()
+        searchRef.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showShortcuts])
+
+  async function handleArtworkDownload(movieId: string) {
+    try {
+      await triggerMovieDownload(movieId, 'all')
+      toast({ type: 'success', message: 'Artwork downloaded' })
+      setListNonce(Date.now())
+    } catch {
+      toast({ type: 'error', message: 'Failed to download artwork' })
+    }
+  }
 
   const allGenres = useMemo(
     () => [...new Set(movies.flatMap((m) => m.genres))].sort(),
@@ -267,8 +348,7 @@ export function MoviesPage() {
   const hasActiveFilter =
     filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.needsOrganizing || filter.duplicates || filter.edition
 
-  // Selection helpers
-  const allIds = movies.map((m) => m.id)
+  const allIds = sortedMovies.map((m) => m.id)
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
   const someSelected = selected.size > 0
 
@@ -281,7 +361,7 @@ export function MoviesPage() {
       const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
       setSelected((prev) => {
         const next = new Set(prev)
-        movies.slice(from, to + 1).forEach((m) => next.add(m.id))
+        sortedMovies.slice(from, to + 1).forEach((m) => next.add(m.id))
         return next
       })
     } else {
@@ -295,7 +375,7 @@ export function MoviesPage() {
   }
 
   async function handleBatchRematch() {
-    const matchedIds = [...selected].filter((id) => movies.find((m) => m.id === id)?.tmdbId)
+    const matchedIds = [...selected].filter((id) => sortedMovies.find((m) => m.id === id)?.tmdbId)
     if (matchedIds.length === 0) {
       toast({ type: 'error', message: 'No matched movies selected — rematch only works on already-matched items' })
       return
@@ -336,7 +416,6 @@ export function MoviesPage() {
     }
   }
 
-  // Batch rename helpers
   function startBatch(action: 'rename') {
     const queue = [...selected]
     if (queue.length === 0) return
@@ -364,8 +443,24 @@ export function MoviesPage() {
     load()
   }
 
+  function getEmptyMessage() {
+    if (filter.search) return `No movies matching "${filter.search}"`
+    if (filter.missingArtwork) return 'No movies with missing artwork — library looks great!'
+    if (filter.unmatched) return 'No unmatched movies — all titles are matched!'
+    if (filter.missingFile) return 'No stale records found!'
+    if (filter.needsRename) return 'All filenames are canonical!'
+    if (filter.needsOrganizing) return 'All movies are organized!'
+    if (filter.duplicates === 'only') return 'No duplicate movies found!'
+    if (filter.genre) return `No movies in the "${filter.genre}" genre`
+    if (filter.qualityTier) return `No movies at ${filter.qualityTier}`
+    if (filter.edition) return `No movies with edition "${filter.edition}"`
+    return 'No movies found.'
+  }
+
   const currentBatchId = batchAction ? batchQueue[batchIdx] : null
-  const currentBatchMovie = currentBatchId ? movies.find((m) => m.id === currentBatchId) ?? null : null
+  const currentBatchMovie = currentBatchId ? sortedMovies.find((m) => m.id === currentBatchId) ?? null : null
+
+  const activeScanRoot = scanRoots.find((r) => r.id === filter.scanRootId)
 
   return (
     <div className="p-6 space-y-4">
@@ -375,40 +470,57 @@ export function MoviesPage() {
         <span className="text-sm text-gray-500">{loading ? '…' : `${movies.length} titles`}</span>
       </div>
 
-      {/* Category tabs */}
+      {/* Category tabs / scan root selector */}
       {scanRoots.length > 0 && (
-        <div className="flex gap-1 border-b border-gray-800">
-          <button
-            onClick={() => setPartial({ scanRootId: '' })}
-            className={[
-              'px-3 py-1.5 text-sm font-medium rounded-t -mb-px border transition-colors',
-              !filter.scanRootId
-                ? 'bg-surface-raised text-white border-gray-700 border-b-surface-raised'
-                : 'text-gray-400 hover:text-gray-200 border-transparent',
-            ].join(' ')}
-          >
-            All
-          </button>
-          {scanRoots.map((root) => (
+        scanRoots.length > 4 ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Library:</span>
+            <select
+              value={filter.scanRootId}
+              onChange={(e) => setPartial({ scanRootId: e.target.value })}
+              className="bg-surface-raised border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-accent"
+            >
+              <option value="">All</option>
+              {scanRoots.map((root) => (
+                <option key={root.id} value={root.id}>{root.label}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="flex gap-1 border-b border-gray-800">
             <button
-              key={root.id}
-              onClick={() => setPartial({ scanRootId: root.id })}
+              onClick={() => setPartial({ scanRootId: '' })}
               className={[
                 'px-3 py-1.5 text-sm font-medium rounded-t -mb-px border transition-colors',
-                filter.scanRootId === root.id
+                !filter.scanRootId
                   ? 'bg-surface-raised text-white border-gray-700 border-b-surface-raised'
                   : 'text-gray-400 hover:text-gray-200 border-transparent',
               ].join(' ')}
             >
-              {root.label}
+              All
             </button>
-          ))}
-        </div>
+            {scanRoots.map((root) => (
+              <button
+                key={root.id}
+                onClick={() => setPartial({ scanRootId: root.id })}
+                className={[
+                  'px-3 py-1.5 text-sm font-medium rounded-t -mb-px border transition-colors',
+                  filter.scanRootId === root.id
+                    ? 'bg-surface-raised text-white border-gray-700 border-b-surface-raised'
+                    : 'text-gray-400 hover:text-gray-200 border-transparent',
+                ].join(' ')}
+              >
+                {root.label}
+              </button>
+            ))}
+          </div>
+        )
       )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
         <input
+          ref={searchRef}
           type="search"
           placeholder="Search titles…"
           value={filter.search}
@@ -503,24 +615,87 @@ export function MoviesPage() {
           </button>
         )}
 
-        {/* View toggle — right-aligned */}
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setPartial({ view: 'grid' })}
-            title="Grid view"
-            className={['p-1.5 rounded border transition-colors', filter.view === 'grid' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        {/* Sort + view toggle — right-aligned */}
+        <div className="ml-auto flex items-center gap-2">
+          <select
+            value={filter.sort}
+            onChange={(e) => setPartial({ sort: e.target.value })}
+            className="bg-surface-raised border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent"
+            title="Sort order"
           >
-            <GridIcon />
-          </button>
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPartial({ view: 'grid' })}
+              title="Grid view (g)"
+              className={['p-1.5 rounded border transition-colors', filter.view === 'grid' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+            >
+              <GridIcon />
+            </button>
+            <button
+              onClick={() => setPartial({ view: 'list' })}
+              title="List view (l)"
+              className={['p-1.5 rounded border transition-colors', filter.view === 'list' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+            >
+              <ListIcon />
+            </button>
+          </div>
+
           <button
-            onClick={() => setPartial({ view: 'list' })}
-            title="List view"
-            className={['p-1.5 rounded border transition-colors', filter.view === 'list' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+            onClick={() => setShowShortcuts(true)}
+            title="Keyboard shortcuts (?)"
+            className="p-1.5 rounded border border-gray-700 text-gray-500 hover:text-gray-300 transition-colors text-xs font-mono leading-none"
           >
-            <ListIcon />
+            ?
           </button>
         </div>
       </div>
+
+      {/* Active filter chips */}
+      {hasActiveFilter && (
+        <div className="flex flex-wrap gap-1.5">
+          {filter.search && (
+            <FilterChip label={`"${filter.search}"`} onRemove={() => setPartial({ search: '' })} />
+          )}
+          {filter.genre && (
+            <FilterChip label={`Genre: ${filter.genre}`} onRemove={() => setPartial({ genre: '' })} />
+          )}
+          {filter.qualityTier && (
+            <FilterChip label={`Quality: ${filter.qualityTier}`} onRemove={() => setPartial({ qualityTier: '' })} />
+          )}
+          {filter.missingArtwork && (
+            <FilterChip label="Missing artwork" onRemove={() => setPartial({ missingArtwork: false })} />
+          )}
+          {filter.unmatched && (
+            <FilterChip label="Unmatched" onRemove={() => setPartial({ unmatched: false })} />
+          )}
+          {filter.missingFile && (
+            <FilterChip label="Missing file" onRemove={() => setPartial({ missingFile: false })} />
+          )}
+          {filter.needsRename && (
+            <FilterChip label="Needs rename" onRemove={() => setPartial({ needsRename: false })} />
+          )}
+          {filter.needsOrganizing && (
+            <FilterChip label="Needs organizing" onRemove={() => setPartial({ needsOrganizing: false })} />
+          )}
+          {filter.duplicates === 'only' && (
+            <FilterChip label="Duplicates only" onRemove={() => setPartial({ duplicates: '' })} />
+          )}
+          {filter.duplicates === 'hide' && (
+            <FilterChip label="Hiding duplicates" onRemove={() => setPartial({ duplicates: '' })} />
+          )}
+          {filter.edition && (
+            <FilterChip label={`Edition: ${filter.edition}`} onRemove={() => setPartial({ edition: '' })} />
+          )}
+          {activeScanRoot && (
+            <FilterChip label={`Library: ${activeScanRoot.label}`} onRemove={() => setPartial({ scanRootId: '' })} />
+          )}
+        </div>
+      )}
 
       {/* Content */}
       {loading && filter.view === 'grid' && (
@@ -534,19 +709,38 @@ export function MoviesPage() {
         </div>
       )}
       {!loading && error && <div className="text-red-400 py-8 text-center text-sm">{error}</div>}
-      {!loading && !error && movies.length === 0 && <div className="text-gray-500 py-16 text-center text-sm">No movies found.</div>}
-
-      {!loading && !error && movies.length > 0 && filter.view === 'grid' && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-          {movies.map((movie) => (
-            <PosterCard key={movie.id} movie={movie} version={listNonce} />
-          ))}
+      {!loading && !error && sortedMovies.length === 0 && (
+        <div className="py-20 text-center space-y-2">
+          <p className="text-gray-400 text-sm">{getEmptyMessage()}</p>
+          {hasActiveFilter && (
+            <button
+              onClick={() => setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, missingFile: false, needsRename: false, needsOrganizing: false, duplicates: '', edition: '' })}
+              className="text-xs text-accent hover:underline"
+            >
+              Clear all filters
+            </button>
+          )}
         </div>
       )}
 
-      {!loading && !error && movies.length > 0 && filter.view === 'list' && (
+      {!loading && !error && sortedMovies.length > 0 && filter.view === 'grid' && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+          {sortedMovies.map((movie) => {
+            const needsArt = !movie.posterDownloaded || !movie.backdropDownloaded
+            return (
+              <PosterCard
+                key={movie.id}
+                movie={movie}
+                version={listNonce}
+                {...(needsArt ? { onArtworkDownload: () => { void handleArtworkDownload(movie.id) } } : {})}
+              />
+            )
+          })}
+        </div>
+      )}
+
+      {!loading && !error && sortedMovies.length > 0 && filter.view === 'list' && (
         <div className="bg-surface-raised border border-gray-800 rounded-lg divide-y divide-gray-800">
-          {/* Select-all header */}
           <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-700">
             <input
               type="checkbox"
@@ -556,11 +750,11 @@ export function MoviesPage() {
               className="accent-accent cursor-pointer"
             />
             <span className="text-xs text-gray-500">
-              {someSelected ? `${selected.size} selected` : `${movies.length} items`}
+              {someSelected ? `${selected.size} selected` : `${sortedMovies.length} items`}
             </span>
           </div>
 
-          {movies.map((movie, idx) => (
+          {sortedMovies.map((movie, idx) => (
             <MovieListRow
               key={movie.id}
               movie={movie}
@@ -621,6 +815,45 @@ export function MoviesPage() {
           onSkip={advanceBatch}
           onCancel={cancelBatch}
         />
+      )}
+
+      {/* Keyboard shortcuts overlay */}
+      {showShortcuts && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setShowShortcuts(false)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-72 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-gray-100 mb-4">Keyboard shortcuts</h3>
+            <table className="w-full text-xs text-gray-400 border-separate border-spacing-y-2">
+              <tbody>
+                {[
+                  ['/​', 'Focus search'],
+                  ['g', 'Grid view'],
+                  ['l', 'List view'],
+                  ['?', 'Toggle this help'],
+                  ['Esc', 'Blur / close'],
+                ].map(([key, desc]) => (
+                  <tr key={key}>
+                    <td className="pr-4 w-12">
+                      <kbd className="bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 font-mono text-gray-300">{key}</kbd>
+                    </td>
+                    <td className="text-gray-400">{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button
+              onClick={() => setShowShortcuts(false)}
+              className="mt-4 text-xs text-gray-500 hover:text-gray-300 w-full text-center"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   )

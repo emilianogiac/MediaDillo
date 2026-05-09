@@ -5,9 +5,10 @@ import { TechBadge } from './TechBadge.js'
 interface Props {
   movie: MovieSummary
   version: number
+  onArtworkDownload?: () => void
 }
 
-export function PosterCard({ movie, version }: Props) {
+export function PosterCard({ movie, version, onArtworkDownload }: Props) {
   const qualityTier = movie.files[0]?.videoQualityTier
   const missingFile = movie.files.length === 0
   const missingPoster = !movie.posterDownloaded
@@ -73,6 +74,18 @@ export function PosterCard({ movie, version }: Props) {
       {movie.isOrganized && (
         <div className="absolute bottom-9 right-1.5">
           <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>
+        </div>
+      )}
+
+      {/* Hover quick-action overlay */}
+      {onArtworkDownload && (
+        <div className="absolute inset-x-0 bottom-9 flex items-end justify-center pb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+          <button
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onArtworkDownload() }}
+            className="bg-black/70 hover:bg-black/90 text-yellow-300 text-xs px-2.5 py-1 rounded-full border border-yellow-500/40 backdrop-blur-sm transition-colors"
+          >
+            Get Art
+          </button>
         </div>
       )}
 
