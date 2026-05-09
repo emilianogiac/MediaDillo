@@ -78,6 +78,7 @@ model Movie {
   posterDownloaded      Boolean     @default(false)
   backdropDownloaded    Boolean     @default(false)
   dismissedAsDuplicate  Boolean     @default(false)
+  jellyfinId         String?
   status             MovieStatus @default(owned)
   scanRootId         String?
   scanRoot           ScanRoot?   @relation(fields: [scanRootId], references: [id])

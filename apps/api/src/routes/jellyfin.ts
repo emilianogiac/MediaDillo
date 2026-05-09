@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { config } from '../config.js'
 import { JellyfinClient, testJellyfinConnection } from '../jellyfin/client.js'
-import { triggerLibraryRefresh } from '../jellyfin/sync.js'
+import { triggerLibraryRefresh, syncJellyfinIds } from '../jellyfin/sync.js'
 import { prisma } from '@mediadillo/db'
 
 function getClient(): JellyfinClient | null {
@@ -27,6 +27,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
     }
     try {
       await client.triggerLibraryRefresh()
+      syncJellyfinIds(app.log).catch(() => {})
       return reply.send({ ok: true })
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) })
@@ -49,6 +50,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
         client.getWatchedMovieTmdbIds(userId),
         client.getWatchedEpisodePaths(userId),
       ])
+      syncJellyfinIds(app.log).catch(() => {})
       return reply.send({ configured: true, movieTmdbIds, episodePaths })
     } catch (err) {
       return reply.code(502).send({ error: err instanceof Error ? err.message : String(err) })
@@ -58,6 +60,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/jellyfin/trigger-refresh — alias for use after scan completes
   app.post('/jellyfin/trigger-refresh', async (_req, reply) => {
     await triggerLibraryRefresh(app.log)
+    syncJellyfinIds(app.log).catch(() => {})
     return reply.send({ ok: true })
   })
 
@@ -65,7 +68,7 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { movieId: string } }>('/jellyfin/item-url/:movieId', async (req, reply) => {
     const movie = await prisma.movie.findUnique({
       where: { id: req.params.movieId },
-      select: { tmdbId: true },
+      select: { tmdbId: true, jellyfinId: true },
     })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     if (!movie.tmdbId) return reply.code(422).send({ error: 'Movie not matched to TMDB' })
@@ -74,6 +77,13 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
     if (!client) return reply.code(503).send({ error: 'Jellyfin not configured' })
 
     try {
+      // Fast path: jellyfinId already stored from last sync
+      if (movie.jellyfinId) {
+        const serverId = await client.getServerId()
+        const url = `${client.baseUrl}/web/index.html#!/details?id=${movie.jellyfinId}&serverId=${serverId}`
+        return reply.send({ url })
+      }
+      // Slow path: live lookup by tmdbId
       const url = await client.getMovieDeepLink(movie.tmdbId)
       return reply.send({ url })
     } catch (err) {

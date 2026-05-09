@@ -13,7 +13,7 @@ export interface JellyfinUser {
 
 export class JellyfinClient {
   constructor(
-    private readonly baseUrl: string,
+    private readonly _baseUrl: string,
     private readonly apiKey: string,
   ) {}
 
@@ -25,13 +25,13 @@ export class JellyfinClient {
   }
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { headers: this.headers() })
+    const res = await fetch(`${this._baseUrl}${path}`, { headers: this.headers() })
     if (!res.ok) throw new Error(`Jellyfin ${path} → HTTP ${res.status}`)
     return res.json() as Promise<T>
   }
 
   private async post(path: string): Promise<void> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetch(`${this._baseUrl}${path}`, {
       method: 'POST',
       headers: this.headers(),
     })
@@ -62,6 +62,25 @@ export class JellyfinClient {
     })
   }
 
+  async getServerId(): Promise<string> {
+    const info = await this.get<{ Id: string }>('/System/Info/Public')
+    return info.Id
+  }
+
+  async getAllMoviesWithIds(): Promise<{ jellyfinId: string; tmdbId: number | null }[]> {
+    const data = await this.get<{ Items: { Id: string; ProviderIds?: { Tmdb?: string } }[] }>(
+      '/Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds',
+    )
+    return data.Items.map((item) => ({
+      jellyfinId: item.Id,
+      tmdbId: item.ProviderIds?.Tmdb ? parseInt(item.ProviderIds.Tmdb, 10) : null,
+    }))
+  }
+
+  get baseUrl(): string {
+    return this._baseUrl
+  }
+
   async getMovieDeepLink(tmdbId: number): Promise<string> {
     const params = new URLSearchParams({
       IncludeItemTypes: 'Movie',
@@ -73,8 +92,8 @@ export class JellyfinClient {
     const data = await this.get<{ Items: { Id: string }[] }>(`/Items?${params}`)
     const item = data.Items[0]
     if (!item) throw new Error('Movie not found in Jellyfin library')
-    const info = await this.get<{ Id: string }>('/System/Info/Public')
-    return `${this.baseUrl}/web/index.html#!/details?id=${item.Id}&serverId=${info.Id}`
+    const serverId = await this.getServerId()
+    return `${this.baseUrl}/web/index.html#!/details?id=${item.Id}&serverId=${serverId}`
   }
 
   async getWatchedEpisodePaths(userId: string): Promise<string[]> {
