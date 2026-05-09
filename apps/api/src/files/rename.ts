@@ -54,12 +54,21 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
 
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
-    const hasDistinctEditions = movie.files.length > 1 && movie.files.every((f) => f.edition && f.edition.trim().length > 0)
-    const isMulti = movie.files.length > 1 && !hasDistinctEditions
 
-    movie.files.forEach((file, idx) => {
+    // Count files per edition group; only groups with >1 file need part numbers
+    const editionGroupSize = new Map<string | null, number>()
+    for (const f of movie.files) {
+      const key = f.edition ?? null
+      editionGroupSize.set(key, (editionGroupSize.get(key) ?? 0) + 1)
+    }
+    const editionGroupIndex = new Map<string | null, number>()
+
+    for (const file of movie.files) {
+      const key = file.edition ?? null
+      const groupIdx = editionGroupIndex.get(key) ?? 0
+      editionGroupIndex.set(key, groupIdx + 1)
+      const partNumber = (editionGroupSize.get(key) ?? 1) > 1 ? groupIdx + 1 : null
       const ext = path.extname(file.path)
-      const partNumber = isMulti ? idx + 1 : null
       const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
       const proposedPath = path.join(folderPath, fileName)
 
@@ -70,7 +79,7 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
         proposedPath,
         needsRename: file.path !== proposedPath,
       })
-    })
+    }
   }
 
   return items
@@ -91,6 +100,22 @@ export async function applyMovieRenames(
   let renamed = 0
   const errors: string[] = []
 
+  // Pre-compute edition group sizes per movie (keyed by movieId+edition)
+  const movieEditionGroupSize = new Map<string, Map<string | null, number>>()
+  for (const file of files) {
+    const { movie } = file
+    if (!movieEditionGroupSize.has(movie.id)) {
+      const sizeMap = new Map<string | null, number>()
+      for (const f of movie.files) {
+        const key = f.edition ?? null
+        sizeMap.set(key, (sizeMap.get(key) ?? 0) + 1)
+      }
+      movieEditionGroupSize.set(movie.id, sizeMap)
+    }
+  }
+  // Track how many files per edition group we've already renamed (to assign part numbers)
+  const movieEditionGroupIndex = new Map<string, Map<string | null, number>>()
+
   for (const file of files) {
     const { movie } = file
     if (!movie.scanRoot) {
@@ -101,10 +126,13 @@ export async function applyMovieRenames(
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
     const ext = path.extname(file.path)
-    const hasDistinctEditions = movie.files.length > 1 && movie.files.every((f) => f.edition && f.edition.trim().length > 0)
-    const isMulti = movie.files.length > 1 && !hasDistinctEditions
-    const fileIndex = movie.files.findIndex((f) => f.id === file.id)
-    const partNumber = isMulti ? fileIndex + 1 : null
+    const editionKey = file.edition ?? null
+    const sizeMap = movieEditionGroupSize.get(movie.id)!
+    if (!movieEditionGroupIndex.has(movie.id)) movieEditionGroupIndex.set(movie.id, new Map())
+    const indexMap = movieEditionGroupIndex.get(movie.id)!
+    const groupIdx = indexMap.get(editionKey) ?? 0
+    indexMap.set(editionKey, groupIdx + 1)
+    const partNumber = (sizeMap.get(editionKey) ?? 1) > 1 ? groupIdx + 1 : null
     const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
     const proposedPath = path.join(folderPath, fileName)
 
