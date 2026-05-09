@@ -13,6 +13,7 @@ import { MatchModal } from '../components/MatchModal.js'
 import { MovieFilesPanel } from '../components/MovieFilesPanel.js'
 import { MovieFolderCleanupPanel } from '../components/MovieFolderCleanupPanel.js'
 import { useToast } from '../context/ToastContext.js'
+import { fetchJellyfinStatus, fetchJellyfinMovieUrl } from '../api/jellyfin.js'
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—'
@@ -261,6 +262,8 @@ export function MovieDetailPage() {
   const [editField, setEditField] = useState<'title' | 'year' | 'tagline' | 'overview' | null>(null)
   const [editValue, setEditValue] = useState('')
   const [savingField, setSavingField] = useState(false)
+  const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
+  const [openingJellyfin, setOpeningJellyfin] = useState(false)
 
   async function handleDelete() {
     if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
@@ -548,8 +551,22 @@ export function MovieDetailPage() {
     }
   }
 
+  async function handleOpenInJellyfin() {
+    if (!id) return
+    setOpeningJellyfin(true)
+    try {
+      const { url } = await fetchJellyfinMovieUrl(id)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      toast({ type: 'error', message: 'Movie not found in Jellyfin — try triggering a library refresh first' })
+    } finally {
+      setOpeningJellyfin(false)
+    }
+  }
+
   useEffect(() => { load() }, [load])
   useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+  useEffect(() => { fetchJellyfinStatus().then((s) => setJellyfinConfigured(s.configured && s.connected)).catch(() => {}) }, [])
   useEffect(() => {
     if (!movie?.tmdbId) { setSiblings([]); return }
     fetchMovies({ tmdbId: movie.tmdbId })
@@ -766,6 +783,15 @@ export function MovieDetailPage() {
                 >
                   IMDb ↗
                 </a>
+              )}
+              {movie.tmdbId && jellyfinConfigured && (
+                <button
+                  onClick={() => { void handleOpenInJellyfin() }}
+                  disabled={openingJellyfin}
+                  className="px-2 py-0.5 rounded bg-gray-700/60 text-purple-400 hover:underline disabled:opacity-40"
+                >
+                  {openingJellyfin ? '…' : 'Jellyfin ↗'}
+                </button>
               )}
             </div>
             {movie.tmdbId ? (

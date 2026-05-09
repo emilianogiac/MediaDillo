@@ -62,6 +62,21 @@ export class JellyfinClient {
     })
   }
 
+  async getMovieDeepLink(tmdbId: number): Promise<string> {
+    const params = new URLSearchParams({
+      IncludeItemTypes: 'Movie',
+      Recursive: 'true',
+      AnyProviderIdEquals: `tmdb.${tmdbId}`,
+      Fields: 'ProviderIds',
+      Limit: '1',
+    })
+    const data = await this.get<{ Items: { Id: string }[] }>(`/Items?${params}`)
+    const item = data.Items[0]
+    if (!item) throw new Error('Movie not found in Jellyfin library')
+    const info = await this.get<{ Id: string }>('/System/Info/Public')
+    return `${this.baseUrl}/web/index.html#!/details?id=${item.Id}&serverId=${info.Id}`
+  }
+
   async getWatchedEpisodePaths(userId: string): Promise<string[]> {
     const data = await this.get<{
       Items: { Path?: string }[]

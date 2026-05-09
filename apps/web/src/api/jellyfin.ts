@@ -25,3 +25,7 @@ export async function triggerJellyfinRefresh(): Promise<void> {
 export async function fetchWatchedData(): Promise<WatchedData> {
   return apiFetch<WatchedData>('/jellyfin/watched')
 }
+
+export async function fetchJellyfinMovieUrl(movieId: string): Promise<{ url: string }> {
+  return apiFetch<{ url: string }>(`/jellyfin/item-url/${movieId}`)
+}
