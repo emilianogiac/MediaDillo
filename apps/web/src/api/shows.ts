@@ -135,3 +135,7 @@ export async function moveShow(showId: string, targetScanRootId: string): Promis
     body: JSON.stringify({ targetScanRootId }),
   })
 }
+
+export async function deleteShow(id: string): Promise<void> {
+  await apiFetch(`/shows/${id}`, { method: 'DELETE' })
+}

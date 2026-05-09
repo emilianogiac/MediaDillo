@@ -1,7 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { runScan, isScanRunning, getScanProgress } from '../scanner/index.js'
-import { config } from '../config.js'
 
 export async function scanRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/scan — trigger a full (or partial) library scan
@@ -11,20 +10,21 @@ export async function scanRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(409).send({ error: 'Scan already in progress' })
     }
 
-    if (config.SCAN_ROOTS.length === 0) {
-      return reply.code(422).send({ error: 'No scan roots configured. Set SCAN_ROOTS env var.' })
-    }
-
-    // If caller specified rootIds, look them up and filter to matching config entries
-    let rootsToScan = config.SCAN_ROOTS
     const requestedIds: string[] = req.body?.rootIds ?? []
+
+    // Resolve roots to scan from the DB — this covers both env-seeded and UI-added roots
+    let rootsToScan
     if (requestedIds.length > 0) {
-      const dbRoots = await prisma.scanRoot.findMany({ where: { id: { in: requestedIds } } })
-      const allowedPaths = new Set(dbRoots.map((r) => r.path))
-      rootsToScan = config.SCAN_ROOTS.filter((r) => allowedPaths.has(r.path))
+      rootsToScan = await prisma.scanRoot.findMany({ where: { id: { in: requestedIds }, enabled: true } })
       if (rootsToScan.length === 0) {
         return reply.code(422).send({ error: 'None of the requested root IDs matched configured scan roots' })
       }
+    } else {
+      rootsToScan = await prisma.scanRoot.findMany({ where: { enabled: true } })
+    }
+
+    if (rootsToScan.length === 0) {
+      return reply.code(422).send({ error: 'No scan roots configured. Add one in Settings.' })
     }
 
     const startedAt = new Date().toISOString()

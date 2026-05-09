@@ -104,28 +104,40 @@ function ScanButton() {
 
   return (
     <div className="flex flex-col gap-2 items-end">
-      {/* Root selector */}
-      {roots.length > 1 && (
-        <div className="flex flex-wrap gap-1.5 justify-end">
-          {roots.map((r) => {
-            const active = selectedIds.has(r.id)
-            return (
-              <button
-                key={r.id}
-                onClick={() => toggleRoot(r.id)}
-                disabled={!!isScanning}
-                className={`text-xs px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
-                  active
-                    ? 'border-accent bg-accent/20 text-accent'
-                    : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
-                }`}
-              >
-                {r.label}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      {/* Root selector — split by type */}
+      {roots.length > 1 && (() => {
+        const movieRoots = roots.filter((r) => r.type === 'movies')
+        const tvRoots = roots.filter((r) => r.type === 'tv')
+        const renderRow = (group: typeof roots, rowLabel: string) =>
+          group.length > 0 && (
+            <div key={rowLabel} className="flex items-center gap-1.5 justify-end">
+              <span className="text-xs text-gray-600 shrink-0">{rowLabel}</span>
+              {group.map((r) => {
+                const active = selectedIds.has(r.id)
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => toggleRoot(r.id)}
+                    disabled={!!isScanning}
+                    className={`text-xs px-2 py-0.5 rounded border transition-colors disabled:opacity-40 ${
+                      active
+                        ? 'border-accent bg-accent/20 text-accent'
+                        : 'border-gray-700 text-gray-500 hover:border-gray-500 hover:text-gray-300'
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        return (
+          <div className="flex flex-col gap-1">
+            {renderRow(movieRoots, 'Movies')}
+            {renderRow(tvRoots, 'TV')}
+          </div>
+        )
+      })()}
 
       <div className="flex items-center gap-3">
         <button

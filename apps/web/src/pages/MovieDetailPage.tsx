@@ -270,7 +270,7 @@ export function MovieDetailPage() {
     setDeleting(true)
     try {
       await deleteMovie(id)
-      navigate('/movies')
+      navigate(-1)
     } catch {
       setDeleting(false)
     }
@@ -293,7 +293,7 @@ export function MovieDetailPage() {
     try {
       const { deleted } = await deleteMovieWithFiles(id)
       toast({ type: 'success', message: `Deleted ${deleted} file${deleted !== 1 ? 's' : ''} from disk` })
-      navigate('/movies')
+      navigate(-1)
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
       setDeletingWithFiles(false)

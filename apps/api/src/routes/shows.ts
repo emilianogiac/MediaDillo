@@ -112,6 +112,14 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(tagged)
   })
 
+  // DELETE /api/shows/:id — remove a stale record (cascade-deletes seasons/episodes/files via schema)
+  app.delete<{ Params: { id: string } }>('/shows/:id', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+    await prisma.tvShow.delete({ where: { id: req.params.id } })
+    return reply.code(204).send()
+  })
+
   // GET /api/shows/:id — full detail with seasons + credits
   app.get<{ Params: { id: string } }>('/shows/:id', async (req, reply) => {
     const show = await prisma.tvShow.findUnique({

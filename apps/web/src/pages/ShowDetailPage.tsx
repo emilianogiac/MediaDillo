@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -35,6 +35,7 @@ export function ShowDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
   const [rematching, setRematching] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
@@ -77,6 +78,18 @@ export function ShowDetailPage() {
       // error visible via load failure
     } finally {
       setMoving(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!id || !window.confirm('Delete this record? This cannot be undone.')) return
+    setDeleting(true)
+    try {
+      await deleteShow(id)
+      navigate(-1)
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+      setDeleting(false)
     }
   }
 
@@ -238,6 +251,14 @@ export function ShowDetailPage() {
                 ⚠ Match to TMDB
               </button>
             )}
+            <button
+              onClick={() => { void handleDelete() }}
+              disabled={deleting}
+              className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+              title="Remove this record from the database (files on disk are not affected)"
+            >
+              {deleting ? 'Removing…' : 'Remove record'}
+            </button>
           </div>
         </div>
       </div>
