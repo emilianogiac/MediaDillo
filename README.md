@@ -39,11 +39,12 @@ Self-hosted media library manager for Jellyfin — scan, match, rename, and trac
 - **Duplicate resolution** — when a TMDB ID is shared by multiple records, a highlighted panel on the movie detail page shows all sibling records with collection label, folder path, and filename; per-sibling actions: **Consolidate** (move sibling files into current folder), **Replace** (swap current files with sibling's), **Delete** (remove sibling and files from disk), **Browse** (navigate to sibling detail); **Dismiss** marks a pair as intentional so it's hidden from duplicate filters; dismissed copies shown in a muted section with Undo; cross-filesystem moves handled transparently
 - **Multi-edition rename fix** — Rename & Organize correctly handles multi-edition movies (e.g. Theatrical + Director's Cut); part numbers are only assigned within edition groups that have more than one file; the "needs organization" check uses the same per-edition-group logic so correctly renamed multi-edition movies are no longer flagged; edition-less files no longer show a spurious "part X" label in the Files section of the detail page
 - **Per-file delete** — on multi-edition movies, each file card shows an individual "Delete from disk" button; the parent folder is automatically removed if it is empty after the deletion
-- **New items after scan** — a sky-blue **"New"** badge appears on every poster card and list row for items discovered in the most recent scan; a **✦ New** filter chip in the Movies filter bar narrows the list to those items for quick review and organization; clicking × on the chip clears the highlight; composable with all other filters (e.g. New + Needs organizing)
+- **New items after scan** — a sky-blue **"New"** badge appears on every poster card and list row (Movies and TV Shows) for items discovered in the most recent scan; a **✦ New** filter chip in each filter bar narrows the list to those items for quick review and organization; clicking × on the chip clears the highlight; composable with all other filters (e.g. New + Needs organizing)
 - **Inline metadata editing** — hover any of title, year, tagline, or overview on the detail page to reveal a pencil icon; click to edit inline and save to the database; hover artwork card poster to reveal a "Get Art" quick-action button
 - **Auto-cleanup on match** — optional setting (Settings → Match Behavior) to automatically delete stale TMM artwork, extra NFOs, subtitles and unknown files after every match or re-match
 - **Toast notifications** — bottom-right toast stack for async action results; job toasts show a live progress bar with polling and auto-dismiss 5 s after completion; failing items listed by name
 - **Scan history** — Dashboard shows the last 10 scans with colour-coded stats (added / changed / removed / stale)
+- **Editable API keys** — TMDB, TVDB, Jellyfin URL/key, and metadata language are configurable from Settings → API Keys in the UI; values are validated against their respective APIs before saving; env var values are seeded on first start and continue working as fallbacks
 - **Jellyfin integration** — auto-trigger library refresh after file operations; watched status sync; **Watch in Jellyfin ↗** deep-link on every matched movie detail page (instant after first sync via stored `jellyfinId`); Jellyfin ID sync no longer incorrectly stamps the same ID onto multiple records sharing a TMDB ID (multi-edition libraries)
 - **Export** — JSON, CSV, and NFO sidecar files (Kodi / Jellyfin compatible)
 - **Scan scheduler** — configurable scan interval (1h / 6h / 12h / 24h) from the UI
@@ -135,11 +136,11 @@ All configuration is via environment variables in your `.env` file.
 |---|---|---|---|
 | `DB_PASSWORD` | Yes | `changeme` | PostgreSQL password. Change before first run. |
 | `DATABASE_URL` | Auto | set by Compose | Full Postgres connection string. Set automatically by `docker-compose.yml` — do not override unless running outside Docker. |
-| `TMDB_API_KEY` | Yes | — | TMDB v3 API key for metadata and artwork lookups. Use the **API Key (v3 auth)** from TMDB settings, not the read access token. |
-| `TVDB_API_KEY` | No | — | TVDB API key. Fallback for TV episode numbering edge cases. |
+| `TMDB_API_KEY` | Yes* | — | TMDB v3 API key for metadata and artwork lookups. Use the **API Key (v3 auth)** from TMDB settings, not the read access token. *Can also be set via Settings → API Keys in the UI. |
+| `TVDB_API_KEY` | No | — | TVDB API key. Fallback for TV episode numbering edge cases. Can also be set via Settings → API Keys. |
 | `SCAN_ROOTS` | Yes | `[]` | JSON array of scan root objects: `{"path": "...", "label": "...", "type": "movies" \| "tv"}` |
-| `JELLYFIN_URL` | No | — | Base URL of your Jellyfin server, e.g. `http://192.168.1.10:8096` |
-| `JELLYFIN_API_KEY` | No | — | Jellyfin API key. Generate from Jellyfin: **Dashboard → Advanced → API Keys → +** |
+| `JELLYFIN_URL` | No | — | Base URL of your Jellyfin server, e.g. `http://192.168.1.10:8096`. Can also be set via Settings → API Keys. |
+| `JELLYFIN_API_KEY` | No | — | Jellyfin API key. Generate from Jellyfin: **Dashboard → Advanced → API Keys → +**. Can also be set via Settings → API Keys. |
 | `PORT` | No | `7731` | Port the API and frontend are served on inside the container. |
 | `NODE_ENV` | No | `production` | Set to `development` for verbose logging. |
 
