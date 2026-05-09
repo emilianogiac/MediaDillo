@@ -18,9 +18,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       unmatched?: string
       duplicates?: string
       organized?: string
+      addedSince?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince } = req.query
 
     // Always compute dup groups with count
     const dupGroups = await prisma.tvShow.groupBy({
@@ -54,6 +55,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(unmatched === 'true' ? { tmdbId: null } : {}),
         ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
         ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
+        ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
       },
       select: {
         id: true,
@@ -68,6 +70,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         status: true,
         ownedEpisodes: true,
         totalEpisodes: true,
+        createdAt: true,
         // First episode file path — used to derive show folder name for isOrganized
         seasons: {
           take: 1,

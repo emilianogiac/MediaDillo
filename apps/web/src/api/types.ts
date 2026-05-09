@@ -74,6 +74,7 @@ export interface ShowSummary {
   status: 'continuing' | 'ended'
   ownedEpisodes: number
   totalEpisodes: number
+  createdAt: string
 }
 
 export interface SeasonSummary {

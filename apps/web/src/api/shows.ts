@@ -8,6 +8,7 @@ export interface ShowsFilter {
   unmatched?: boolean
   organized?: boolean
   duplicates?: 'only' | 'hide'
+  addedSince?: string
 }
 
 export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[]> {
@@ -18,6 +19,7 @@ export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[
   if (filter.unmatched) params.set('unmatched', 'true')
   if (filter.organized === false) params.set('organized', 'false')
   if (filter.duplicates) params.set('duplicates', filter.duplicates)
+  if (filter.addedSince) params.set('addedSince', filter.addedSince)
   const qs = params.toString()
   return apiFetch<ShowSummary[]>(`/shows${qs ? `?${qs}` : ''}`)
 }

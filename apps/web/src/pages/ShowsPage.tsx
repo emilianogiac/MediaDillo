@@ -38,7 +38,7 @@ function ListIcon() {
   )
 }
 
-function ShowCard({ show, nonce }: { show: ShowSummary; nonce: number }) {
+function ShowCard({ show, nonce, isNew }: { show: ShowSummary; nonce: number; isNew: boolean }) {
   const unmatched = !show.tmdbId
   const missingArt = !show.posterDownloaded || !show.backdropDownloaded
   const isDuplicate = show.duplicateCount > 1
@@ -61,6 +61,12 @@ function ShowCard({ show, nonce }: { show: ShowSummary; nonce: number }) {
           <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs text-center px-2">No Poster</div>
         )}
       </div>
+
+      {isNew && (
+        <div className="absolute top-1.5 left-1.5">
+          <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>
+        </div>
+      )}
 
       {(unmatched || missingArt || isDuplicate) && (
         <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
@@ -103,10 +109,11 @@ interface ListRowProps {
   selected: boolean
   index: number
   nonce: number
+  isNew: boolean
   onToggle: (e: React.MouseEvent<HTMLInputElement>) => void
 }
 
-function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
+function ShowListRow({ show, selected, index, nonce, isNew, onToggle }: ListRowProps) {
   const unmatched = !show.tmdbId
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
@@ -160,6 +167,7 @@ function ShowListRow({ show, selected, index, nonce, onToggle }: ListRowProps) {
 
         {/* Status chips — fixed width so all rows align */}
         <div className="flex-shrink-0 w-28 flex gap-1 items-center">
+          {isNew && <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>}
           {unmatched && <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Unmatched</span>}
           {isDuplicate && <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">{show.duplicateCount}×</span>}
           {show.isOrganized && <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>}
@@ -181,6 +189,8 @@ export function ShowsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
 
+  const [lastScanAt, setLastScanAt] = useState<string | null>(() => localStorage.getItem('mediaDillo.lastScanAt'))
+
   const rawDuplicates = searchParams.get('duplicates')
   const filter = {
     search: searchParams.get('q') ?? '',
@@ -189,6 +199,7 @@ export function ShowsPage() {
     unmatched: searchParams.has('unmatched'),
     needsOrganizing: searchParams.has('unorganized'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
+    newOnly: searchParams.has('new'),
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
   }
 
@@ -199,6 +210,7 @@ export function ShowsPage() {
     unmatched?: boolean
     needsOrganizing?: boolean
     duplicates?: 'only' | 'hide' | ''
+    newOnly?: boolean
     view?: 'grid' | 'list'
   }) {
     setSearchParams(
@@ -210,6 +222,7 @@ export function ShowsPage() {
         if ('unmatched' in partial) { partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched') }
         if ('needsOrganizing' in partial) { partial.needsOrganizing ? next.set('unorganized', '1') : next.delete('unorganized') }
         if ('duplicates' in partial) { partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates') }
+        if ('newOnly' in partial) { partial.newOnly ? next.set('new', '1') : next.delete('new') }
         if ('view' in partial) { partial.view === 'list' ? next.set('view', 'list') : next.delete('view') }
         return next
       },
@@ -227,6 +240,7 @@ export function ShowsPage() {
     if (filter.unmatched) showFilter.unmatched = true
     if (filter.needsOrganizing) showFilter.organized = false
     if (filter.duplicates) showFilter.duplicates = filter.duplicates
+    if (filter.newOnly && lastScanAt) showFilter.addedSince = lastScanAt
     fetchShows(showFilter)
       .then((data) => { setShows(data); setListNonce(Date.now()) })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Failed to load'))
@@ -326,6 +340,30 @@ export function ShowsPage() {
           {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
         </button>
 
+        {lastScanAt && (
+          <button
+            onClick={() => setPartial({ newOnly: !filter.newOnly })}
+            className={['text-xs px-2.5 py-1 rounded border transition-colors flex items-center gap-1.5', filter.newOnly ? 'bg-sky-500/20 border-sky-500/60 text-sky-300' : 'border-sky-800/60 text-sky-500 hover:text-sky-300'].join(' ')}
+          >
+            ✦ New
+            <span
+              role="button"
+              tabIndex={0}
+              title="Clear new items highlight"
+              onClick={(e) => {
+                e.stopPropagation()
+                localStorage.removeItem('mediaDillo.lastScanAt')
+                setLastScanAt(null)
+                setPartial({ newOnly: false })
+              }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); localStorage.removeItem('mediaDillo.lastScanAt'); setLastScanAt(null); setPartial({ newOnly: false }) } }}
+              className="text-sky-700 hover:text-sky-400 leading-none cursor-pointer"
+            >
+              ×
+            </span>
+          </button>
+        )}
+
         {hasActiveFilter && (
           <button
             onClick={() => setPartial({ search: '', qualityTier: '', missingArtwork: false, unmatched: false, needsOrganizing: false, duplicates: '' })}
@@ -368,7 +406,7 @@ export function ShowsPage() {
 
       {!loading && !error && shows.length > 0 && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} />)}
+          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} />)}
         </div>
       )}
 
@@ -393,6 +431,7 @@ export function ShowsPage() {
               selected={selected.has(show.id)}
               index={idx}
               nonce={listNonce}
+              isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)}
               onToggle={(e) => toggleOne(show.id, idx, e.shiftKey)}
             />
           ))}
