@@ -20,6 +20,7 @@ export interface MovieSummary {
   backdropDownloaded: boolean
   isDuplicate: boolean
   duplicateCount: number
+  dismissedAsDuplicate: boolean
   isOrganized: boolean
   fileCount: number
   status: string

@@ -89,6 +89,22 @@ export async function deleteMovieWithFiles(id: string): Promise<{ deleted: numbe
   return apiFetch(`/movies/${id}/with-files`, { method: 'DELETE' })
 }
 
+export async function consolidateMovie(targetId: string, siblingId: string): Promise<{ consolidated: number }> {
+  return apiFetch(`/movies/${targetId}/consolidate`, { method: 'POST', body: JSON.stringify({ siblingId }) })
+}
+
+export async function replaceMovieFiles(targetId: string, siblingId: string): Promise<{ replaced: number }> {
+  return apiFetch(`/movies/${targetId}/replace`, { method: 'POST', body: JSON.stringify({ siblingId }) })
+}
+
+export async function dismissDuplicate(movieId: string): Promise<void> {
+  await apiFetch(`/movies/${movieId}/dismiss`, { method: 'POST' })
+}
+
+export async function undismissDuplicate(movieId: string): Promise<void> {
+  await apiFetch(`/movies/${movieId}/undismiss`, { method: 'POST' })
+}
+
 export async function rescanMovie(id: string): Promise<{ added: number; changed: number; removed: number }> {
   return apiFetch(`/movies/${id}/rescan`, { method: 'POST' })
 }

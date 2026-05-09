@@ -7,6 +7,7 @@ import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/naming.js'
 import { applyMovieRenames } from '../files/rename.js'
 import { scanMovieFolder } from '../files/cleanup.js'
+import { moveFile } from '../files/move.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
@@ -30,10 +31,11 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
   }>('/movies', async (req, reply) => {
     const { scanRootId, genre, qualityTier, missingArtwork, unmatched, search, duplicates, missingFile, needsRename, organized, edition, tmdbId } = req.query
 
-    // Always compute dup groups with count (needed for filter + duplicateCount badge)
+    // Always compute dup groups with count (needed for filter + duplicateCount badge).
+    // Dismissed movies are excluded — they don't count as duplicates for others.
     const dupGroups = await prisma.movie.groupBy({
       by: ['tmdbId'],
-      where: { tmdbId: { not: null } },
+      where: { tmdbId: { not: null }, dismissedAsDuplicate: false },
       having: { tmdbId: { _count: { gt: 1 } } },
       _count: { tmdbId: true },
     })
@@ -77,6 +79,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         tmdbId: true,
         posterDownloaded: true,
         backdropDownloaded: true,
+        dismissedAsDuplicate: true,
         status: true,
         scanRoot: { select: { id: true, label: true, path: true } },
         files: {
@@ -118,7 +121,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
 
     const tagged = filtered.map(({ scanRoot, files, ...rest }) => ({
       ...rest,
-      isDuplicate: rest.tmdbId != null && dupCountMap.has(rest.tmdbId),
+      isDuplicate: rest.tmdbId != null && !rest.dismissedAsDuplicate && dupCountMap.has(rest.tmdbId),
       duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
       isOrganized: isOrganized({ scanRoot, files, ...rest }),
       fileCount: files.length,
@@ -363,6 +366,129 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ deleted })
     },
   )
+
+  // POST /api/movies/:id/consolidate — move sibling's files into current movie's folder
+  app.post<{ Params: { id: string }; Body: { siblingId: string } }>(
+    '/movies/:id/consolidate',
+    async (req, reply) => {
+      const { siblingId } = req.body
+      if (!siblingId) return reply.code(400).send({ error: 'siblingId is required' })
+
+      const [target, source] = await Promise.all([
+        prisma.movie.findUnique({ where: { id: req.params.id }, include: { files: true, scanRoot: true } }),
+        prisma.movie.findUnique({ where: { id: siblingId }, include: { files: true } }),
+      ])
+      if (!target) return reply.code(404).send({ error: 'Movie not found' })
+      if (!source) return reply.code(404).send({ error: 'Sibling not found' })
+      if (source.files.length === 0) return reply.code(422).send({ error: 'Sibling has no files to consolidate' })
+
+      // Determine the target folder
+      let targetFolder: string
+      if (target.files.length > 0) {
+        targetFolder = path.dirname(target.files[0]!.path)
+      } else if (target.scanRoot) {
+        targetFolder = path.join(target.scanRoot.path, canonicalMovieFolderName(target.title, target.year))
+      } else {
+        return reply.code(422).send({ error: 'Target movie has no files and no scan root — cannot determine destination folder' })
+      }
+
+      // Check for filename conflicts before moving anything
+      for (const f of source.files) {
+        const newPath = path.join(targetFolder, path.basename(f.path))
+        if (newPath === f.path) continue
+        const existing = await prisma.movieFile.findUnique({ where: { path: newPath } })
+        if (existing) return reply.code(409).send({ error: `Filename conflict: ${path.basename(f.path)} already exists in the target folder` })
+      }
+
+      await fs.mkdir(targetFolder, { recursive: true })
+      let consolidated = 0
+      for (const f of source.files) {
+        const newPath = path.join(targetFolder, path.basename(f.path))
+        if (newPath === f.path) {
+          // File is already in target folder — just re-parent the record
+          await prisma.movieFile.update({ where: { id: f.id }, data: { movieId: target.id } })
+        } else {
+          await moveFile(f.path, newPath)
+          await prisma.movieFile.update({ where: { id: f.id }, data: { path: newPath, movieId: target.id } })
+        }
+        consolidated++
+      }
+
+      // Clean up source folder if now empty
+      const sourceFolder = path.dirname(source.files[0]!.path)
+      try {
+        const remaining = await fs.readdir(sourceFolder)
+        if (remaining.length === 0) await fs.rmdir(sourceFolder)
+      } catch { /* skip */ }
+
+      await prisma.movie.delete({ where: { id: siblingId } })
+      triggerLibraryRefresh(app.log).catch(() => {})
+      return reply.send({ consolidated })
+    },
+  )
+
+  // POST /api/movies/:id/replace — delete current files, move sibling's files in
+  app.post<{ Params: { id: string }; Body: { siblingId: string } }>(
+    '/movies/:id/replace',
+    async (req, reply) => {
+      const { siblingId } = req.body
+      if (!siblingId) return reply.code(400).send({ error: 'siblingId is required' })
+
+      const [target, source] = await Promise.all([
+        prisma.movie.findUnique({ where: { id: req.params.id }, include: { files: true } }),
+        prisma.movie.findUnique({ where: { id: siblingId }, include: { files: true } }),
+      ])
+      if (!target) return reply.code(404).send({ error: 'Movie not found' })
+      if (!source) return reply.code(404).send({ error: 'Sibling not found' })
+      if (target.files.length === 0) return reply.code(422).send({ error: 'Target movie has no files — use Consolidate instead' })
+      if (source.files.length === 0) return reply.code(422).send({ error: 'Sibling has no files to replace with' })
+
+      const targetFolder = path.dirname(target.files[0]!.path)
+
+      // Delete current target files from disk
+      for (const f of target.files) {
+        try { await fs.unlink(f.path) } catch { /* skip if already gone */ }
+      }
+      await prisma.movieFile.deleteMany({ where: { movieId: target.id } })
+
+      // Move source files into the target folder
+      await fs.mkdir(targetFolder, { recursive: true })
+      let replaced = 0
+      for (const f of source.files) {
+        const newPath = path.join(targetFolder, path.basename(f.path))
+        await moveFile(f.path, newPath)
+        await prisma.movieFile.update({ where: { id: f.id }, data: { path: newPath, movieId: target.id } })
+        replaced++
+      }
+
+      // Clean up source folder if now empty
+      const sourceFolder = path.dirname(source.files[0]!.path)
+      try {
+        const remaining = await fs.readdir(sourceFolder)
+        if (remaining.length === 0) await fs.rmdir(sourceFolder)
+      } catch { /* skip */ }
+
+      await prisma.movie.delete({ where: { id: siblingId } })
+      triggerLibraryRefresh(app.log).catch(() => {})
+      return reply.send({ replaced })
+    },
+  )
+
+  // POST /api/movies/:id/dismiss — mark as intentional duplicate (suppresses badge)
+  app.post<{ Params: { id: string } }>('/movies/:id/dismiss', async (req, reply) => {
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!movie) return reply.code(404).send({ error: 'Movie not found' })
+    await prisma.movie.update({ where: { id: req.params.id }, data: { dismissedAsDuplicate: true } })
+    return reply.code(204).send()
+  })
+
+  // POST /api/movies/:id/undismiss — restore duplicate warning
+  app.post<{ Params: { id: string } }>('/movies/:id/undismiss', async (req, reply) => {
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!movie) return reply.code(404).send({ error: 'Movie not found' })
+    await prisma.movie.update({ where: { id: req.params.id }, data: { dismissedAsDuplicate: false } })
+    return reply.code(204).send()
+  })
 
   // DELETE /api/movies/files/:fileId/from-disk — delete one file from disk and remove its MovieFile record
   app.delete<{ Params: { fileId: string } }>('/movies/files/:fileId/from-disk', async (req, reply) => {

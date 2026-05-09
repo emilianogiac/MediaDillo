@@ -4,7 +4,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, deleteMovieFileSingle, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
+import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, deleteMovieFileSingle, consolidateMovie, replaceMovieFiles, dismissDuplicate, undismissDuplicate, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
 import type { ScanRoot, MovieSummary } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -253,6 +253,11 @@ export function MovieDetailPage() {
   const [siblings, setSiblings] = useState<MovieSummary[]>([])
   const [deletingSiblingId, setDeletingSiblingId] = useState<string | null>(null)
   const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
+  const [consolidateTarget, setConsolidateTarget] = useState<MovieSummary | null>(null)
+  const [consolidating, setConsolidating] = useState(false)
+  const [replaceTarget, setReplaceTarget] = useState<MovieSummary | null>(null)
+  const [replacing, setReplacing] = useState(false)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
   const [editField, setEditField] = useState<'title' | 'year' | 'tagline' | 'overview' | null>(null)
   const [editValue, setEditValue] = useState('')
   const [savingField, setSavingField] = useState(false)
@@ -462,6 +467,64 @@ export function MovieDetailPage() {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
     } finally {
       setDeletingFileId(null)
+    }
+  }
+
+  async function handleConsolidate() {
+    if (!consolidateTarget || !id) return
+    setConsolidating(true)
+    try {
+      const r = await consolidateMovie(id, consolidateTarget.id)
+      toast({ type: 'success', message: `Consolidated ${r.consolidated} file${r.consolidated !== 1 ? 's' : ''} into this collection` })
+      setConsolidateTarget(null)
+      setSiblings((prev) => prev.filter((s) => s.id !== consolidateTarget.id))
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Consolidate failed' })
+    } finally {
+      setConsolidating(false)
+    }
+  }
+
+  async function handleReplace() {
+    if (!replaceTarget || !id) return
+    setReplacing(true)
+    try {
+      const r = await replaceMovieFiles(id, replaceTarget.id)
+      toast({ type: 'success', message: `Replaced with ${r.replaced} file${r.replaced !== 1 ? 's' : ''} from ${replaceTarget.scanRoot?.label ?? 'the other collection'}` })
+      setReplaceTarget(null)
+      setSiblings((prev) => prev.filter((s) => s.id !== replaceTarget.id))
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Replace failed' })
+    } finally {
+      setReplacing(false)
+    }
+  }
+
+  async function handleDismiss(siblingId: string) {
+    setDismissingId(siblingId)
+    try {
+      await dismissDuplicate(siblingId)
+      setSiblings((prev) => prev.map((s) => s.id === siblingId ? { ...s, dismissedAsDuplicate: true } : s))
+      toast({ type: 'success', message: 'Marked as intentional duplicate' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Dismiss failed' })
+    } finally {
+      setDismissingId(null)
+    }
+  }
+
+  async function handleUndismiss(siblingId: string) {
+    setDismissingId(siblingId)
+    try {
+      await undismissDuplicate(siblingId)
+      setSiblings((prev) => prev.map((s) => s.id === siblingId ? { ...s, dismissedAsDuplicate: false } : s))
+      toast({ type: 'success', message: 'Duplicate warning restored' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Undo failed' })
+    } finally {
+      setDismissingId(null)
     }
   }
 
@@ -853,7 +916,7 @@ export function MovieDetailPage() {
             <span className="text-sm font-normal text-gray-500 ml-2">({siblings.length + 1} records share this TMDB ID)</span>
           </h2>
           <div className="bg-surface-raised border border-orange-700/30 rounded-lg divide-y divide-gray-700/60">
-            {siblings.map((s) => {
+            {siblings.filter((s) => !s.dismissedAsDuplicate).map((s) => {
               const file = s.files[0]
               const folder = file?.path ? file.path.split('/').slice(0, -1).join('/') : null
               const filename = file?.path ? file.path.split('/').pop() : null
@@ -881,12 +944,31 @@ export function MovieDetailPage() {
                     )}
                     {s.files.length === 0 && <p className="text-xs text-red-400">No files (stale record)</p>}
                   </div>
-                  <div className="flex flex-col gap-2 shrink-0">
+                  <div className="flex flex-col gap-1.5 shrink-0">
                     <button
                       onClick={() => navigate(`/movies/${s.id}`)}
                       className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
                     >
                       Browse →
+                    </button>
+                    <button
+                      onClick={() => setConsolidateTarget(s)}
+                      className="text-xs px-2.5 py-1 rounded border border-blue-700/40 text-blue-400 hover:bg-blue-700/20 transition-colors"
+                    >
+                      Consolidate
+                    </button>
+                    <button
+                      onClick={() => setReplaceTarget(s)}
+                      className="text-xs px-2.5 py-1 rounded border border-yellow-700/40 text-yellow-400 hover:bg-yellow-700/20 transition-colors"
+                    >
+                      Replace
+                    </button>
+                    <button
+                      onClick={() => { void handleDismiss(s.id) }}
+                      disabled={dismissingId === s.id}
+                      className="text-xs px-2.5 py-1 rounded border border-gray-600 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors disabled:opacity-40"
+                    >
+                      {dismissingId === s.id ? '…' : 'Dismiss'}
                     </button>
                     <button
                       onClick={() => { void handleDeleteSibling(s.id) }}
@@ -900,7 +982,37 @@ export function MovieDetailPage() {
               )
             })}
           </div>
-          <p className="text-xs text-gray-600">Delete removes files from disk and the DB record. Browse opens that copy's detail page.</p>
+
+          {/* Dismissed siblings */}
+          {siblings.filter((s) => s.dismissedAsDuplicate).length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-500 mb-1">Dismissed (intentional duplicates):</p>
+              <div className="bg-surface-raised border border-gray-700/40 rounded-lg divide-y divide-gray-700/40">
+                {siblings.filter((s) => s.dismissedAsDuplicate).map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-4 px-4 py-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-gray-500">{s.scanRoot?.label ?? 'Unknown collection'}</span>
+                      {s.files[0]?.edition && (
+                        <span className="text-xs ml-2 text-gray-600">{s.files[0].edition}</span>
+                      )}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => navigate(`/movies/${s.id}`)} className="text-xs text-gray-500 hover:text-accent transition-colors">Browse →</button>
+                      <button
+                        onClick={() => { void handleUndismiss(s.id) }}
+                        disabled={dismissingId === s.id}
+                        className="text-xs px-2 py-0.5 rounded border border-gray-700 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+                      >
+                        {dismissingId === s.id ? '…' : 'Undo dismiss'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600">Consolidate moves files here · Replace swaps your copy · Dismiss hides intentional duplicates · Delete removes from disk.</p>
         </section>
       )}
 
@@ -946,6 +1058,75 @@ export function MovieDetailPage() {
                 className="text-sm px-4 py-1.5 rounded bg-red-700/30 border border-red-700/60 text-red-300 hover:bg-red-700/50 transition-colors disabled:opacity-40"
               >
                 {deletingWithFiles ? 'Deleting…' : 'Permanently delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Consolidate modal */}
+      {consolidateTarget && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-gray-700 rounded-xl w-full max-w-lg space-y-4 p-6">
+            <h2 className="text-lg font-semibold text-blue-400">Consolidate into "{movie.scanRoot?.label ?? 'this collection'}"</h2>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Moving in from "{consolidateTarget.scanRoot?.label ?? 'other collection'}" ({consolidateTarget.fileCount} file{consolidateTarget.fileCount !== 1 ? 's' : ''})</p>
+                {consolidateTarget.files[0] && (
+                  <div className="bg-gray-900 rounded px-3 py-2 font-mono text-xs text-gray-300 flex items-center gap-2">
+                    <span className="truncate">{consolidateTarget.files[0].path?.split('/').pop()}</span>
+                    {consolidateTarget.files[0].videoQualityTier && <span className="text-teal-400 shrink-0">{consolidateTarget.files[0].videoQualityTier}</span>}
+                  </div>
+                )}
+                {consolidateTarget.fileCount > 1 && <p className="text-xs text-gray-500 mt-1">+ {consolidateTarget.fileCount - 1} more file{consolidateTarget.fileCount - 1 !== 1 ? 's' : ''}</p>}
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Already here ({movie.files.length} file{movie.files.length !== 1 ? 's' : ''})</p>
+                {movie.files.slice(0, 2).map((f) => (
+                  <div key={f.id} className="bg-gray-900 rounded px-3 py-2 font-mono text-xs text-gray-400 truncate">{f.path.split('/').pop()}</div>
+                ))}
+              </div>
+              <p className="text-gray-400">After consolidating: <span className="text-gray-200">{movie.files.length + consolidateTarget.fileCount} files</span> in "{movie.scanRoot?.label ?? 'this collection'}"</p>
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button onClick={() => setConsolidateTarget(null)} disabled={consolidating} className="text-sm px-4 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40">Cancel</button>
+              <button onClick={() => { void handleConsolidate() }} disabled={consolidating} className="text-sm px-4 py-1.5 rounded bg-blue-700/30 border border-blue-700/60 text-blue-300 hover:bg-blue-700/50 transition-colors disabled:opacity-40">
+                {consolidating ? 'Consolidating…' : 'Consolidate →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Replace modal */}
+      {replaceTarget && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+          <div className="bg-surface border border-gray-700 rounded-xl w-full max-w-lg space-y-4 p-6">
+            <h2 className="text-lg font-semibold text-yellow-400">Replace files in "{movie.scanRoot?.label ?? 'this collection'}"</h2>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-red-400 text-xs uppercase tracking-wide mb-1">Permanently deleting ({movie.files.length} file{movie.files.length !== 1 ? 's' : ''})</p>
+                {movie.files.slice(0, 2).map((f) => (
+                  <div key={f.id} className="bg-gray-900 rounded px-3 py-2 font-mono text-xs text-red-400/70 truncate line-through">{f.path.split('/').pop()}</div>
+                ))}
+                {movie.files.length > 2 && <p className="text-xs text-gray-500 mt-1">+ {movie.files.length - 2} more</p>}
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs uppercase tracking-wide mb-1">Moving in from "{replaceTarget.scanRoot?.label ?? 'other collection'}" ({replaceTarget.fileCount} file{replaceTarget.fileCount !== 1 ? 's' : ''})</p>
+                {replaceTarget.files[0] && (
+                  <div className="bg-gray-900 rounded px-3 py-2 font-mono text-xs text-gray-300 flex items-center gap-2">
+                    <span className="truncate">{replaceTarget.files[0].path?.split('/').pop()}</span>
+                    {replaceTarget.files[0].videoQualityTier && <span className="text-teal-400 shrink-0">{replaceTarget.files[0].videoQualityTier}</span>}
+                  </div>
+                )}
+                {replaceTarget.fileCount > 1 && <p className="text-xs text-gray-500 mt-1">+ {replaceTarget.fileCount - 1} more file{replaceTarget.fileCount - 1 !== 1 ? 's' : ''}</p>}
+              </div>
+              <p className="text-xs text-red-400/80">⚠ Current files will be permanently deleted. This cannot be undone.</p>
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button onClick={() => setReplaceTarget(null)} disabled={replacing} className="text-sm px-4 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40">Cancel</button>
+              <button onClick={() => { void handleReplace() }} disabled={replacing} className="text-sm px-4 py-1.5 rounded bg-yellow-700/30 border border-yellow-700/60 text-yellow-300 hover:bg-yellow-700/50 transition-colors disabled:opacity-40">
+                {replacing ? 'Replacing…' : 'Replace — delete current & import'}
               </button>
             </div>
           </div>

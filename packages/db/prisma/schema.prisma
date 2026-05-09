@@ -75,8 +75,9 @@ model Movie {
   tagline            String?
   posterUrl          String?
   backdropUrl        String?
-  posterDownloaded   Boolean     @default(false)
-  backdropDownloaded Boolean     @default(false)
+  posterDownloaded      Boolean     @default(false)
+  backdropDownloaded    Boolean     @default(false)
+  dismissedAsDuplicate  Boolean     @default(false)
   status             MovieStatus @default(owned)
   scanRootId         String?
   scanRoot           ScanRoot?   @relation(fields: [scanRootId], references: [id])
