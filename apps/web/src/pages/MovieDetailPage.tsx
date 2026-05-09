@@ -59,7 +59,7 @@ export function MovieDetailPage() {
     setDeleting(true)
     try {
       await deleteMovie(id)
-      navigate(-1)
+      navigate('/movies')
     } catch {
       setDeleting(false)
     }

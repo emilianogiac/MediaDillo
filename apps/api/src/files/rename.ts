@@ -54,7 +54,8 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
 
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
-    const isMulti = movie.files.length > 1
+    const hasDistinctEditions = movie.files.length > 1 && movie.files.every((f) => f.edition && f.edition.trim().length > 0)
+    const isMulti = movie.files.length > 1 && !hasDistinctEditions
 
     movie.files.forEach((file, idx) => {
       const ext = path.extname(file.path)
@@ -100,7 +101,8 @@ export async function applyMovieRenames(
     const folderName = canonicalMovieFolderName(movie.title, movie.year)
     const folderPath = path.join(movie.scanRoot.path, folderName)
     const ext = path.extname(file.path)
-    const isMulti = movie.files.length > 1
+    const hasDistinctEditions = movie.files.length > 1 && movie.files.every((f) => f.edition && f.edition.trim().length > 0)
+    const isMulti = movie.files.length > 1 && !hasDistinctEditions
     const fileIndex = movie.files.findIndex((f) => f.id === file.id)
     const partNumber = isMulti ? fileIndex + 1 : null
     const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
