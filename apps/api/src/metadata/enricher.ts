@@ -65,6 +65,15 @@ export async function enrichTvShow(tmdbClient: TmdbClient, showId: string, tmdbI
   }
 }
 
+export async function syncSeasonTitles(
+  tmdbClient: TmdbClient,
+  showId: string,
+  tmdbId: number,
+  seasonNumber: number,
+): Promise<void> {
+  return syncSeason(tmdbClient, showId, tmdbId, seasonNumber)
+}
+
 async function syncSeason(
   tmdbClient: TmdbClient,
   showId: string,

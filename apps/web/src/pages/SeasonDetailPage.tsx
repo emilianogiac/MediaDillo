@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { SeasonDetail, EpisodeDetail } from '../api/types.js'
-import { fetchSeason, rescanSeason } from '../api/shows.js'
+import { fetchSeason, rescanSeason, fetchSeasonRenamePreview } from '../api/shows.js'
+import { fetchEpisodeFileRenamePreview, applyRenames, type RenamePreviewItem } from '../api/files.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { MergePartsPanel } from '../components/MergePartsPanel.js'
+import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
+import { useToast } from '../context/ToastContext.js'
 
 const STATUS_STYLES: Record<EpisodeDetail['status'], string> = {
   owned: 'bg-green-700/60 text-green-300',
@@ -22,6 +25,72 @@ const STATUS_LABELS: Record<EpisodeDetail['status'], string> = {
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return '—'
   return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function shortName(p: string) {
+  return p.split('/').pop() ?? p
+}
+
+interface EpisodeRenameInlineProps {
+  fileIds: string[]
+  onDone: () => void
+}
+
+function EpisodeRenameInline({ fileIds, onDone }: EpisodeRenameInlineProps) {
+  const { toast } = useToast()
+  const [state, setState] = useState<'idle' | 'loading' | 'clean' | 'preview' | 'applying'>('idle')
+  const [items, setItems] = useState<RenamePreviewItem[]>([])
+
+  async function check() {
+    setState('loading')
+    try {
+      const preview = await fetchEpisodeFileRenamePreview(fileIds)
+      const needsRename = preview.filter((p) => p.needsRename && p.type === 'episode-file')
+      setItems(needsRename)
+      setState(needsRename.length === 0 ? 'clean' : 'preview')
+    } catch {
+      setState('idle')
+    }
+  }
+
+  async function apply() {
+    setState('applying')
+    try {
+      const result = await applyRenames('episodes', items.map((i) => i.id))
+      toast({ type: 'success', message: `${result.renamed} file${result.renamed !== 1 ? 's' : ''} renamed` })
+      setState('idle')
+      onDone()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+      setState('preview')
+    }
+  }
+
+  if (state === 'idle') {
+    return (
+      <button onClick={check} className="text-xs text-gray-500 hover:text-accent transition-colors">
+        Rename
+      </button>
+    )
+  }
+  if (state === 'loading') return <span className="text-xs text-gray-500">…</span>
+  if (state === 'clean') return <span className="text-xs text-green-600">✓ canonical</span>
+  if (state === 'applying') return <span className="text-xs text-gray-500">Renaming…</span>
+  if (state === 'preview') {
+    return (
+      <div className="space-y-1">
+        {items.map((item) => (
+          <p key={item.id} className="text-xs text-gray-400 font-mono truncate" title={item.proposedPath}>
+            → {shortName(item.proposedPath)}
+          </p>
+        ))}
+        <button onClick={apply} className="text-xs text-accent hover:underline">
+          Apply rename
+        </button>
+      </div>
+    )
+  }
+  return null
 }
 
 export function SeasonDetailPage() {
@@ -72,6 +141,7 @@ export function SeasonDetailPage() {
     )
   }
 
+  const seasonNum = parseInt(seasonNumber ?? '0', 10)
   const owned = season.episodes.filter((e) => e.status === 'owned').length
   const total = season.episodes.length
 
@@ -139,6 +209,17 @@ export function SeasonDetailPage() {
                   <p className="text-xs text-gray-500">{formatDate(ep.airDate)}</p>
                 )}
               </div>
+
+              {/* Episode-level rename */}
+              {ep.files.length > 0 && id && (
+                <div className="flex-shrink-0 pt-0.5">
+                  <EpisodeRenameInline
+                    key={ep.id}
+                    fileIds={ep.files.map((f) => f.id)}
+                    onDone={load}
+                  />
+                </div>
+              )}
             </div>
 
             {/* File info */}
@@ -167,6 +248,15 @@ export function SeasonDetailPage() {
           <p className="text-gray-500 text-sm py-8 text-center">No episodes found for this season.</p>
         )}
       </div>
+
+      {/* Season-level rename panel */}
+      {id && (
+        <EpisodeRenamePanel
+          title="Rename Season Episodes"
+          fetchPreview={() => fetchSeasonRenamePreview(id, seasonNum)}
+          onDone={load}
+        />
+      )}
 
       {id && seasonNumber && (
         <MergePartsPanel

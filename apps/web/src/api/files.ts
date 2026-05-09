@@ -36,6 +36,12 @@ export async function fetchRenamePreview(
   return apiFetch<RenamePreviewItem[]>(`/files/rename-preview?${params}`)
 }
 
+export async function fetchEpisodeFileRenamePreview(episodeFileIds: string[]): Promise<RenamePreviewItem[]> {
+  if (episodeFileIds.length === 0) return []
+  const params = new URLSearchParams({ type: 'episode-files', ids: episodeFileIds.join(',') })
+  return apiFetch<RenamePreviewItem[]>(`/files/rename-preview?${params}`)
+}
+
 export async function applyRenames(
   type: 'movies' | 'episodes',
   fileIds: string[],

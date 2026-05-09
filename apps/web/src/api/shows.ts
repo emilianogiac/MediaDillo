@@ -1,5 +1,6 @@
 import { apiFetch } from './client.js'
 import type { ShowSummary, ShowDetail, SeasonDetail, ImageCandidate, MovieCandidate } from './types.js'
+import type { RenamePreviewItem } from './files.js'
 
 export interface ShowsFilter {
   search?: string
@@ -97,6 +98,17 @@ export async function applyOrganize(
     method: 'POST',
     body: JSON.stringify({ renames, trash }),
   })
+}
+
+export async function renameAllShowEpisodes(showId: string): Promise<{ renamed: number; errors: string[] }> {
+  const preview = await fetchOrganizePreview(showId)
+  if (preview.renames.length === 0) return { renamed: 0, errors: [] }
+  const result = await applyOrganize(showId, preview.renames.map((r) => r.id), [])
+  return { renamed: result.renamed, errors: result.errors }
+}
+
+export async function fetchSeasonRenamePreview(showId: string, seasonNumber: number): Promise<RenamePreviewItem[]> {
+  return apiFetch<RenamePreviewItem[]>(`/shows/${showId}/seasons/${seasonNumber}/rename-preview`)
 }
 
 export async function rescanSeason(

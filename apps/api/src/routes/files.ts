@@ -4,6 +4,7 @@ import {
   previewMovieRenames,
   applyMovieRenames,
   previewEpisodeRenames,
+  previewEpisodeFileRenames,
   applyEpisodeRenames,
   revertRenameLog,
   deleteToTrash,
@@ -14,15 +15,17 @@ import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { createJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 
 export async function filesRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/files/rename-preview?type=movies|episodes&ids=id1,id2,...
+  // GET /api/files/rename-preview?type=movies|episodes|episode-files&ids=id1,id2,...
   app.get<{
-    Querystring: { type?: 'movies' | 'episodes'; ids?: string }
+    Querystring: { type?: 'movies' | 'episodes' | 'episode-files'; ids?: string }
   }>('/files/rename-preview', async (req, reply) => {
     const { type = 'movies', ids } = req.query
     const idList = ids ? ids.split(',').filter(Boolean) : undefined
 
     const items =
-      type === 'episodes'
+      type === 'episode-files'
+        ? await previewEpisodeFileRenames(idList ?? [])
+        : type === 'episodes'
         ? await previewEpisodeRenames(idList)
         : await previewMovieRenames(idList)
 

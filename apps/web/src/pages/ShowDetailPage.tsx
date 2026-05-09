@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow, renameAllShowEpisodes } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -37,6 +37,7 @@ export function ShowDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showMatchModal, setShowMatchModal] = useState(false)
   const [rematching, setRematching] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [moving, setMoving] = useState(false)
@@ -66,6 +67,24 @@ export function ShowDetailPage() {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     } finally {
       setRematching(false)
+    }
+  }
+
+  async function handleRenameAll() {
+    if (!id) return
+    setRenaming(true)
+    try {
+      const result = await renameAllShowEpisodes(id)
+      if (result.renamed === 0) {
+        toast({ type: 'success', message: 'All filenames are already canonical' })
+      } else {
+        toast({ type: 'success', message: `${result.renamed} episode file${result.renamed !== 1 ? 's' : ''} renamed` })
+        load()
+      }
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+    } finally {
+      setRenaming(false)
     }
   }
 
@@ -253,6 +272,14 @@ export function ShowDetailPage() {
                 ⚠ Match to TMDB
               </button>
             )}
+            <button
+              onClick={() => { void handleRenameAll() }}
+              disabled={renaming}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              title="Rename all episode files to canonical format"
+            >
+              {renaming ? 'Renaming…' : 'Rename all episodes'}
+            </button>
             <button
               onClick={() => { void handleDelete() }}
               disabled={deleting}

@@ -3,10 +3,13 @@ import fs from 'node:fs/promises'
 import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
-import { previewEpisodeRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
+import { previewEpisodeRenames, previewEpisodeFileRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, isScanRunning } from '../scanner/index.js'
 import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
+import { TmdbClient } from '../metadata/tmdb-client.js'
+import { syncSeasonTitles } from '../metadata/enricher.js'
+import { getApiConfig } from '../api-config.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false
@@ -334,7 +337,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     const { fromEpisode, shift } = req.body
     if (!shift || shift === 0) return reply.code(400).send({ error: 'shift must be non-zero' })
 
-    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true, tmdbId: true } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
     const season = await prisma.season.findFirst({ where: { showId: req.params.id, seasonNumber } })
@@ -375,8 +378,38 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
     await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
 
+    // Refresh episode titles from TMDB so they match the new numbering
+    if (show.tmdbId) {
+      try {
+        const cfg = await getApiConfig()
+        if (cfg.tmdbApiKey) {
+          const client = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
+          await syncSeasonTitles(client, req.params.id, show.tmdbId, seasonNumber)
+        }
+      } catch { /* non-fatal — titles will be correct after next rematch */ }
+    }
+
     return reply.send({ renamed, errors })
   })
+
+  // GET /api/shows/:id/seasons/:seasonNumber/rename-preview — canonical rename preview scoped to a season
+  app.get<{ Params: { id: string; seasonNumber: string } }>(
+    '/shows/:id/seasons/:seasonNumber/rename-preview',
+    async (req, reply) => {
+      const seasonNumber = parseInt(req.params.seasonNumber, 10)
+      if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
+
+      const season = await prisma.season.findFirst({
+        where: { showId: req.params.id, seasonNumber },
+        include: { episodes: { include: { files: { select: { id: true } } } } },
+      })
+      if (!season) return reply.code(404).send({ error: 'Season not found' })
+
+      const fileIds = season.episodes.flatMap((e) => e.files.map((f) => f.id))
+      const items = await previewEpisodeFileRenames(fileIds)
+      return reply.send(items)
+    },
+  )
 
   // GET /api/shows/:id/seasons/:seasonNumber — season detail with episodes + files
   app.get<{ Params: { id: string; seasonNumber: string } }>(

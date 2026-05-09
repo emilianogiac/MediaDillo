@@ -186,8 +186,10 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
   for (const episode of episodes) {
     const { season } = episode
     const { show } = season
+    const fileCount = episode.files.length
 
-    for (const file of episode.files) {
+    episode.files.forEach((file, fileIdx) => {
+      const partNumber = fileCount > 1 ? fileIdx + 1 : null
       const ext = path.extname(file.path)
       const currentSeasonDir = path.dirname(file.path)
       const currentShowDir = path.dirname(currentSeasonDir)
@@ -216,6 +218,7 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
         episode.title,
         ext,
         file.multiEpisodeEnd ?? null,
+        partNumber,
       )
       const proposedPath = path.join(currentShowDir, seasonFolder, fileName)
 
@@ -226,7 +229,68 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
         proposedPath,
         needsRename: file.path !== proposedPath,
       })
+    })
+  }
+
+  return items
+}
+
+export async function previewEpisodeFileRenames(episodeFileIds: string[]): Promise<RenamePreviewItem[]> {
+  if (episodeFileIds.length === 0) return []
+
+  const files = await prisma.episodeFile.findMany({
+    where: { id: { in: episodeFileIds } },
+    include: {
+      episode: {
+        include: {
+          files: { orderBy: { path: 'asc' } },
+          season: { include: { show: true } },
+        },
+      },
+    },
+    orderBy: { path: 'asc' },
+  })
+
+  const items: RenamePreviewItem[] = []
+  const emittedShowFolders = new Set<string>()
+
+  for (const file of files) {
+    const { episode } = file
+    const { season } = episode
+    const { show } = season
+
+    const ext = path.extname(file.path)
+    const currentSeasonDir = path.dirname(file.path)
+    const currentShowDir = path.dirname(currentSeasonDir)
+    const parentDir = path.dirname(currentShowDir)
+
+    if (!emittedShowFolders.has(show.id)) {
+      emittedShowFolders.add(show.id)
+      const canonicalShowDir = path.join(parentDir, canonicalMovieFolderName(show.title, show.year))
+      if (currentShowDir !== canonicalShowDir) {
+        items.push({ id: show.id, type: 'show-folder', currentPath: currentShowDir, proposedPath: canonicalShowDir, needsRename: true })
+      }
     }
+
+    // Part number: position of this file among all files for this episode
+    const allEpFiles = episode.files
+    const fileCount = allEpFiles.length
+    const fileIdx = allEpFiles.findIndex((f) => f.id === file.id)
+    const partNumber = fileCount > 1 ? fileIdx + 1 : null
+
+    const seasonFolder = canonicalSeasonFolderName(season.seasonNumber)
+    const fileName = canonicalEpisodeFileName(
+      show.title,
+      season.seasonNumber,
+      episode.episodeNumber,
+      episode.title,
+      ext,
+      file.multiEpisodeEnd ?? null,
+      partNumber,
+    )
+    const proposedPath = path.join(currentShowDir, seasonFolder, fileName)
+
+    items.push({ id: file.id, type: 'episode-file', currentPath: file.path, proposedPath, needsRename: file.path !== proposedPath })
   }
 
   return items
