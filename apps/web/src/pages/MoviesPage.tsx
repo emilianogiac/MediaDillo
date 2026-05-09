@@ -404,7 +404,6 @@ export function MoviesPage() {
     try {
       const { jobId, total } = await refreshMetadata(matchedIds, [])
       trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
-      setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
@@ -416,7 +415,6 @@ export function MoviesPage() {
     try {
       const { jobId, total } = await cleanupBatch(ids)
       trackJob({ label: `Cleaning ${total} folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
-      setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
     }
@@ -431,7 +429,6 @@ export function MoviesPage() {
         return
       }
       trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
-      setSelected(new Set())
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     }
@@ -449,7 +446,6 @@ export function MoviesPage() {
     try {
       await Promise.all(ids.map((id) => triggerMovieDownload(id, 'all')))
       toast({ type: 'success', message: `Downloading artwork for ${ids.length} movie${ids.length !== 1 ? 's' : ''}` })
-      setSelected(new Set())
       load()
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Artwork download failed' })
@@ -484,7 +480,6 @@ export function MoviesPage() {
       setBatchAction(null)
       setBatchQueue([])
       setBatchIdx(0)
-      setSelected(new Set())
       load()
     } else {
       setBatchIdx((i) => i + 1)
