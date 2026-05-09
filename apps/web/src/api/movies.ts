@@ -127,6 +127,10 @@ export async function cleanupMovieFolder(movieId: string, paths: string[]): Prom
   })
 }
 
+export async function deleteMovieFileSingle(fileId: string): Promise<{ deleted: number; path: string }> {
+  return apiFetch(`/movies/files/${fileId}/from-disk`, { method: 'DELETE' })
+}
+
 export async function updateFileEdition(fileId: string, edition: string | null): Promise<void> {
   await apiFetch(`/movies/files/${fileId}/edition`, {
     method: 'PATCH',

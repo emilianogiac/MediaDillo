@@ -24,7 +24,7 @@ export interface MovieSummary {
   fileCount: number
   status: string
   scanRoot: { id: string; label: string } | null
-  files: { videoQualityTier: string | null; videoCodec: string | null; audioQualityTier: string | null; audioChannels: string | null; audioCodec: string | null }[]
+  files: { path: string | null; edition: string | null; videoQualityTier: string | null; videoCodec: string | null; audioQualityTier: string | null; audioChannels: string | null; audioCodec: string | null }[]
 }
 
 export interface MovieFile {

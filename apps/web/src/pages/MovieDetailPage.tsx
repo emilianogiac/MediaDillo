@@ -4,7 +4,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
+import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, deleteMovieFileSingle, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
 import type { ScanRoot, MovieSummary } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -45,6 +45,7 @@ interface FileCardHandlers {
   setEditingGlobalEdition: (ed: string | null) => void
   setGlobalRenameInput: (v: string) => void
   globalRename: (from: string) => void
+  deleteFile?: (fileId: string) => void
 }
 
 interface SortableFileCardProps {
@@ -206,6 +207,16 @@ function SortableFileCard({
           {file.durationS ? ` · ${formatDuration(file.durationS)}` : ''}
         </span>
       </div>
+      {handlers.deleteFile && (
+        <div className="flex justify-end pt-1 border-t border-gray-700/50">
+          <button
+            onClick={() => handlers.deleteFile!(file.id)}
+            className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors"
+          >
+            Delete from disk
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -241,6 +252,7 @@ export function MovieDetailPage() {
   const [renamingGlobal, setRenamingGlobal] = useState(false)
   const [siblings, setSiblings] = useState<MovieSummary[]>([])
   const [deletingSiblingId, setDeletingSiblingId] = useState<string | null>(null)
+  const [deletingFileId, setDeletingFileId] = useState<string | null>(null)
   const [editField, setEditField] = useState<'title' | 'year' | 'tagline' | 'overview' | null>(null)
   const [editValue, setEditValue] = useState('')
   const [savingField, setSavingField] = useState(false)
@@ -437,13 +449,35 @@ export function MovieDetailPage() {
     setEditValue(current)
   }
 
+  async function handleDeleteFileSingle(fileId: string) {
+    const file = fileOrder.find((f) => f.id === fileId)
+    const name = file?.path.split('/').pop() ?? 'this file'
+    if (!window.confirm(`Delete "${name}" from disk? This cannot be undone.`)) return
+    setDeletingFileId(fileId)
+    try {
+      await deleteMovieFileSingle(fileId)
+      toast({ type: 'success', message: 'File deleted from disk' })
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+    } finally {
+      setDeletingFileId(null)
+    }
+  }
+
   async function handleDeleteSibling(siblingId: string) {
-    if (!window.confirm('Delete this duplicate record? Files on disk are not affected.')) return
+    const sibling = siblings.find((s) => s.id === siblingId)
+    const label = sibling?.scanRoot?.label ?? 'this copy'
+    if (!window.confirm(`Delete "${label}" and its files from disk? This cannot be undone.`)) return
     setDeletingSiblingId(siblingId)
     try {
-      await deleteMovie(siblingId)
+      if ((sibling?.fileCount ?? 0) > 0) {
+        await deleteMovieWithFiles(siblingId)
+      } else {
+        await deleteMovie(siblingId)
+      }
       setSiblings((prev) => prev.filter((s) => s.id !== siblingId))
-      toast({ type: 'success', message: 'Duplicate record removed' })
+      toast({ type: 'success', message: 'Duplicate copy deleted' })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
     } finally {
@@ -697,47 +731,25 @@ export function MovieDetailPage() {
                 ⚠ Match to TMDB
               </button>
             )}
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+              title="Remove this record from the database (files on disk are not affected)"
+            >
+              {deleting ? 'Removing…' : 'Remove record'}
+            </button>
+            {movie.files.length <= 1 && movie.files.length > 0 && (
+              <button
+                onClick={openDeleteWithFilesModal}
+                className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors"
+              >
+                Delete from disk
+              </button>
+            )}
           </div>
         </div>
       </div>
-
-      {/* Duplicate copies */}
-      {siblings.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="text-lg font-semibold text-orange-400">
-            Duplicate Copies
-            <span className="text-sm font-normal text-gray-500 ml-2">({siblings.length + 1} records share this TMDB ID)</span>
-          </h2>
-          <div className="bg-surface-raised border border-orange-700/30 rounded-lg divide-y divide-gray-700/60">
-            {siblings.map((s) => {
-              const file = s.files[0]
-              return (
-                <div key={s.id} className="flex items-center justify-between gap-4 px-4 py-3">
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <p className="text-sm text-gray-200">{s.scanRoot?.label ?? 'Unknown collection'}</p>
-                    {file && (
-                      <p className="text-xs text-gray-500 font-mono truncate">
-                        {file.videoQualityTier && <span className="text-teal-400 mr-1">{file.videoQualityTier}</span>}
-                        {file.videoCodec && <span className="mr-1">{file.videoCodec}</span>}
-                        {file.audioCodec && <span className="mr-1">{file.audioCodec}</span>}
-                      </p>
-                    )}
-                    {s.files.length === 0 && <p className="text-xs text-red-400">No files (stale record)</p>}
-                  </div>
-                  <button
-                    onClick={() => { void handleDeleteSibling(s.id) }}
-                    disabled={deletingSiblingId === s.id}
-                    className="shrink-0 text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
-                  >
-                    {deletingSiblingId === s.id ? 'Removing…' : 'Remove record'}
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-          <p className="text-xs text-gray-600">Removing a record does not delete files from disk.</p>
-        </section>
-      )}
 
       {/* Cast */}
       {cast.length > 0 && (
@@ -769,28 +781,13 @@ export function MovieDetailPage() {
             >
               {rescanning ? 'Rescanning…' : 'Rescan folder'}
             </button>
-            {movie.files.length > 0 && (
-              <button
-                onClick={openDeleteWithFilesModal}
-                className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors"
-              >
-                Delete from disk
-              </button>
-            )}
           </div>
         </div>
 
         {movie.files.length === 0 ? (
           <div className="space-y-3">
             <p className="text-sm text-red-400 font-medium">⚠ No video file attached to this record.</p>
-            <p className="text-sm text-gray-500">This is a stale record — the file was likely deleted or moved without re-scanning. You can safely remove it.</p>
-            <button
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-sm px-3 py-1.5 rounded border border-red-700/60 text-red-400 hover:bg-red-700/20 transition-colors disabled:opacity-40"
-            >
-              {deleting ? 'Deleting…' : 'Delete this record'}
-            </button>
+            <p className="text-sm text-gray-500">This is a stale record — the file was likely deleted or moved without re-scanning. Use the Remove record button above to clean it up.</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -818,6 +815,7 @@ export function MovieDetailPage() {
                         setEditingGlobalEdition,
                         setGlobalRenameInput,
                         globalRename: (from) => { void handleGlobalRename(from) },
+                        ...(movie.files.length > 1 ? { deleteFile: (fileId: string) => { void handleDeleteFileSingle(fileId) } } : {}),
                       }}
                     />
                   ))}
@@ -845,6 +843,65 @@ export function MovieDetailPage() {
       {/* Folder cleanup */}
       {movie.files.length > 0 && (
         <MovieFolderCleanupPanel movieId={movie.id} autoScanTrigger={cleanupTrigger} />
+      )}
+
+      {/* Duplicate copies */}
+      {siblings.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold text-orange-400">
+            Duplicate Copies
+            <span className="text-sm font-normal text-gray-500 ml-2">({siblings.length + 1} records share this TMDB ID)</span>
+          </h2>
+          <div className="bg-surface-raised border border-orange-700/30 rounded-lg divide-y divide-gray-700/60">
+            {siblings.map((s) => {
+              const file = s.files[0]
+              const folder = file?.path ? file.path.split('/').slice(0, -1).join('/') : null
+              const filename = file?.path ? file.path.split('/').pop() : null
+              return (
+                <div key={s.id} className="flex items-start justify-between gap-4 px-4 py-3">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-gray-200">{s.scanRoot?.label ?? 'Unknown collection'}</span>
+                      {file?.edition && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-teal-900/40 border border-teal-700/40 text-teal-300">{file.edition}</span>
+                      )}
+                    </div>
+                    {folder && (
+                      <p className="text-xs text-gray-500 font-mono truncate" title={folder}>{folder}</p>
+                    )}
+                    {filename && (
+                      <p className="text-xs text-gray-400 font-mono truncate">{filename}</p>
+                    )}
+                    {file && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {file.videoQualityTier && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-teal-400 border border-gray-700">{file.videoQualityTier}</span>}
+                        {file.videoCodec && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">{file.videoCodec}</span>}
+                        {file.audioCodec && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">{file.audioCodec}</span>}
+                      </div>
+                    )}
+                    {s.files.length === 0 && <p className="text-xs text-red-400">No files (stale record)</p>}
+                  </div>
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <button
+                      onClick={() => navigate(`/movies/${s.id}`)}
+                      className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+                    >
+                      Browse →
+                    </button>
+                    <button
+                      onClick={() => { void handleDeleteSibling(s.id) }}
+                      disabled={deletingSiblingId === s.id}
+                      className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+                    >
+                      {deletingSiblingId === s.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <p className="text-xs text-gray-600">Delete removes files from disk and the DB record. Browse opens that copy's detail page.</p>
+        </section>
       )}
 
       {/* Artwork Manager */}

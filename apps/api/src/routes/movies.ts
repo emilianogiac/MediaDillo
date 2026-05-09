@@ -123,7 +123,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       isOrganized: isOrganized({ scanRoot, files, ...rest }),
       fileCount: files.length,
       scanRoot: scanRoot ? { id: scanRoot.id, label: scanRoot.label } : null,
-      files: files.slice(0, 1).map((f) => ({ videoQualityTier: f.videoQualityTier, videoCodec: f.videoCodec, audioQualityTier: f.audioQualityTier, audioChannels: f.audioChannels, audioCodec: f.audioCodec })),
+      files: files.slice(0, 1).map((f) => ({ path: f.path, edition: f.edition, videoQualityTier: f.videoQualityTier, videoCodec: f.videoCodec, audioQualityTier: f.audioQualityTier, audioChannels: f.audioChannels, audioCodec: f.audioCodec })),
     }))
 
     return reply.send(tagged)
@@ -363,4 +363,14 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       return reply.send({ deleted })
     },
   )
+
+  // DELETE /api/movies/files/:fileId/from-disk — delete one file from disk and remove its MovieFile record
+  app.delete<{ Params: { fileId: string } }>('/movies/files/:fileId/from-disk', async (req, reply) => {
+    const file = await prisma.movieFile.findUnique({ where: { id: req.params.fileId } })
+    if (!file) return reply.code(404).send({ error: 'File not found' })
+    try { await fs.unlink(file.path) } catch { /* skip if already gone */ }
+    await prisma.movieFile.delete({ where: { id: req.params.fileId } })
+    triggerLibraryRefresh(app.log).catch(() => {})
+    return reply.send({ deleted: 1, path: file.path })
+  })
 }
