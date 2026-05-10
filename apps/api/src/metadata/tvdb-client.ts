@@ -14,6 +14,25 @@ export interface TvdbSeasonType {
   name: string   // 'Aired Order' | 'DVD Order' | 'Absolute Order' | ...
 }
 
+export interface TvdbSearchResult {
+  tvdbId: number
+  name: string
+  overview: string | null
+  firstAired: string | null
+  imageUrl: string | null
+  year: string | null
+  network: string | null
+}
+
+export interface TvdbSeriesDetail {
+  id: number
+  name: string
+  overview: string | null
+  firstAired: string | null
+  image: string | null
+  status: string | null
+}
+
 export class TvdbClient {
   private tokenCache: { token: string; expiresAt: number } | null = null
 
@@ -53,6 +72,52 @@ export class TvdbClient {
     }
 
     return res.json() as Promise<T>
+  }
+
+  async searchSeries(query: string): Promise<TvdbSearchResult[]> {
+    const data = await this.get<{
+      data: Array<{
+        tvdb_id: string
+        name: string
+        overview?: string
+        first_air_time?: string
+        image_url?: string
+        year?: string
+        primary_network?: { name: string }
+      }>
+    }>(`/search?query=${encodeURIComponent(query)}&type=series`)
+
+    return (data.data ?? []).map((r) => ({
+      tvdbId: parseInt(r.tvdb_id, 10),
+      name: r.name,
+      overview: r.overview ?? null,
+      firstAired: r.first_air_time ?? null,
+      imageUrl: r.image_url ?? null,
+      year: r.year ?? null,
+      network: r.primary_network?.name ?? null,
+    })).filter((r) => !isNaN(r.tvdbId))
+  }
+
+  async getSeries(tvdbId: number): Promise<TvdbSeriesDetail> {
+    const data = await this.get<{
+      data: {
+        id: number
+        name: string
+        overview?: string
+        firstAired?: string
+        image?: string
+        status?: { name: string }
+      }
+    }>(`/series/${tvdbId}`)
+
+    return {
+      id: data.data.id,
+      name: data.data.name,
+      overview: data.data.overview ?? null,
+      firstAired: data.data.firstAired ?? null,
+      image: data.data.image ?? null,
+      status: data.data.status?.name ?? null,
+    }
   }
 
   async getSeriesTypes(tvdbId: number): Promise<TvdbSeasonType[]> {

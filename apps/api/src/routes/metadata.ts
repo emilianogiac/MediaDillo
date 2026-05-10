@@ -3,7 +3,7 @@ import { prisma } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { TvdbClient } from '../metadata/tvdb-client.js'
 import { searchMovieCandidates, searchTvCandidates, type MovieCandidate } from '../metadata/matcher.js'
-import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
+import { enrichMovie, enrichTvShow, enrichShowFromTvdb } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
 import { getApiConfig } from '../api-config.js'
 import { writeMovieNfo } from '../nfo/writer.js'
@@ -124,6 +124,50 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ show: { id: show.id, title: show.title, year: show.year }, candidates })
   })
 
+  // GET /api/metadata/shows/:id/tvdb-candidates?q=...
+  app.get<{ Params: { id: string }; Querystring: { q?: string } }>(
+    '/metadata/shows/:id/tvdb-candidates',
+    async (req, reply) => {
+      const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
+      if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+      const tvdbClient = await getTvdbClientOrNull()
+      if (!tvdbClient) return reply.code(422).send({ error: 'TVDB API key is not configured' })
+
+      const query = req.query.q ?? show.title
+      const candidates = await tvdbClient.searchSeries(query)
+      return reply.send({ candidates })
+    },
+  )
+
+  // POST /api/metadata/shows/:id/match-tvdb
+  app.post<{ Params: { id: string }; Body: { tvdbId: number } }>(
+    '/metadata/shows/:id/match-tvdb',
+    async (req, reply) => {
+      const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
+      if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+      const { tvdbId } = req.body
+      if (!tvdbId || typeof tvdbId !== 'number') {
+        return reply.code(400).send({ error: 'tvdbId is required' })
+      }
+
+      const tvdbClient = await getTvdbClientOrNull()
+      if (!tvdbClient) return reply.code(422).send({ error: 'TVDB API key is not configured' })
+
+      await prisma.tvShow.update({ where: { id: show.id }, data: { tvdbId, tmdbId: null } })
+
+      try {
+        await enrichShowFromTvdb(tvdbClient, show.id, tvdbId)
+      } catch (err) {
+        app.log.error(err, `enrichShowFromTvdb failed for show ${show.id} (tvdbId ${tvdbId}); match persisted`)
+      }
+
+      const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })
+      return reply.send(updated)
+    },
+  )
+
   // POST /api/metadata/movies/:id/match — manual or auto-match to a TMDB ID
   app.post<{ Params: { id: string }; Body: { tmdbId: number } }>(
     '/metadata/movies/:id/match',
@@ -218,10 +262,25 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Params: { id: string } }>('/metadata/shows/:id/enrich', async (req, reply) => {
     const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
-    if (!show.tmdbId) return reply.code(422).send({ error: 'Show is not matched to TMDB' })
+
+    const tvdbClient = await getTvdbClientOrNull()
+
+    // TVDB-only shows (no tmdbId, has tvdbId) refresh entirely from TVDB
+    if (!show.tmdbId && show.tvdbId) {
+      if (!tvdbClient) return reply.code(422).send({ error: 'TVDB API key is not configured' })
+      try {
+        await enrichShowFromTvdb(tvdbClient, show.id, show.tvdbId)
+      } catch (err) {
+        app.log.error(err, `enrichShowFromTvdb failed for show ${show.id}`)
+        return reply.code(500).send({ error: 'Enrichment failed' })
+      }
+      const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })
+      return reply.send(updated)
+    }
+
+    if (!show.tmdbId) return reply.code(422).send({ error: 'Show is not matched to TMDB or TVDB' })
 
     const client = await getTmdbClient()
-    const tvdbClient = await getTvdbClientOrNull()
 
     try {
       await enrichTvShow(client, show.id, show.tmdbId, tvdbClient)

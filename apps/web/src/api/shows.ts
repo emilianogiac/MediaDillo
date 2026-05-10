@@ -70,6 +70,28 @@ export async function matchShow(id: string, tmdbId: number): Promise<void> {
   })
 }
 
+export interface TvdbCandidate {
+  tvdbId: number
+  name: string
+  overview: string | null
+  firstAired: string | null
+  imageUrl: string | null
+  year: string | null
+  network: string | null
+}
+
+export async function fetchTvdbCandidates(id: string, query?: string): Promise<{ candidates: TvdbCandidate[] }> {
+  const params = query ? `?q=${encodeURIComponent(query)}` : ''
+  return apiFetch(`/metadata/shows/${id}/tvdb-candidates${params}`)
+}
+
+export async function matchShowFromTvdb(id: string, tvdbId: number): Promise<void> {
+  await apiFetch(`/metadata/shows/${id}/match-tvdb`, {
+    method: 'POST',
+    body: JSON.stringify({ tvdbId }),
+  })
+}
+
 export interface OrganizeRenameItem {
   id: string
   type: 'episode-file' | 'show-folder'

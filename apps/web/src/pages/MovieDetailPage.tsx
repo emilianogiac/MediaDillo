@@ -332,6 +332,8 @@ export function MovieDetailPage() {
   const [savingField, setSavingField] = useState(false)
   const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
   const [openingJellyfin, setOpeningJellyfin] = useState(false)
+  const [movieRenameCount, setMovieRenameCount] = useState<number | null>(null)
+  const [movieCleanupCount, setMovieCleanupCount] = useState<number | null>(null)
 
   function handleDelete() {
     if (!id) return
@@ -735,6 +737,9 @@ export function MovieDetailPage() {
               <div className="flex items-center gap-2 group/title">
                 <h1 className="text-3xl font-bold">{movie.title}</h1>
                 <button onClick={() => startEdit('title', movie.title)} className="text-gray-600 opacity-0 group-hover/title:opacity-100 hover:text-gray-300 transition-all text-sm" title="Edit title">✎</button>
+                {movieRenameCount === 0 && movieCleanupCount === 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 border border-green-700/40 text-green-400">✓ Organized</span>
+                )}
               </div>
             )}
             {editField === 'tagline' ? (
@@ -1051,12 +1056,12 @@ export function MovieDetailPage() {
 
       {/* Rename & Organize */}
       {movie.files.length > 0 && (
-        <MovieFilesPanel movieId={movie.id} onDone={() => { load(); setCleanupTrigger((n) => n + 1) }} />
+        <MovieFilesPanel movieId={movie.id} onDone={() => { load(); setCleanupTrigger((n) => n + 1) }} onHasItems={setMovieRenameCount} />
       )}
 
       {/* Folder cleanup */}
       {movie.files.length > 0 && (
-        <MovieFolderCleanupPanel movieId={movie.id} autoScanTrigger={cleanupTrigger} />
+        <MovieFolderCleanupPanel movieId={movie.id} autoScanTrigger={cleanupTrigger} onHasItems={setMovieCleanupCount} />
       )}
 
       {/* Duplicate copies */}

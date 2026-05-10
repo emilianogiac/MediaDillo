@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, type RescanResult } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, fetchOrganizePreview, fetchTvdbCandidates, matchShowFromTvdb, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -60,6 +60,8 @@ export function ShowDetailPage() {
   const [tvdbIdInput, setTvdbIdInput] = useState('')
   const [savingTvdbId, setSavingTvdbId] = useState(false)
   const [tvdbOrders, setTvdbOrders] = useState<{ type: string; name: string }[]>([])
+  const [organizeDots, setOrganizeDots] = useState<{ renames: boolean; removals: boolean } | null>(null)
+  const [organizeTrigger, setOrganizeTrigger] = useState(0)
 
   const load = useCallback(() => {
     if (!id) return
@@ -76,6 +78,17 @@ export function ShowDetailPage() {
     if (!id || !show?.tvdbId) { setTvdbOrders([]); return }
     fetchTvdbOrders(id).then(setTvdbOrders).catch(() => setTvdbOrders([]))
   }, [id, show?.tvdbId])
+
+  async function loadOrganizeDots() {
+    if (!id) return
+    try {
+      const preview = await fetchOrganizePreview(id)
+      const episodeRenames = preview.renames.filter((r) => r.type === 'episode-file')
+      setOrganizeDots({ renames: episodeRenames.length > 0, removals: preview.removals.length > 0 })
+    } catch { /* silent — dots just won't show */ }
+  }
+
+  useEffect(() => { void loadOrganizeDots() }, [id])  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRematch() {
     if (!id || !show?.tmdbId) return
@@ -127,6 +140,8 @@ export function ShowDetailPage() {
           ...(result.errors.length > 0 ? { errors: result.errors } : {}),
         })
         load()
+        setOrganizeTrigger((n) => n + 1)
+        void loadOrganizeDots()
       }
     } catch (e) {
       setRenameStatus({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
@@ -179,6 +194,8 @@ export function ShowDetailPage() {
           message: `${result.trashed} stale file${result.trashed !== 1 ? 's' : ''} removed${result.errors.length > 0 ? ` — ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : ''}`,
           ...(result.errors.length > 0 ? { errors: result.errors } : {}),
         })
+        setOrganizeTrigger((n) => n + 1)
+        void loadOrganizeDots()
       }
     } catch (e) {
       setCleanupStatus({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
@@ -244,7 +261,15 @@ export function ShowDetailPage() {
         </div>
 
         <div className="flex-1 space-y-3">
-          <h1 className="text-3xl font-bold">{show.title}</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-3xl font-bold">{show.title}</h1>
+            {!show.tmdbId && show.tvdbId && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 border border-blue-700/40 text-blue-300 self-center">TVDB only</span>
+            )}
+            {organizeDots !== null && !organizeDots.renames && !organizeDots.removals && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 border border-green-700/40 text-green-400 self-center">✓ Organized</span>
+            )}
+          </div>
 
           <div className="flex flex-wrap gap-3 text-sm text-gray-400">
             {show.year && <span>{show.year}</span>}
@@ -387,13 +412,13 @@ export function ShowDetailPage() {
                 </a>
               )}
             </div>
-            {show.tmdbId ? (
+            {(show.tmdbId || show.tvdbId) ? (
               <>
                 <button
                   onClick={() => { void handleRematch() }}
                   disabled={rematching}
                   className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
-                  title="Refresh metadata (episodes from TVDB if configured, artwork from TMDB)"
+                  title={show.tmdbId ? 'Refresh metadata from TMDB/TVDB' : 'Refresh metadata from TVDB'}
                 >
                   {rematching && <Spinner />}
                   {rematching ? 'Refreshing…' : 'Re-match'}
@@ -401,7 +426,7 @@ export function ShowDetailPage() {
                 <button
                   onClick={() => setShowMatchModal(true)}
                   className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
-                  title="Assign a different TMDB entry"
+                  title="Assign a different TMDB or TVDB entry"
                 >
                   Match
                 </button>
@@ -411,7 +436,7 @@ export function ShowDetailPage() {
                 onClick={() => setShowMatchModal(true)}
                 className="text-xs px-2.5 py-1 rounded border border-yellow-700/60 hover:border-accent/60 text-yellow-400 hover:text-accent transition-colors"
               >
-                ⚠ Match to TMDB
+                ⚠ Match show
               </button>
             )}
             <button
@@ -421,6 +446,7 @@ export function ShowDetailPage() {
               title="Rename all episode files to canonical format"
             >
               {renaming && <Spinner />}
+              {!renaming && organizeDots?.renames && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
               {renaming ? 'Renaming…' : 'Rename all episodes'}
             </button>
             <button
@@ -430,6 +456,7 @@ export function ShowDetailPage() {
               title="Auto-trash stale and orphaned files from the show folder"
             >
               {cleaning && <Spinner />}
+              {!cleaning && organizeDots?.removals && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
               {cleaning ? 'Cleaning…' : 'Cleanup Show'}
             </button>
             <button
@@ -589,7 +616,7 @@ export function ShowDetailPage() {
       )}
 
       {/* Organize */}
-      <OrganizePanel showId={show.id} onDone={load} />
+      <OrganizePanel showId={show.id} onDone={() => { load(); void loadOrganizeDots() }} refreshTrigger={organizeTrigger} />
 
       {/* Artwork */}
       <ArtworkManager
@@ -623,6 +650,8 @@ export function ShowDetailPage() {
           onMatch={matchShow}
           onClose={() => setShowMatchModal(false)}
           onMatched={() => { setShowMatchModal(false); load() }}
+          fetchTvdbCandidates={fetchTvdbCandidates}
+          onMatchTvdb={matchShowFromTvdb}
         />
       )}
     </div>

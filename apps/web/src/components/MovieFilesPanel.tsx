@@ -4,9 +4,10 @@ import { fetchRenamePreview, applyRenames, fetchRenameLog, revertRename, type Re
 interface Props {
   movieId: string
   onDone: () => void
+  onHasItems?: (count: number) => void
 }
 
-export function MovieFilesPanel({ movieId, onDone }: Props) {
+export function MovieFilesPanel({ movieId, onDone, onHasItems }: Props) {
   const [loading, setLoading] = useState(true)
   const [applying, setApplying] = useState(false)
   const [items, setItems] = useState<RenamePreviewItem[]>([])
@@ -28,6 +29,7 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
       const needsRename = preview.filter((i) => i.needsRename)
       setItems(needsRename)
       setSelected(new Set(needsRename.map((i) => i.id)))
+      onHasItems?.(needsRename.length)
       setLog(renameLog)
     } finally {
       setLoading(false)
@@ -88,7 +90,12 @@ export function MovieFilesPanel({ movieId, onDone }: Props) {
 
   return (
     <section className="space-y-3">
-      <h2 className="text-lg font-semibold">Rename &amp; Organize</h2>
+      <h2 className="text-lg font-semibold flex items-center gap-2">
+        Rename &amp; Organize
+        {!loading && items.length > 0 && (
+          <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="Files need renaming" />
+        )}
+      </h2>
 
       <div className="bg-surface-raised border border-gray-700 rounded-lg p-4 space-y-3">
         {loading && <p className="text-sm text-gray-500">Loading…</p>}

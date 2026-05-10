@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import type { OrganizePreview, OrganizeRenameItem, OrganizeRemoval } from '../api/shows.js'
 import { fetchOrganizePreview, applyOrganize } from '../api/shows.js'
 import { useToast } from '../context/ToastContext.js'
@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext.js'
 interface Props {
   showId: string
   onDone?: () => void
+  refreshTrigger?: number
 }
 
 function basename(p: string) {
@@ -16,7 +17,7 @@ function shortPath(full: string, base: string) {
   return full.startsWith(base) ? full.slice(base.length + 1) : full
 }
 
-export function OrganizePanel({ showId, onDone }: Props) {
+export function OrganizePanel({ showId, onDone, refreshTrigger }: Props) {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -43,6 +44,15 @@ export function OrganizePanel({ showId, onDone }: Props) {
       setLoading(false)
     }
   }, [showId])
+
+  const prevTrigger = useRef(refreshTrigger)
+  useEffect(() => {
+    if (refreshTrigger === undefined) return
+    if (refreshTrigger === prevTrigger.current) return
+    prevTrigger.current = refreshTrigger
+    setPreview(null)
+    void load()
+  }, [refreshTrigger, load])
 
   function toggleOpen() {
     const next = !open

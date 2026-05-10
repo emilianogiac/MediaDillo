@@ -236,15 +236,16 @@ async function syncSeasonFromTvdb(
 }
 
 // ---------------------------------------------------------------------------
-// TVDB absolute ordering — all episodes flat, grouped by TVDB seasonNumber
+// TVDB episode sync — all episodes flat, grouped by seasonNumber
 // ---------------------------------------------------------------------------
 
-async function syncAllSeasonsAbsolute(
+async function syncAllSeasonsFromTvdb(
   tvdbClient: TvdbClient,
   showId: string,
   tvdbId: number,
+  orderType: string,
 ): Promise<void> {
-  const episodes = await tvdbClient.getEpisodes(tvdbId, 'absolute')
+  const episodes = await tvdbClient.getEpisodes(tvdbId, orderType)
 
   // Group by seasonNumber as reported by TVDB
   const bySeasonNumber = new Map<number, TvdbEpisode[]>()
@@ -308,6 +309,44 @@ async function syncAllSeasonsAbsolute(
     where: { id: showId },
     data: { ownedEpisodes: ownedCount, totalEpisodes: totalCount },
   })
+}
+
+async function syncAllSeasonsAbsolute(tvdbClient: TvdbClient, showId: string, tvdbId: number): Promise<void> {
+  return syncAllSeasonsFromTvdb(tvdbClient, showId, tvdbId, 'absolute')
+}
+
+// ---------------------------------------------------------------------------
+// TVDB-only show enrichment (no TMDB)
+// ---------------------------------------------------------------------------
+
+export async function enrichShowFromTvdb(
+  tvdbClient: TvdbClient,
+  showId: string,
+  tvdbId: number,
+): Promise<void> {
+  const series = await tvdbClient.getSeries(tvdbId)
+  const statusName = series.status?.toLowerCase() ?? ''
+  const status = statusName.includes('end') || statusName.includes('cancel') ? 'ended' : 'continuing'
+
+  await prisma.tvShow.update({
+    where: { id: showId },
+    data: {
+      tvdbId,
+      tmdbId: null,
+      title: series.name,
+      year: series.firstAired ? parseInt(series.firstAired.slice(0, 4), 10) : null,
+      overview: series.overview,
+      status,
+      posterUrl: series.image,
+      genres: [],
+      rating: null,
+      backdropUrl: null,
+    },
+  })
+
+  const dbShow = await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbOrder: true } })
+  const orderType = dbShow?.tvdbOrder ?? 'official'
+  await syncAllSeasonsFromTvdb(tvdbClient, showId, tvdbId, orderType)
 }
 
 // ---------------------------------------------------------------------------

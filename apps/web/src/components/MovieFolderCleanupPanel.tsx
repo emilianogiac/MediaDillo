@@ -24,9 +24,10 @@ const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo', 'subtitle
 interface Props {
   movieId: string
   autoScanTrigger?: number
+  onHasItems?: (count: number) => void
 }
 
-export function MovieFolderCleanupPanel({ movieId, autoScanTrigger }: Props) {
+export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems }: Props) {
   const [scanning, setScanning] = useState(false)
   const [files, setFiles] = useState<FolderFile[] | null>(null)
   const [folderPath, setFolderPath] = useState('')
@@ -56,7 +57,9 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger }: Props) {
       const data = await fetchMovieFolderScan(movieId)
       setFolderPath(data.folderPath)
       setFiles(data.files)
-      setSelected(new Set(data.files.filter((f) => SAFE_TO_DELETE.has(f.category)).map((f) => f.path)))
+      const preSelected = data.files.filter((f) => SAFE_TO_DELETE.has(f.category))
+      setSelected(new Set(preSelected.map((f) => f.path)))
+      onHasItems?.(preSelected.length)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to scan folder')
     } finally {
@@ -74,7 +77,9 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger }: Props) {
       const data = await fetchMovieFolderScan(movieId)
       setFolderPath(data.folderPath)
       setFiles(data.files)
-      setSelected(new Set(data.files.filter((f) => SAFE_TO_DELETE.has(f.category)).map((f) => f.path)))
+      const preSelected = data.files.filter((f) => SAFE_TO_DELETE.has(f.category))
+      setSelected(new Set(preSelected.map((f) => f.path)))
+      onHasItems?.(preSelected.length)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to delete files')
     } finally {
@@ -95,7 +100,12 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger }: Props) {
   return (
     <section className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Folder cleanup</h2>
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          Folder cleanup
+          {!scanning && files !== null && selected.size > 0 && (
+            <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" title="Files queued for cleanup" />
+          )}
+        </h2>
         {files !== null && (
           <p className="text-xs text-gray-600 font-mono break-all">{folderPath}</p>
         )}
