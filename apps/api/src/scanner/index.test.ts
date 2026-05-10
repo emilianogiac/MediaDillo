@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 // Mock all collaborators before importing the module under test
-vi.mock('./walker.js', () => ({ walkRoot: vi.fn() }))
+vi.mock('./walker.js', () => ({ walkRoot: vi.fn(), walkMovieFolders: vi.fn() }))
 vi.mock('./filename-parser.js', () => ({ parseFilename: vi.fn() }))
 vi.mock('./ffprobe.js', () => ({ extractTechSpecs: vi.fn() }))
 vi.mock('./stale-detector.js', () => ({ detectStaleFiles: vi.fn() }))
 vi.mock('./db-sync.js', () => ({
   syncMovieFile: vi.fn(),
   syncEpisodeFile: vi.fn(),
+  syncMovieFolder: vi.fn(),
+  pruneOrphanedFiles: vi.fn(),
   writeScanLog: vi.fn(),
 }))
 vi.mock('@mediadillo/db', () => ({
@@ -17,18 +19,21 @@ vi.mock('@mediadillo/db', () => ({
 }))
 
 import { runScan } from './index.js'
-import { walkRoot } from './walker.js'
+import { walkRoot, walkMovieFolders } from './walker.js'
 import { parseFilename } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 import { detectStaleFiles } from './stale-detector.js'
-import { syncMovieFile, syncEpisodeFile, writeScanLog } from './db-sync.js'
+import { syncMovieFile, syncEpisodeFile, syncMovieFolder, pruneOrphanedFiles, writeScanLog } from './db-sync.js'
 import { prisma } from '@mediadillo/db'
 
 const mockWalkRoot = vi.mocked(walkRoot)
+const mockWalkMovieFolders = vi.mocked(walkMovieFolders)
 const mockParseFilename = vi.mocked(parseFilename)
 const mockExtractTechSpecs = vi.mocked(extractTechSpecs)
 const mockDetectStaleFiles = vi.mocked(detectStaleFiles)
 const mockSyncMovieFile = vi.mocked(syncMovieFile)
+const mockSyncMovieFolder = vi.mocked(syncMovieFolder)
+const mockPruneOrphanedFiles = vi.mocked(pruneOrphanedFiles)
 const mockSyncEpisodeFile = vi.mocked(syncEpisodeFile)
 const mockWriteScanLog = vi.mocked(writeScanLog)
 const mockScanRoot = prisma.scanRoot as unknown as {
@@ -69,22 +74,27 @@ beforeEach(() => {
   mockDetectStaleFiles.mockResolvedValue([])
   mockWriteScanLog.mockResolvedValue('log-1')
   mockSyncMovieFile.mockResolvedValue('added')
+  mockSyncMovieFolder.mockResolvedValue({ added: 0, changed: 0, removed: 0 })
+  mockPruneOrphanedFiles.mockResolvedValue(0)
   mockSyncEpisodeFile.mockResolvedValue('added')
+  mockWalkMovieFolders.mockReturnValue(asyncOf())
 })
 
 describe('runScan — scan root type routing', () => {
-  it('routes a parser-classified movie to syncMovieFile when scan root is movies', async () => {
-    const filePath = '/mnt/nas/The Godfather (1972)/The Godfather (1972).mkv'
-    mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
-    mockParseFilename.mockReturnValue({ type: 'movie', title: 'The Godfather', year: 1972, edition: null })
+  it('calls syncMovieFolder (not syncEpisodeFile) for a movies root', async () => {
+    const folderPath = '/mnt/nas/The Godfather (1972)'
+    const file = makeWalkedFile('/mnt/nas/The Godfather (1972)/The Godfather (1972).mkv')
+    mockWalkMovieFolders.mockReturnValue(asyncOf({ folderPath, files: [file] }))
+    mockSyncMovieFolder.mockResolvedValue({ added: 1, changed: 0, removed: 0 })
 
-    await runScan([{ path: '/mnt/nas', label: 'Movies', type: 'movies' }])
+    const summary = await runScan([{ path: '/mnt/nas', label: 'Movies', type: 'movies' }])
 
-    expect(mockSyncMovieFile).toHaveBeenCalledOnce()
+    expect(mockSyncMovieFolder).toHaveBeenCalledOnce()
     expect(mockSyncEpisodeFile).not.toHaveBeenCalled()
+    expect(summary.filesAdded).toBe(1)
   })
 
-  it('routes a parser-classified TV episode to syncEpisodeFile when scan root is tv', async () => {
+  it('routes a TV episode to syncEpisodeFile when scan root is tv', async () => {
     const filePath = '/mnt/nas/tv/Breaking Bad/Season 01/Breaking Bad - S01E01.mkv'
     mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
     mockParseFilename.mockReturnValue({
@@ -102,33 +112,13 @@ describe('runScan — scan root type routing', () => {
     expect(mockSyncMovieFile).not.toHaveBeenCalled()
   })
 
-  it('skips (does NOT call syncMovieFile) a file in a TV root that the parser misclassifies as a movie', async () => {
-    // File has no S/E pattern → parser calls it a movie, but the root is tv
+  it('skips a file in a TV root that the parser cannot classify as TV', async () => {
+    // File has no S/E pattern → parser returns movie type, TV root skips it
     const filePath = '/mnt/nas/tv/Breaking Bad/Season 01/Breaking Bad - Pilot.mkv'
     mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
     mockParseFilename.mockReturnValue({ type: 'movie', title: 'Breaking Bad - Pilot', year: null, edition: null })
 
     await runScan([{ path: '/mnt/nas/tv', label: 'TV', type: 'tv' }])
-
-    // Must not land in the Movie table
-    expect(mockSyncMovieFile).not.toHaveBeenCalled()
-    expect(mockSyncEpisodeFile).not.toHaveBeenCalled()
-  })
-
-  it('skips a parser-classified TV file that ends up in a movies root', async () => {
-    // Shouldn't happen in practice, but guard against it symmetrically
-    const filePath = '/mnt/nas/movies/Show.S01E01.mkv'
-    mockWalkRoot.mockReturnValue(asyncOf(makeWalkedFile(filePath)))
-    mockParseFilename.mockReturnValue({
-      type: 'tv',
-      show: 'Show',
-      year: null,
-      season: 1,
-      episodes: [1],
-      episodeTitle: null,
-    })
-
-    await runScan([{ path: '/mnt/nas/movies', label: 'Movies', type: 'movies' }])
 
     expect(mockSyncMovieFile).not.toHaveBeenCalled()
     expect(mockSyncEpisodeFile).not.toHaveBeenCalled()
@@ -147,7 +137,7 @@ describe('runScan — scan root type routing', () => {
     mockParseFilename
       .mockReturnValueOnce({ type: 'tv', show: 'Breaking Bad', year: null, season: 1, episodes: [1], episodeTitle: 'Pilot' })
       .mockReturnValueOnce({ type: 'tv', show: 'Breaking Bad', year: null, season: 1, episodes: [2], episodeTitle: 'Cat\'s in the Bag' })
-      .mockReturnValueOnce({ type: 'movie', title: 'Featurette', year: null, edition: null }) // misclassified
+      .mockReturnValueOnce({ type: 'movie', title: 'Featurette', year: null, edition: null }) // no S/E pattern → skipped
 
     mockSyncEpisodeFile.mockResolvedValue('added')
 

@@ -1,8 +1,12 @@
 import path from 'node:path'
 import type { ParsedFilename, ParsedMovie, ParsedEpisode } from './types.js'
 
-// S01E01 / s01e01 / 01x01 / 1x01 — with optional multi-episode (S01E01E02)
-const TV_SE_RE = /(?:[Ss](\d{1,2})[Ee](\d{1,2})(?:[Ee](\d{1,2}))*|(\d{1,2})x(\d{1,2}))/
+// Matches TV episode codes on the RAW (pre-normalization) filename base:
+// S01E01 / s01e01 / S01.E01 / S01-E01 / S01_E01 — with optional multi-episode suffix
+// 01x01 / 1x01
+// Season 1 Episode 1 / season 01 episode 01 (case-insensitive, variable spacing)
+const TV_SE_RE =
+  /(?:[Ss](\d{1,2})[._-]?[Ee](\d{1,2})(?:[._-]?[Ee](\d{1,2}))*|(\d{1,2})x(\d{1,2})|[Ss]eason\s+(\d{1,2})\s+[Ee]pisode\s+(\d{1,2}))/
 
 // Trailing quality/noise tags to strip before parsing title
 const NOISE_RE =
@@ -16,32 +20,33 @@ const EDITION_RE = /\s*\{edition-([^}]+)\}\s*/i
 
 export function parseFilename(filePath: string): ParsedFilename {
   const base = path.basename(filePath, path.extname(filePath))
-  const normalized = normalizeDelimiters(base)
-
-  const tvMatch = TV_SE_RE.exec(normalized)
+  // Match on the raw base before normalization: dots used as separators in episode
+  // codes like "Show.S01.E01" would otherwise become spaces and break the regex.
+  const tvMatch = TV_SE_RE.exec(base)
   if (tvMatch) {
-    return parseTvFilename(normalized, tvMatch)
+    const beforeSE = normalizeDelimiters(base.slice(0, tvMatch.index))
+    const afterSE = normalizeDelimiters(base.slice(tvMatch.index + tvMatch[0].length))
+    return parseTvFilename(beforeSE, afterSE, tvMatch)
   }
 
-  return parseMovieFilename(normalized)
+  return parseMovieFilename(normalizeDelimiters(base))
 }
 
-function parseTvFilename(normalized: string, match: RegExpExecArray): ParsedEpisode {
-  const full = match[0] as string
-  // Groups 1-3: SxxExx format; groups 4-5: xxXxx format
-  const season = (match[1] ?? match[4]) as string
-  const ep1 = (match[2] ?? match[5]) as string
+function parseTvFilename(beforeSE: string, afterSE: string, match: RegExpExecArray): ParsedEpisode {
+  // Groups 1-3: SxxExx / SxxExxExx; groups 4-5: NxN; groups 6-7: Season N Episode N
+  const season = (match[1] ?? match[4] ?? match[6]) as string
+  const ep1 = (match[2] ?? match[5] ?? match[7]) as string
   const ep2 = match[3] as string | undefined
   const seasonNum = parseInt(season, 10)
   const episodes = [parseInt(ep1, 10)]
   if (ep2 !== undefined) episodes.push(parseInt(ep2, 10))
 
-  const beforeSE = normalized.slice(0, match.index).trim().replace(/[-–_\s]+$/, '').trim()
-  const afterSE = normalized.slice(match.index + full.length).trim().replace(/^[-–_\s]+/, '').trim()
+  // Strip trailing and leading punctuation that may remain after slicing around the episode code
+  const cleanBefore = beforeSE.trim().replace(/[-–_\s.]+$/, '').trim()
+  const cleanAfter = afterSE.trim().replace(/^[-–_\s.]+/, '').trim()
 
-  // Use extractYearFromTvTitle which handles both "(2005)" and bare "2005" at end of show name
-  const showParsed = extractYearFromTvTitle(beforeSE)
-  const episodeTitle = afterSE ? stripNoise(afterSE) : null
+  const showParsed = extractYearFromTvTitle(cleanBefore)
+  const episodeTitle = cleanAfter ? stripNoise(cleanAfter) : null
 
   return {
     type: 'tv',

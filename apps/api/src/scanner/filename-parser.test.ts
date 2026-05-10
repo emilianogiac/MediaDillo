@@ -98,4 +98,29 @@ describe('parseFilename — TV shows', () => {
     const r = parseFilename('/tv/The Wire/The Wire - 2x03 - Hot Shots.mkv')
     expect(r).toMatchObject({ type: 'tv', show: 'The Wire', season: 2, episodes: [3], episodeTitle: 'Hot Shots' })
   })
+
+  it('parses dot-separated S01.E01 (dot between season and episode code)', () => {
+    const r = parseFilename('/tv/Show/S01/Show.S01.E01.avi')
+    expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [1] })
+  })
+
+  it('parses dash-separated S01-E01', () => {
+    const r = parseFilename('/tv/Show/S01/Show - S01-E01 - Pilot.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [1], episodeTitle: 'Pilot' })
+  })
+
+  it('parses Season N Episode N long format', () => {
+    const r = parseFilename('/tv/Show/Season 1/Show - Season 1 Episode 5 - Title.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [5], episodeTitle: 'Title' })
+  })
+
+  it('parses season 01 episode 01 long format with zero-padded numbers', () => {
+    const r = parseFilename('/tv/Breaking Bad/Season 1/Breaking Bad Season 01 Episode 03.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'Breaking Bad', season: 1, episodes: [3] })
+  })
+
+  it('parses dot-separated filename with S01.E01 pattern (mpg extension)', () => {
+    const r = parseFilename('/tv/Show/S1/Show.S01.E07.Title.mpg')
+    expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [7] })
+  })
 })
