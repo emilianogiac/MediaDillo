@@ -10,6 +10,8 @@ export interface ShowsFilter {
   organized?: boolean
   duplicates?: 'only' | 'hide'
   addedSince?: string
+  scanRootId?: string
+  status?: 'continuing' | 'ended'
 }
 
 export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[]> {
@@ -21,6 +23,8 @@ export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[
   if (filter.organized === false) params.set('organized', 'false')
   if (filter.duplicates) params.set('duplicates', filter.duplicates)
   if (filter.addedSince) params.set('addedSince', filter.addedSince)
+  if (filter.scanRootId) params.set('scanRootId', filter.scanRootId)
+  if (filter.status) params.set('status', filter.status)
   const qs = params.toString()
   return apiFetch<ShowSummary[]>(`/shows${qs ? `?${qs}` : ''}`)
 }

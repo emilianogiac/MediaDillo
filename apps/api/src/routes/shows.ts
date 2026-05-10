@@ -12,7 +12,7 @@ import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false
+  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended
   app.get<{
     Querystring: {
       search?: string
@@ -22,9 +22,11 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       duplicates?: string
       organized?: string
       addedSince?: string
+      scanRootId?: string
+      status?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince, scanRootId, status } = req.query
 
     // Always compute dup groups with count
     const dupGroups = await prisma.tvShow.groupBy({
@@ -37,6 +39,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       dupGroups.map((g) => [g.tmdbId as number, g._count.tmdbId]),
     )
     const dupTmdbIds = [...dupCountMap.keys()]
+
+    // Resolve scanRootId → path prefix for episode file filtering
+    let scanRootPath: string | null = null
+    if (scanRootId) {
+      const root = await prisma.scanRoot.findUnique({ where: { id: scanRootId }, select: { path: true } })
+      scanRootPath = root?.path ?? null
+    }
 
     const shows = await prisma.tvShow.findMany({
       where: {
@@ -59,6 +68,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
         ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
         ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
+        ...(scanRootPath ? { seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: scanRootPath } } } } } } } } : {}),
+        ...(status === 'continuing' || status === 'ended' ? { status } : {}),
       },
       select: {
         id: true,
@@ -189,6 +200,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const staleInDir = await detectStaleFiles(dir, knownPaths)
       removals.push(...staleInDir)
       for (const entry of entries) {
+        if (entry.startsWith('.')) continue  // skip .trash, .DS_Store, hidden dirs
         const full = path.join(dir, entry)
         // Recurse into season subfolders only
         if (!path.extname(entry)) {

@@ -1,13 +1,23 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
-import type { ShowSummary } from '../api/types.js'
+import type { ShowSummary, ScanRoot } from '../api/types.js'
 import { fetchShows, deleteShow } from '../api/shows.js'
+import { fetchScanRoots } from '../api/movies.js'
 import { refreshMetadata } from '../api/library-health.js'
 import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
+
+const SORT_OPTIONS = [
+  { value: 'title_asc', label: 'Title A–Z' },
+  { value: 'title_desc', label: 'Title Z–A' },
+  { value: 'year_desc', label: 'Newest' },
+  { value: 'year_asc', label: 'Oldest' },
+  { value: 'rating_desc', label: 'Highest rated' },
+  { value: 'completeness_desc', label: 'Most complete' },
+]
 
 function completenessColor(owned: number, total: number): string {
   if (total === 0) return 'bg-gray-700'
@@ -36,6 +46,21 @@ function ListIcon() {
       <rect x="1" y="7" width="14" height="2" rx="1" />
       <rect x="1" y="12" width="14" height="2" rx="1" />
     </svg>
+  )
+}
+
+function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 bg-gray-800 border border-gray-700 text-gray-300 text-xs px-2.5 py-1 rounded-full">
+      {label}
+      <button
+        onClick={onRemove}
+        className="text-gray-500 hover:text-white leading-none ml-0.5"
+        aria-label={`Remove ${label} filter`}
+      >
+        ×
+      </button>
+    </span>
   )
 }
 
@@ -157,7 +182,7 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
           <p className="text-xs text-gray-500">{show.year ?? '—'}</p>
         </div>
 
-        {/* Completeness bar — always rendered to keep columns aligned */}
+        {/* Completeness bar */}
         <div className="flex-shrink-0 w-24 space-y-0.5">
           {show.totalEpisodes > 0 && (
             <>
@@ -169,8 +194,15 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
           )}
         </div>
 
-        {/* Status chips — fixed width so all rows align */}
-        <div className="flex-shrink-0 w-28 flex gap-1 items-center">
+        {/* Airing status */}
+        <div className="flex-shrink-0 w-14 text-xs text-gray-500">
+          {show.status === 'continuing'
+            ? <span className="text-green-400">Airing</span>
+            : <span className="text-gray-600">Ended</span>}
+        </div>
+
+        {/* Status chips */}
+        <div className="flex-shrink-0 w-32 flex gap-1 items-center">
           {isNew && <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>}
           {unmatched && <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Unmatched</span>}
           {isDuplicate && <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">{show.duplicateCount}×</span>}
@@ -185,12 +217,13 @@ export function ShowsPage() {
   const { toast, trackJob } = useToast()
   const location = useLocation()
   const [shows, setShows] = useState<ShowSummary[]>([])
+  const [scanRoots, setScanRoots] = useState<ScanRoot[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchParams, setSearchParams] = useSearchParams()
   const [listNonce, setListNonce] = useState(() => Date.now())
+  const searchRef = useRef<HTMLInputElement>(null)
 
-  // Selection state
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
@@ -198,54 +231,75 @@ export function ShowsPage() {
   const [lastScanAt, setLastScanAt] = useState<string | null>(() => localStorage.getItem('mediaDillo.lastScanAt'))
 
   const rawDuplicates = searchParams.get('duplicates')
+  const rawStatus = searchParams.get('status')
   const filter = {
+    scanRootId: searchParams.get('root') ?? '',
     search: searchParams.get('q') ?? '',
+    genre: searchParams.get('genre') ?? '',
     qualityTier: searchParams.get('quality') ?? '',
     missingArtwork: searchParams.has('missing'),
     unmatched: searchParams.has('unmatched'),
     needsOrganizing: searchParams.has('unorganized'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
+    status: (rawStatus === 'continuing' || rawStatus === 'ended') ? rawStatus as 'continuing' | 'ended' : undefined,
     newOnly: searchParams.has('new'),
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
+    sort: searchParams.get('sort') ?? 'title_asc',
   }
 
   function setPartial(partial: {
+    scanRootId?: string
     search?: string
+    genre?: string
     qualityTier?: string
     missingArtwork?: boolean
     unmatched?: boolean
     needsOrganizing?: boolean
     duplicates?: 'only' | 'hide' | ''
+    status?: 'continuing' | 'ended' | ''
     newOnly?: boolean
     view?: 'grid' | 'list'
+    sort?: string
   }) {
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
+        if ('scanRootId' in partial) { partial.scanRootId ? next.set('root', partial.scanRootId) : next.delete('root') }
         if ('search' in partial) { partial.search ? next.set('q', partial.search) : next.delete('q') }
+        if ('genre' in partial) { partial.genre ? next.set('genre', partial.genre) : next.delete('genre') }
         if ('qualityTier' in partial) { partial.qualityTier ? next.set('quality', partial.qualityTier) : next.delete('quality') }
         if ('missingArtwork' in partial) { partial.missingArtwork ? next.set('missing', '1') : next.delete('missing') }
         if ('unmatched' in partial) { partial.unmatched ? next.set('unmatched', '1') : next.delete('unmatched') }
         if ('needsOrganizing' in partial) { partial.needsOrganizing ? next.set('unorganized', '1') : next.delete('unorganized') }
         if ('duplicates' in partial) { partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates') }
+        if ('status' in partial) { partial.status ? next.set('status', partial.status) : next.delete('status') }
         if ('newOnly' in partial) { partial.newOnly ? next.set('new', '1') : next.delete('new') }
         if ('view' in partial) { partial.view === 'list' ? next.set('view', 'list') : next.delete('view') }
+        if ('sort' in partial) { partial.sort && partial.sort !== 'title_asc' ? next.set('sort', partial.sort) : next.delete('sort') }
         return next
       },
       { replace: true },
     )
   }
 
+  useEffect(() => {
+    fetchScanRoots()
+      .then((roots) => setScanRoots(roots.filter((r) => r.type === 'tv')))
+      .catch(() => {})
+  }, [])
+
   function load() {
     setLoading(true)
     setError(null)
     const showFilter: import('../api/shows.js').ShowsFilter = {}
+    if (filter.scanRootId) showFilter.scanRootId = filter.scanRootId
     if (filter.search) showFilter.search = filter.search
     if (filter.qualityTier) showFilter.qualityTier = filter.qualityTier
     if (filter.missingArtwork) showFilter.missingArtwork = true
     if (filter.unmatched) showFilter.unmatched = true
     if (filter.needsOrganizing) showFilter.organized = false
     if (filter.duplicates) showFilter.duplicates = filter.duplicates
+    if (filter.status) showFilter.status = filter.status
     if (filter.newOnly && lastScanAt) showFilter.addedSince = lastScanAt
     fetchShows(showFilter)
       .then((data) => { setShows(data); setListNonce(Date.now()) })
@@ -253,11 +307,61 @@ export function ShowsPage() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [searchParams.toString()])
+  // Exclude sort, view, and genre (client-side) from reload trigger
+  const filterTrigger = useMemo(() => {
+    const p = new URLSearchParams(searchParams)
+    p.delete('sort')
+    p.delete('view')
+    p.delete('genre')
+    return p.toString()
+  }, [searchParams])
 
-  const hasActiveFilter = filter.search || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.needsOrganizing || filter.duplicates
+  useEffect(() => { load() }, [filterTrigger])
 
-  const allIds = shows.map((s) => s.id)
+  // Client-side genre filter
+  const allGenres = useMemo(() => [...new Set(shows.flatMap((s) => s.genres))].sort(), [shows])
+
+  // Client-side sort + genre filter
+  const displayShows = useMemo(() => {
+    let arr = filter.genre ? shows.filter((s) => s.genres.includes(filter.genre)) : [...shows]
+    switch (filter.sort) {
+      case 'title_desc':
+        arr.sort((a, b) => b.title.localeCompare(a.title))
+        break
+      case 'year_desc':
+        arr.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+        break
+      case 'year_asc':
+        arr.sort((a, b) => (a.year ?? 0) - (b.year ?? 0))
+        break
+      case 'rating_desc':
+        arr.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+        break
+      case 'completeness_desc':
+        arr.sort((a, b) => {
+          const pctA = a.totalEpisodes > 0 ? a.ownedEpisodes / a.totalEpisodes : 0
+          const pctB = b.totalEpisodes > 0 ? b.ownedEpisodes / b.totalEpisodes : 0
+          return pctB - pctA
+        })
+        break
+    }
+    return arr
+  }, [shows, filter.sort, filter.genre])
+
+  // Counts for toggle filters
+  const counts = useMemo(() => ({
+    missingArtwork: shows.filter((s) => !s.posterDownloaded || !s.backdropDownloaded).length,
+    unmatched: shows.filter((s) => !s.tmdbId).length,
+    needsOrganizing: shows.filter((s) => !s.isOrganized).length,
+    duplicates: shows.filter((s) => s.isDuplicate).length,
+  }), [shows])
+
+  const hasActiveFilter = !!(
+    filter.search || filter.genre || filter.qualityTier || filter.missingArtwork ||
+    filter.unmatched || filter.needsOrganizing || filter.duplicates || filter.status || filter.scanRootId
+  )
+
+  const allIds = displayShows.map((s) => s.id)
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
   const someSelected = selected.size > 0
 
@@ -268,13 +372,17 @@ export function ShowsPage() {
       const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
       setSelected((prev) => {
         const next = new Set(prev)
-        shows.slice(from, to + 1).forEach((s) => next.add(s.id))
+        displayShows.slice(from, to + 1).forEach((s) => next.add(s.id))
         return next
       })
     } else {
       setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
       setLastSelectedIdx(index)
     }
+  }
+
+  function clearFilters() {
+    setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, needsOrganizing: false, duplicates: '', status: '', scanRootId: '' })
   }
 
   function handleBatchDelete() {
@@ -312,22 +420,73 @@ export function ShowsPage() {
     }
   }
 
+  const activeScanRoot = scanRoots.find((r) => r.id === filter.scanRootId)
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">TV Shows</h1>
-        <span className="text-sm text-gray-500">{loading ? '…' : `${shows.length} shows`}</span>
+        <span className="text-sm text-gray-500">{loading ? '…' : `${displayShows.length} shows`}</span>
       </div>
+
+      {/* Library tabs / scan root selector */}
+      {scanRoots.length > 0 && (
+        scanRoots.length > 4 ? (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Library:</span>
+            <select
+              value={filter.scanRootId}
+              onChange={(e) => setPartial({ scanRootId: e.target.value })}
+              className="bg-surface-raised border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-accent"
+            >
+              <option value="">All</option>
+              {scanRoots.map((root) => (
+                <option key={root.id} value={root.id}>{root.label}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="flex gap-1 border-b border-gray-800">
+            <button
+              onClick={() => setPartial({ scanRootId: '' })}
+              className={['px-3 py-1.5 text-sm font-medium rounded-t -mb-px border transition-colors', !filter.scanRootId ? 'bg-surface-raised text-white border-gray-700 border-b-surface-raised' : 'text-gray-400 hover:text-gray-200 border-transparent'].join(' ')}
+            >
+              All
+            </button>
+            {scanRoots.map((root) => (
+              <button
+                key={root.id}
+                onClick={() => setPartial({ scanRootId: root.id })}
+                className={['px-3 py-1.5 text-sm font-medium rounded-t -mb-px border transition-colors', filter.scanRootId === root.id ? 'bg-surface-raised text-white border-gray-700 border-b-surface-raised' : 'text-gray-400 hover:text-gray-200 border-transparent'].join(' ')}
+              >
+                {root.label}
+              </button>
+            ))}
+          </div>
+        )
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap gap-2 items-center">
         <input
+          ref={searchRef}
           type="search"
           placeholder="Search shows…"
           value={filter.search}
           onChange={(e) => setPartial({ search: e.target.value })}
           className="bg-surface-raised border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent w-48"
         />
+
+        {allGenres.length > 0 && (
+          <select
+            value={filter.genre}
+            onChange={(e) => setPartial({ genre: e.target.value })}
+            className="bg-surface-raised border border-gray-700 rounded px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-accent"
+          >
+            <option value="">All genres</option>
+            {allGenres.map((g) => <option key={g} value={g}>{g}</option>)}
+          </select>
+        )}
 
         <select
           value={filter.qualityTier}
@@ -337,34 +496,6 @@ export function ShowsPage() {
           <option value="">All quality</option>
           {QUALITY_TIERS.map((q) => <option key={q} value={q}>{q}</option>)}
         </select>
-
-        <button
-          onClick={() => setPartial({ missingArtwork: !filter.missingArtwork })}
-          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingArtwork ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
-        >
-          Missing artwork
-        </button>
-
-        <button
-          onClick={() => setPartial({ unmatched: !filter.unmatched })}
-          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.unmatched ? 'bg-red-500/20 border-red-500/60 text-red-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
-        >
-          Unmatched
-        </button>
-
-        <button
-          onClick={() => setPartial({ needsOrganizing: !filter.needsOrganizing })}
-          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.needsOrganizing ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
-        >
-          Needs organizing
-        </button>
-
-        <button
-          onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
-          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.duplicates === 'only' ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : filter.duplicates === 'hide' ? 'bg-gray-700/60 border-gray-600 text-gray-400' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
-        >
-          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : 'Duplicates'}
-        </button>
 
         {lastScanAt && (
           <button
@@ -390,32 +521,102 @@ export function ShowsPage() {
           </button>
         )}
 
+        <button
+          onClick={() => setPartial({ missingArtwork: !filter.missingArtwork })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.missingArtwork ? 'bg-yellow-500/20 border-yellow-500/60 text-yellow-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          Missing artwork{!filter.missingArtwork && counts.missingArtwork > 0 && <span className="ml-1 opacity-60">({counts.missingArtwork})</span>}
+        </button>
+
+        <button
+          onClick={() => setPartial({ unmatched: !filter.unmatched })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.unmatched ? 'bg-red-500/20 border-red-500/60 text-red-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          Unmatched{!filter.unmatched && counts.unmatched > 0 && <span className="ml-1 opacity-60">({counts.unmatched})</span>}
+        </button>
+
+        <button
+          onClick={() => setPartial({ needsOrganizing: !filter.needsOrganizing })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.needsOrganizing ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          Needs organizing{!filter.needsOrganizing && counts.needsOrganizing > 0 && <span className="ml-1 opacity-60">({counts.needsOrganizing})</span>}
+        </button>
+
+        <button
+          onClick={() => setPartial({ duplicates: !filter.duplicates ? 'only' : filter.duplicates === 'only' ? 'hide' : '' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.duplicates === 'only' ? 'bg-orange-500/20 border-orange-500/60 text-orange-300' : filter.duplicates === 'hide' ? 'bg-gray-700/60 border-gray-600 text-gray-400' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          {filter.duplicates === 'only' ? 'Duplicates only' : filter.duplicates === 'hide' ? 'Hiding duplicates' : <>Duplicates{!filter.duplicates && counts.duplicates > 0 && <span className="ml-1 opacity-60">({counts.duplicates})</span>}</>}
+        </button>
+
+        <button
+          onClick={() => setPartial({ status: filter.status === 'continuing' ? '' : 'continuing' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.status === 'continuing' ? 'bg-green-500/20 border-green-500/60 text-green-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          Airing
+        </button>
+
+        <button
+          onClick={() => setPartial({ status: filter.status === 'ended' ? '' : 'ended' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.status === 'ended' ? 'bg-gray-500/20 border-gray-500/60 text-gray-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        >
+          Ended
+        </button>
+
         {hasActiveFilter && (
-          <button
-            onClick={() => setPartial({ search: '', qualityTier: '', missingArtwork: false, unmatched: false, needsOrganizing: false, duplicates: '' })}
-            className="text-xs text-gray-500 hover:text-gray-200 transition-colors"
-          >
+          <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-200 transition-colors">
             Clear filters
           </button>
         )}
 
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setPartial({ view: 'grid' })}
-            title="Grid view"
-            className={['p-1.5 rounded border transition-colors', filter.view === 'grid' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+        {/* Sort + view toggle */}
+        <div className="ml-auto flex items-center gap-2">
+          <select
+            value={filter.sort}
+            onChange={(e) => setPartial({ sort: e.target.value })}
+            className="bg-surface-raised border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-400 focus:outline-none focus:border-accent"
+            title="Sort order"
           >
-            <GridIcon />
-          </button>
-          <button
-            onClick={() => setPartial({ view: 'list' })}
-            title="List view"
-            className={['p-1.5 rounded border transition-colors', filter.view === 'list' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
-          >
-            <ListIcon />
-          </button>
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPartial({ view: 'grid' })}
+              title="Grid view"
+              className={['p-1.5 rounded border transition-colors', filter.view === 'grid' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+            >
+              <GridIcon />
+            </button>
+            <button
+              onClick={() => setPartial({ view: 'list' })}
+              title="List view"
+              className={['p-1.5 rounded border transition-colors', filter.view === 'list' ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+            >
+              <ListIcon />
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* Active filter chips */}
+      {hasActiveFilter && (
+        <div className="flex flex-wrap gap-1.5">
+          {filter.search && <FilterChip label={`"${filter.search}"`} onRemove={() => setPartial({ search: '' })} />}
+          {filter.genre && <FilterChip label={`Genre: ${filter.genre}`} onRemove={() => setPartial({ genre: '' })} />}
+          {filter.qualityTier && <FilterChip label={`Quality: ${filter.qualityTier}`} onRemove={() => setPartial({ qualityTier: '' })} />}
+          {filter.missingArtwork && <FilterChip label="Missing artwork" onRemove={() => setPartial({ missingArtwork: false })} />}
+          {filter.unmatched && <FilterChip label="Unmatched" onRemove={() => setPartial({ unmatched: false })} />}
+          {filter.needsOrganizing && <FilterChip label="Needs organizing" onRemove={() => setPartial({ needsOrganizing: false })} />}
+          {filter.duplicates === 'only' && <FilterChip label="Duplicates only" onRemove={() => setPartial({ duplicates: '' })} />}
+          {filter.duplicates === 'hide' && <FilterChip label="Hiding duplicates" onRemove={() => setPartial({ duplicates: '' })} />}
+          {filter.status === 'continuing' && <FilterChip label="Airing" onRemove={() => setPartial({ status: '' })} />}
+          {filter.status === 'ended' && <FilterChip label="Ended" onRemove={() => setPartial({ status: '' })} />}
+          {activeScanRoot && <FilterChip label={`Library: ${activeScanRoot.label}`} onRemove={() => setPartial({ scanRootId: '' })} />}
+        </div>
+      )}
 
       {loading && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
@@ -428,15 +629,26 @@ export function ShowsPage() {
         </div>
       )}
       {!loading && error && <div className="text-red-400 py-8 text-center text-sm">{error}</div>}
-      {!loading && !error && shows.length === 0 && <div className="text-gray-500 py-16 text-center text-sm">No shows found.</div>}
-
-      {!loading && !error && shows.length > 0 && filter.view === 'grid' && (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
-          {shows.map((show) => <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} listSearch={location.search} />)}
+      {!loading && !error && displayShows.length === 0 && (
+        <div className="py-20 text-center space-y-2">
+          <p className="text-gray-400 text-sm">No shows found.</p>
+          {hasActiveFilter && (
+            <button onClick={clearFilters} className="text-xs text-accent hover:underline">
+              Clear all filters
+            </button>
+          )}
         </div>
       )}
 
-      {!loading && !error && shows.length > 0 && filter.view === 'list' && (
+      {!loading && !error && displayShows.length > 0 && filter.view === 'grid' && (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
+          {displayShows.map((show) => (
+            <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} listSearch={location.search} />
+          ))}
+        </div>
+      )}
+
+      {!loading && !error && displayShows.length > 0 && filter.view === 'list' && (
         <div className="bg-surface-raised border border-gray-800 rounded-lg divide-y divide-gray-800">
           <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-700">
             <input
@@ -447,10 +659,10 @@ export function ShowsPage() {
               className="accent-accent cursor-pointer"
             />
             <span className="text-xs text-gray-500">
-              {someSelected ? `${selected.size} selected` : `${shows.length} items`}
+              {someSelected ? `${selected.size} selected` : `${displayShows.length} items`}
             </span>
           </div>
-          {shows.map((show, idx) => (
+          {displayShows.map((show, idx) => (
             <ShowListRow
               key={show.id}
               show={show}
@@ -493,6 +705,7 @@ export function ShowsPage() {
 
       {confirm && (
         <ConfirmModal
+          key={[...selected].join(',')}
           title={confirm.title}
           message={confirm.message}
           confirmLabel="Remove"
@@ -500,7 +713,6 @@ export function ShowsPage() {
           onCancel={() => setConfirm(null)}
         />
       )}
-
     </div>
   )
 }
