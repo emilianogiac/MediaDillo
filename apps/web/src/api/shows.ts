@@ -182,3 +182,13 @@ export async function deleteShow(id: string): Promise<void> {
 export async function enrichShow(id: string): Promise<ShowDetail> {
   return apiFetch<ShowDetail>(`/metadata/shows/${id}/enrich`, { method: 'POST' })
 }
+
+export async function updateShowMetadata(
+  id: string,
+  fields: { title?: string; year?: number; overview?: string; tvdbId?: number | null },
+): Promise<ShowDetail> {
+  return apiFetch<ShowDetail>(`/metadata/shows/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(fields),
+  })
+}

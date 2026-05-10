@@ -3,6 +3,7 @@ import { prisma } from '@mediadillo/db'
 import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
+import { TvdbClient } from '../metadata/tvdb-client.js'
 import { getApiConfig } from '../api-config.js'
 import { createJob, getJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
@@ -294,6 +295,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
 
     const job = createJob(movies.length + shows.length)
     const client = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
+    const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey) : null
     const autoCleanup = await getAutoCleanupSetting()
 
     const run = async () => {
@@ -317,7 +319,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
       for (const s of shows) {
         if (s.tmdbId == null) continue
         try {
-          await enrichTvShow(client, s.id, s.tmdbId)
+          await enrichTvShow(client, s.id, s.tmdbId, tvdbClient)
           await downloadShowArtwork(s.id, 'all', true)
         } catch (err) {
           failJob(job.id, `"${s.title}": ${err instanceof Error ? err.message : String(err)}`)

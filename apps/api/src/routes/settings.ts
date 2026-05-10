@@ -26,6 +26,19 @@ async function testTmdbKey(apiKey: string): Promise<boolean> {
   }
 }
 
+async function testTvdbKey(apiKey: string): Promise<boolean> {
+  try {
+    const res = await fetch('https://api4.thetvdb.com/v4/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ apikey: apiKey }),
+    })
+    return res.ok
+  } catch {
+    return false
+  }
+}
+
 export async function getAutoCleanupSetting(): Promise<boolean> {
   const s = await prisma.setting.findUnique({ where: { key: AUTO_CLEANUP_KEY } })
   return s?.value === 'true'
@@ -300,6 +313,11 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     if (tmdbApiKey) {
       const valid = await testTmdbKey(tmdbApiKey)
       if (!valid) return reply.code(422).send({ error: 'TMDB API key is invalid — could not connect to TMDB.' })
+    }
+
+    if (tvdbApiKey) {
+      const valid = await testTvdbKey(tvdbApiKey)
+      if (!valid) return reply.code(422).send({ error: 'TVDB API key is invalid — could not authenticate with TVDB.' })
     }
 
     if (jellyfinUrl || jellyfinApiKey) {

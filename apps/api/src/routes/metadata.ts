@@ -258,18 +258,33 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(updated)
   })
 
-  // PUT /api/metadata/shows/:id — manual field override
+  // PUT /api/metadata/shows/:id — manual field override (including tvdbId)
   app.put<{
     Params: { id: string }
-    Body: { title?: string; year?: number; overview?: string; posterUrl?: string; backdropUrl?: string }
+    Body: { title?: string; year?: number; overview?: string; posterUrl?: string; backdropUrl?: string; tvdbId?: number | null }
   }>('/metadata/shows/:id', async (req, reply) => {
     const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
+    const { tvdbId, ...rest } = req.body
+    const tvdbIdChanged = tvdbId !== undefined && tvdbId !== show.tvdbId
+
     const updated = await prisma.tvShow.update({
       where: { id: req.params.id },
-      data: req.body,
+      data: tvdbId !== undefined ? { ...rest, tvdbId } : rest,
     })
+
+    // Re-enrich episode metadata when tvdbId is manually changed
+    if (tvdbIdChanged && show.tmdbId) {
+      const client = await getTmdbClient().catch(() => null)
+      const tvdbClient = await getTvdbClientOrNull()
+      if (client) {
+        enrichTvShow(client, show.id, show.tmdbId, tvdbClient).catch((err: unknown) => {
+          app.log.warn(err, `Background re-enrich after tvdbId change for show ${show.id}`)
+        })
+      }
+    }
+
     return reply.send(updated)
   })
 }

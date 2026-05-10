@@ -166,7 +166,7 @@ function ApiKeysCard() {
               onChange={(v) => setDraft((d) => ({ ...d, tvdbApiKey: v }))}
               revealed={!!revealed['tvdb']}
               onToggleReveal={() => toggle('tvdb')}
-              hint="From thetvdb.com — used for TV episode numbering cross-reference"
+              hint="From thetvdb.com — primary source for TV episode titles and numbering; falls back to TMDB if not set"
             />
             <div className="space-y-1">
               <label className="block text-xs text-gray-400">Jellyfin URL</label>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -54,6 +54,9 @@ export function ShowDetailPage() {
   const [rescanError, setRescanError] = useState<string | null>(null)
   const [rematchStatus, setRematchStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [renameStatus, setRenameStatus] = useState<{ type: 'success' | 'error'; message: string; errors?: string[] } | null>(null)
+  const [editingTvdbId, setEditingTvdbId] = useState(false)
+  const [tvdbIdInput, setTvdbIdInput] = useState('')
+  const [savingTvdbId, setSavingTvdbId] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
@@ -79,6 +82,26 @@ export function ShowDetailPage() {
       setRematchStatus({ type: 'error', message: e instanceof Error ? e.message : 'Refresh failed' })
     } finally {
       setRematching(false)
+    }
+  }
+
+  async function handleSaveTvdbId() {
+    if (!id) return
+    const parsed = tvdbIdInput.trim() === '' ? null : parseInt(tvdbIdInput.trim(), 10)
+    if (tvdbIdInput.trim() !== '' && (isNaN(parsed as number) || (parsed as number) <= 0)) {
+      toast({ type: 'error', message: 'TVDB ID must be a positive number' })
+      return
+    }
+    setSavingTvdbId(true)
+    try {
+      const updated = await updateShowMetadata(id, { tvdbId: parsed })
+      setShow(updated)
+      setEditingTvdbId(false)
+      toast({ type: 'success', message: parsed ? `TVDB ID set to ${parsed} — re-enriching episodes…` : 'TVDB ID cleared' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Failed to save TVDB ID' })
+    } finally {
+      setSavingTvdbId(false)
     }
   }
 
@@ -265,7 +288,7 @@ export function ShowDetailPage() {
                   TMDB ↗
                 </a>
               )}
-              {show.tvdbId && (
+              {show.tvdbId && !editingTvdbId && (
                 <a
                   href={`https://www.thetvdb.com/?tab=series&id=${show.tvdbId}`}
                   target="_blank"
@@ -274,6 +297,30 @@ export function ShowDetailPage() {
                 >
                   TVDB ↗
                 </a>
+              )}
+              {editingTvdbId ? (
+                <span className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={tvdbIdInput}
+                    onChange={(e) => setTvdbIdInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') void handleSaveTvdbId(); if (e.key === 'Escape') setEditingTvdbId(false) }}
+                    placeholder={show.tvdbId ? String(show.tvdbId) : 'TVDB series ID'}
+                    className="w-28 text-xs bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-gray-200 focus:outline-none focus:border-accent/60"
+                    autoFocus
+                    disabled={savingTvdbId}
+                  />
+                  <button onClick={() => void handleSaveTvdbId()} disabled={savingTvdbId} className="text-xs text-accent hover:underline disabled:opacity-40">Save</button>
+                  <button onClick={() => setEditingTvdbId(false)} className="text-xs text-gray-500 hover:text-gray-300">✕</button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => { setTvdbIdInput(show.tvdbId ? String(show.tvdbId) : ''); setEditingTvdbId(true) }}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                  title={show.tvdbId ? 'Change TVDB ID' : 'Set TVDB ID manually'}
+                >
+                  {show.tvdbId ? '✎' : '+ TVDB ID'}
+                </button>
               )}
               {show.imdbId && (
                 <a
