@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import type { SeasonDetail, EpisodeDetail } from '../api/types.js'
-import { fetchSeason, rescanSeason, fetchSeasonRenamePreview } from '../api/shows.js'
+import { fetchSeason, rescanSeason, fetchSeasonRenamePreview, type RescanResult } from '../api/shows.js'
 import { fetchEpisodeFileRenamePreview, applyRenames, type RenamePreviewItem } from '../api/files.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { MergePartsPanel } from '../components/MergePartsPanel.js'
@@ -99,7 +99,7 @@ export function SeasonDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rescanning, setRescanning] = useState(false)
-  const [rescanResult, setRescanResult] = useState<{ added: number; changed: number; removed: number } | null>(null)
+  const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
 
   const load = useCallback(() => {
     if (!id || !seasonNumber) return
@@ -169,17 +169,35 @@ export function SeasonDetailPage() {
           {rescanning ? 'Scanning…' : 'Rescan'}
         </button>
         {rescanResult && (
-          <span className="text-xs text-gray-500">
-            {rescanResult.added + rescanResult.changed + rescanResult.removed === 0
-              ? 'Up to date'
+          <span className={`text-xs ${rescanResult.folderFound ? 'text-gray-500' : 'text-red-400'}`}>
+            {!rescanResult.folderFound
+              ? 'Folder not found on disk'
+              : rescanResult.added + rescanResult.changed + rescanResult.removed === 0 && rescanResult.filesSkipped.length === 0
+              ? `Up to date (${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned)`
               : [
+                  rescanResult.filesFound > 0 && `${rescanResult.filesFound} found`,
                   rescanResult.added > 0 && `${rescanResult.added} added`,
                   rescanResult.changed > 0 && `${rescanResult.changed} changed`,
                   rescanResult.removed > 0 && `${rescanResult.removed} removed`,
+                  rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
                 ].filter(Boolean).join(', ')}
           </span>
         )}
       </div>
+
+      {/* Rescan skipped files */}
+      {rescanResult && rescanResult.filesSkipped.length > 0 && (
+        <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-4 py-3 space-y-1">
+          <p className="text-xs font-medium text-yellow-400">Skipped files</p>
+          {rescanResult.filesSkipped.map((f, i) => (
+            <div key={i} className="text-xs text-gray-400 font-mono truncate" title={f.path}>
+              <span className="text-yellow-600">{f.reason}</span>
+              {' — '}
+              {f.path.split('/').pop()}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Episode list */}
       <div className="space-y-2">

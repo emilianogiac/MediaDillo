@@ -111,11 +111,21 @@ export async function fetchSeasonRenamePreview(showId: string, seasonNumber: num
   return apiFetch<RenamePreviewItem[]>(`/shows/${showId}/seasons/${seasonNumber}/rename-preview`)
 }
 
-export async function rescanSeason(
-  showId: string,
-  seasonNumber: number,
-): Promise<{ added: number; changed: number; removed: number }> {
+export interface RescanResult {
+  added: number
+  changed: number
+  removed: number
+  filesFound: number
+  filesSkipped: { path: string; reason: string }[]
+  folderFound: boolean
+}
+
+export async function rescanSeason(showId: string, seasonNumber: number): Promise<RescanResult> {
   return apiFetch(`/shows/${showId}/seasons/${seasonNumber}/rescan`, { method: 'POST' })
+}
+
+export async function rescanShow(showId: string): Promise<RescanResult> {
+  return apiFetch(`/shows/${showId}/rescan`, { method: 'POST' })
 }
 
 export async function mergeParts(

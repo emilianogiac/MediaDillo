@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow, renameAllShowEpisodes } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -45,6 +45,8 @@ export function ShowDetailPage() {
   const [moving, setMoving] = useState(false)
   const [moveTarget, setMoveTarget] = useState('')
   const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
+  const [rescanning, setRescanning] = useState(false)
+  const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
 
   const load = useCallback(() => {
     if (!id) return
@@ -101,6 +103,21 @@ export function ShowDetailPage() {
       // error visible via load failure
     } finally {
       setMoving(false)
+    }
+  }
+
+  async function handleRescan() {
+    if (!id) return
+    setRescanning(true)
+    setRescanResult(null)
+    try {
+      const result = await rescanShow(id)
+      setRescanResult(result)
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rescan failed' })
+    } finally {
+      setRescanning(false)
     }
   }
 
@@ -290,6 +307,14 @@ export function ShowDetailPage() {
               {renaming ? 'Renaming…' : 'Rename all episodes'}
             </button>
             <button
+              onClick={() => { void handleRescan() }}
+              disabled={rescanning}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              title="Rescan show folder for new or changed episode files"
+            >
+              {rescanning ? 'Scanning…' : 'Rescan'}
+            </button>
+            <button
               onClick={() => { void handleDelete() }}
               disabled={deleting}
               className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
@@ -300,6 +325,33 @@ export function ShowDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Rescan result */}
+      {rescanResult && (
+        <div className={`rounded-lg border px-4 py-3 space-y-2 ${rescanResult.folderFound ? 'bg-surface-raised border-gray-700' : 'bg-red-900/20 border-red-700/40'}`}>
+          <p className={`text-sm font-medium ${rescanResult.folderFound ? 'text-gray-300' : 'text-red-400'}`}>
+            {!rescanResult.folderFound
+              ? 'Show folder not found on disk'
+              : [
+                  `${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned`,
+                  rescanResult.added > 0 && `${rescanResult.added} added`,
+                  rescanResult.changed > 0 && `${rescanResult.changed} changed`,
+                  rescanResult.removed > 0 && `${rescanResult.removed} removed`,
+                  rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
+                ].filter(Boolean).join(' · ')}
+          </p>
+          {rescanResult.filesSkipped.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-xs text-yellow-400 font-medium">Skipped</p>
+              {rescanResult.filesSkipped.map((f, i) => (
+                <p key={i} className="text-xs text-gray-400 font-mono truncate" title={f.path}>
+                  <span className="text-yellow-600">{f.reason}</span>{' — '}{f.path.split('/').pop()}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Seasons grid */}
       {show.seasons.length > 0 && (

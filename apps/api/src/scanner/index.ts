@@ -1,4 +1,5 @@
 import path from 'node:path'
+import fs from 'node:fs/promises'
 import { prisma } from '@mediadillo/db'
 import type { ScanRootConfig } from '../config.js'
 import { walkRoot, walkMovieFolders } from './walker.js'
@@ -8,6 +9,12 @@ import { detectStaleFiles } from './stale-detector.js'
 import { syncMovieFolder, syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
 import type { ScanCounts } from './db-sync.js'
 import type { ScanSummary } from './types.js'
+
+export interface SeasonScanResult extends ScanCounts {
+  filesFound: number
+  filesSkipped: { path: string; reason: string }[]
+  folderFound: boolean
+}
 
 let scanning = false
 
@@ -141,26 +148,111 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
   }
 }
 
-export async function runSeasonScan(showId: string, seasonNumber: number): Promise<ScanCounts> {
+// Find a season folder on disk given a show root folder and season number.
+// Tries common naming patterns: "Season 1", "Season 01", "S01", "s1", etc.
+async function findSeasonFolder(showFolder: string, seasonNumber: number): Promise<string | null> {
+  let entries: string[]
+  try {
+    const dirents = await fs.readdir(showFolder, { withFileTypes: true })
+    entries = dirents.filter((d) => d.isDirectory()).map((d) => d.name)
+  } catch {
+    return null
+  }
+  const n = seasonNumber
+  const padded = String(n).padStart(2, '0')
+  const candidates = [
+    `Season ${n}`,
+    `Season ${padded}`,
+    `season ${n}`,
+    `season ${padded}`,
+    `S${padded}`,
+    `s${padded}`,
+    `S${n}`,
+    `s${n}`,
+  ]
+  for (const candidate of candidates) {
+    if (entries.includes(candidate)) return path.join(showFolder, candidate)
+  }
+  // Fuzzy fallback: any folder whose lowercase starts with "season" and contains the number
+  const re = new RegExp(`^s(?:eason)?\\s*0*${n}$`, 'i')
+  const match = entries.find((e) => re.test(e))
+  if (match) return path.join(showFolder, match)
+  return null
+}
+
+// Derive show folder from any episode file in the show (any season).
+// Assumes structure: <showFolder>/<seasonFolder>/<file>
+async function findShowFolderFromDb(showId: string): Promise<string | null> {
+  const anyShowFile = await prisma.episodeFile.findFirst({
+    where: { episode: { season: { showId } } },
+    select: { path: true },
+  })
+  if (!anyShowFile) return null
+  return path.dirname(path.dirname(anyShowFile.path))
+}
+
+// Find show folder by scanning TV scan roots for a folder matching the show title.
+async function findShowFolderFromScanRoots(showTitle: string): Promise<string | null> {
+  const roots = await prisma.scanRoot.findMany({ where: { type: 'tv' }, select: { path: true } })
+  for (const root of roots) {
+    let entries: string[]
+    try {
+      const dirents = await fs.readdir(root.path, { withFileTypes: true })
+      entries = dirents.filter((d) => d.isDirectory()).map((d) => d.name)
+    } catch {
+      continue
+    }
+    // Exact match first, then case-insensitive
+    const exact = entries.find((e) => e === showTitle)
+    if (exact) return path.join(root.path, exact)
+    const ci = entries.find((e) => e.toLowerCase() === showTitle.toLowerCase())
+    if (ci) return path.join(root.path, ci)
+  }
+  return null
+}
+
+export async function runSeasonScan(showId: string, seasonNumber: number): Promise<SeasonScanResult> {
   if (scanning) throw new Error('A full scan is already running')
 
-  // Derive season folder from any existing episode file in this season
+  const filesSkipped: { path: string; reason: string }[] = []
+
+  // Step 1: try to get season folder from an existing file in this season
   const anyFile = await prisma.episodeFile.findFirst({
     where: { episode: { season: { showId, seasonNumber } } },
     select: { path: true },
   })
-  if (!anyFile) return { added: 0, changed: 0, removed: 0 }
 
-  const seasonFolderPath = path.dirname(anyFile.path)
+  let seasonFolderPath: string | null = anyFile ? path.dirname(anyFile.path) : null
+
+  // Step 2: if no file in this season, find show folder via any season's file or scan roots
+  if (!seasonFolderPath) {
+    let showFolder = await findShowFolderFromDb(showId)
+    if (!showFolder) {
+      const show = await prisma.tvShow.findUnique({ where: { id: showId }, select: { title: true } })
+      if (show) showFolder = await findShowFolderFromScanRoots(show.title)
+    }
+    if (showFolder) {
+      seasonFolderPath = await findSeasonFolder(showFolder, seasonNumber)
+    }
+  }
+
+  if (!seasonFolderPath) {
+    return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
+  }
 
   let added = 0
   let changed = 0
+  let filesFound = 0
   const seenPaths = new Set<string>()
 
   for await (const walkedFile of walkRoot(seasonFolderPath)) {
     seenPaths.add(walkedFile.path)
+    filesFound++
     const parsed = parseFilename(walkedFile.path)
-    if (parsed.type !== 'tv') continue
+    if (parsed.type !== 'tv') {
+      filesSkipped.push({ path: walkedFile.path, reason: 'no S/E pattern detected' })
+      continue
+    }
 
     const techSpecs = await extractTechSpecs(walkedFile.path)
     try {
@@ -169,6 +261,7 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
       else if (result === 'changed') changed++
     } catch (err) {
       console.error(`Season scan: failed to sync ${walkedFile.path}:`, err)
+      filesSkipped.push({ path: walkedFile.path, reason: err instanceof Error ? err.message : 'sync error' })
     }
   }
 
@@ -192,12 +285,79 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
       }
     }
 
-    // Recalculate owned count for the show
     const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
     await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
   }
 
-  return { added, changed, removed }
+  return { added, changed, removed, filesFound, filesSkipped, folderFound: true }
+}
+
+export async function runShowScan(showId: string): Promise<SeasonScanResult> {
+  if (scanning) throw new Error('A full scan is already running')
+
+  const filesSkipped: { path: string; reason: string }[] = []
+
+  // Find show folder
+  let showFolder = await findShowFolderFromDb(showId)
+  if (!showFolder) {
+    const show = await prisma.tvShow.findUnique({ where: { id: showId }, select: { title: true } })
+    if (show) showFolder = await findShowFolderFromScanRoots(show.title)
+  }
+
+  if (!showFolder) {
+    return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
+  }
+
+  let added = 0
+  let changed = 0
+  let filesFound = 0
+  const seenPaths = new Set<string>()
+
+  for await (const walkedFile of walkRoot(showFolder)) {
+    seenPaths.add(walkedFile.path)
+    filesFound++
+    const parsed = parseFilename(walkedFile.path)
+    if (parsed.type !== 'tv') {
+      filesSkipped.push({ path: walkedFile.path, reason: 'no S/E pattern detected' })
+      continue
+    }
+
+    const techSpecs = await extractTechSpecs(walkedFile.path)
+    try {
+      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs })
+      if (result === 'added') added++
+      else if (result === 'changed') changed++
+    } catch (err) {
+      console.error(`Show scan: failed to sync ${walkedFile.path}:`, err)
+      filesSkipped.push({ path: walkedFile.path, reason: err instanceof Error ? err.message : 'sync error' })
+    }
+  }
+
+  // Prune all episode files for this show that were not seen
+  const dbFiles = await prisma.episodeFile.findMany({
+    where: { episode: { season: { showId } } },
+    select: { id: true, path: true, episodeId: true },
+  })
+  const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
+  let removed = 0
+
+  if (orphaned.length > 0) {
+    await prisma.episodeFile.deleteMany({ where: { id: { in: orphaned.map((f) => f.id) } } })
+
+    const affectedEpisodeIds = [...new Set(orphaned.map((f) => f.episodeId))]
+    for (const episodeId of affectedEpisodeIds) {
+      const remaining = await prisma.episodeFile.count({ where: { episodeId } })
+      if (remaining === 0) {
+        await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+        removed++
+      }
+    }
+
+    const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+    await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+  }
+
+  return { added, changed, removed, filesFound, filesSkipped, folderFound: true }
 }
 
 export async function runMovieFolderScan(movieId: string): Promise<ScanCounts> {

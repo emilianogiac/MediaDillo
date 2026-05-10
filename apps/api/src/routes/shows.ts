@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { previewEpisodeRenames, previewEpisodeFileRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
-import { runSeasonScan, isScanRunning } from '../scanner/index.js'
+import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
 import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { syncSeasonTitles } from '../metadata/enricher.js'
@@ -238,6 +238,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ renamed, trashed, errors })
   })
 
+  // POST /api/shows/:id/rescan — rescan the entire show folder
+  app.post<{ Params: { id: string } }>('/shows/:id/rescan', async (req, reply) => {
+    if (isScanRunning()) return reply.code(409).send({ error: 'A full scan is already running' })
+    const result = await runShowScan(req.params.id)
+    return reply.send(result)
+  })
+
   // POST /api/shows/:id/seasons/:seasonNumber/rescan — rescan a single season folder
   app.post<{ Params: { id: string; seasonNumber: string } }>(
     '/shows/:id/seasons/:seasonNumber/rescan',
@@ -245,8 +252,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       if (isScanRunning()) return reply.code(409).send({ error: 'A full scan is already running' })
       const seasonNumber = parseInt(req.params.seasonNumber, 10)
       if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
-      const counts = await runSeasonScan(req.params.id, seasonNumber)
-      return reply.send(counts)
+      const result = await runSeasonScan(req.params.id, seasonNumber)
+      return reply.send(result)
     },
   )
 
