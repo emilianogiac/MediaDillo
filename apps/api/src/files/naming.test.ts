@@ -67,6 +67,28 @@ describe('canonicalMovieFileName', () => {
   it('omits edition token when null', () => {
     expect(canonicalMovieFileName('Dune', 2021, '.mkv', null, null)).toBe('Dune (2021).mkv')
   })
+
+  it('includes 3D SBS suffix', () => {
+    expect(canonicalMovieFileName('Avatar', 2009, '.mkv', null, null, 'sbs')).toBe('Avatar (2009) - 3D SBS.mkv')
+  })
+
+  it('includes 3D OU suffix', () => {
+    expect(canonicalMovieFileName('Avatar', 2009, '.mkv', null, null, 'ou')).toBe('Avatar (2009) - 3D OU.mkv')
+  })
+
+  it('includes 3D Full-SBS suffix', () => {
+    expect(canonicalMovieFileName('Avatar', 2009, '.mkv', null, null, 'full_sbs')).toBe('Avatar (2009) - 3D Full-SBS.mkv')
+  })
+
+  it('includes generic 3D suffix', () => {
+    expect(canonicalMovieFileName('Avatar', 2009, '.mkv', null, null, 'unknown')).toBe('Avatar (2009) - 3D.mkv')
+  })
+
+  it('places 3D before edition token', () => {
+    expect(canonicalMovieFileName('Avatar', 2009, '.mkv', null, "Extended", 'sbs')).toBe(
+      "Avatar (2009) - 3D SBS {edition-Extended}.mkv",
+    )
+  })
 })
 
 describe('canonicalSeasonFolderName', () => {

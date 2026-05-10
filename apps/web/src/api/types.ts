@@ -33,6 +33,7 @@ export interface MovieFile {
   id: string
   path: string
   edition: string | null
+  threeD: 'sbs' | 'ou' | 'full_sbs' | 'unknown' | null
   sizeBytes: bigint | number | null
   durationS: number | null
   videoCodec: string | null

@@ -28,6 +28,13 @@ enum ScanRootType {
   tv
 }
 
+enum ThreeDFormat {
+  sbs
+  ou
+  full_sbs
+  unknown
+}
+
 model ScanLog {
   id              String      @id @default(cuid())
   startedAt       DateTime    @default(now())
@@ -126,14 +133,15 @@ model MovieFile {
   videoCodec       String?
   videoResolution  String?
   videoQualityTier String?
-  hdr              Boolean  @default(false)
+  hdr              Boolean      @default(false)
+  threeD           ThreeDFormat?
   audioCodec       String?
   audioChannels    String?
   audioQualityTier String?
   edition          String?
-  sortOrder        Int      @default(0)
-  scannedAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  sortOrder        Int          @default(0)
+  scannedAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([movieId])
 }
@@ -215,13 +223,14 @@ model EpisodeFile {
   videoCodec       String?
   videoResolution  String?
   videoQualityTier String?
-  hdr              Boolean  @default(false)
+  hdr              Boolean      @default(false)
+  threeD           ThreeDFormat?
   audioCodec       String?
   audioChannels    String?
   audioQualityTier String?
   multiEpisodeEnd  Int?
-  scannedAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  scannedAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([episodeId])
 }

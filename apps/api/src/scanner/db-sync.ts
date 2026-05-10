@@ -5,7 +5,7 @@ import type { WalkedFile } from './walker.js'
 import type { StaleFileEntry } from './stale-detector.js'
 import { detectLocalArtwork } from './artwork-detector.js'
 import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
-import { parseMovieFolderName, parseFilename } from './filename-parser.js'
+import { parseMovieFolderName, parseFilename, detect3DFormat } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 
 export interface ScanCounts {
@@ -281,6 +281,7 @@ export async function syncMovieFolder(
 
     const fileParsed = parseFilename(walkedFile.path)
     const fileEdition = fileParsed.type === 'movie' ? fileParsed.edition : null
+    const fileThreeD = detect3DFormat(walkedFile.path)
 
     const existing = await prisma.movieFile.findUnique({ where: { path: walkedFile.path } })
     if (!existing) {
@@ -290,6 +291,7 @@ export async function syncMovieFolder(
           path: walkedFile.path,
           sizeBytes: walkedFile.sizeBytes,
           edition: fileEdition,
+          threeD: fileThreeD,
           videoCodec: specs.videoCodec,
           videoResolution: specs.videoResolution,
           videoQualityTier: specs.videoQualityTier,
@@ -302,7 +304,7 @@ export async function syncMovieFolder(
       added++
     } else {
       const needsReparent = existing.movieId !== movie.id
-      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition
+      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition || existing.threeD !== fileThreeD
       if (needsReparent || needsUpdate) {
         const oldMovieId = needsReparent ? existing.movieId : null
         await prisma.movieFile.update({
@@ -311,6 +313,7 @@ export async function syncMovieFolder(
             movieId: movie.id,
             sizeBytes: walkedFile.sizeBytes,
             edition: fileEdition,
+            threeD: fileThreeD,
             videoCodec: specs.videoCodec,
             videoResolution: specs.videoResolution,
             videoQualityTier: specs.videoQualityTier,
@@ -436,6 +439,7 @@ export async function syncEpisodeFile(
     }
   }
 
+  const fileThreeD = detect3DFormat(file.path)
   const existing = await prisma.episodeFile.findUnique({ where: { path: file.path } })
 
   if (!existing) {
@@ -444,6 +448,7 @@ export async function syncEpisodeFile(
         episodeId: episode.id,
         path: file.path,
         sizeBytes: file.sizeBytes,
+        threeD: fileThreeD,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -462,6 +467,7 @@ export async function syncEpisodeFile(
     await prisma.episodeFile.update({
       where: { path: file.path },
       data: {
+        threeD: fileThreeD,
         sizeBytes: file.sizeBytes,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,

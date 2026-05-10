@@ -4,7 +4,7 @@ import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { MovieDetail, MovieFile } from '../api/types.js'
-import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, deleteMovieFileSingle, consolidateMovie, replaceMovieFiles, dismissDuplicate, undismissDuplicate, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
+import { fetchMovie, fetchMovies, triggerMovieDownload, fetchMovieImages, selectMovieImage, fetchMovieCandidates, matchMovie, deleteMovie, deleteMovieWithFiles, deleteMovieFileSingle, consolidateMovie, replaceMovieFiles, dismissDuplicate, undismissDuplicate, rescanMovie, setMovieFileOrder, moveMovie, updateFileEdition, updateFileThreeD, fetchEditions, renameEdition, fetchMovieFolderScan, updateMovieMetadata } from '../api/movies.js'
 import { fetchScanRoots } from '../api/movies.js'
 import type { ScanRoot, MovieSummary } from '../api/types.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -39,6 +39,21 @@ function GripIcon() {
   )
 }
 
+const THREE_D_OPTIONS = [
+  { value: null, label: 'None' },
+  { value: 'sbs', label: '3D SBS' },
+  { value: 'ou', label: '3D OU' },
+  { value: 'full_sbs', label: '3D Full-SBS' },
+  { value: 'unknown', label: '3D (unknown)' },
+] as const
+
+const THREE_D_BADGE: Record<string, string> = {
+  sbs: '3D · SBS',
+  ou: '3D · OU',
+  full_sbs: '3D · Full-SBS',
+  unknown: '3D',
+}
+
 interface FileCardHandlers {
   openEditionPicker: (fileId: string, current: string) => void
   closeEditionPicker: () => void
@@ -47,6 +62,8 @@ interface FileCardHandlers {
   setEditingGlobalEdition: (ed: string | null) => void
   setGlobalRenameInput: (v: string) => void
   globalRename: (from: string) => void
+  openThreeDPicker: (fileId: string) => void
+  setThreeD: (fileId: string, value: string | null) => void
   deleteFile?: (fileId: string) => void
 }
 
@@ -61,6 +78,7 @@ interface SortableFileCardProps {
   editingGlobalEdition: string | null
   globalRenameInput: string
   renamingGlobal: boolean
+  threeDPickerFileId: string | null
   handlers: FileCardHandlers
 }
 
@@ -68,13 +86,14 @@ function SortableFileCard({
   file, partLabel, totalFiles,
   editingEditionFileId, editionInput, savingEdition, editions,
   editingGlobalEdition, globalRenameInput, renamingGlobal,
-  handlers,
+  threeDPickerFileId, handlers,
 }: SortableFileCardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: file.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
 
   const qualityTier = file.videoQualityTier
   const isEditing = editingEditionFileId === file.id
+  const isThreeDPicker = threeDPickerFileId === file.id
 
   return (
     <div
@@ -199,8 +218,26 @@ function SortableFileCard({
       <div className="flex flex-wrap gap-1.5 items-center">
         {qualityTier && <TechBadge label={qualityTier} variant="quality" />}
         {file.hdr && <TechBadge label="HDR" variant="hdr" />}
+        {/* 3D badge — click to open picker */}
+        {file.threeD ? (
+          <button
+            onClick={() => handlers.openThreeDPicker(file.id)}
+            className="flex items-center gap-1 group shrink-0"
+            title="Change 3D format"
+          >
+            <TechBadge label={THREE_D_BADGE[file.threeD] ?? '3D'} variant="hdr" />
+            <span className="text-gray-600 group-hover:text-gray-400 text-xs">✎</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => handlers.openThreeDPicker(file.id)}
+            className="text-xs px-1.5 py-0.5 rounded border border-dashed border-gray-700 text-gray-500 hover:border-teal-600/60 hover:text-teal-400 transition-colors shrink-0"
+            title="Mark as 3D"
+          >
+            ＋ 3D
+          </button>
+        )}
         {file.videoCodec && <TechBadge label={file.videoCodec} />}
-        {file.videoResolution && <TechBadge label={file.videoResolution} />}
         {file.audioCodec && <TechBadge label={file.audioCodec} />}
         {file.audioChannels && <TechBadge label={file.audioChannels} />}
         {file.audioQualityTier && <TechBadge label={file.audioQualityTier} />}
@@ -209,6 +246,29 @@ function SortableFileCard({
           {file.durationS ? ` · ${formatDuration(file.durationS)}` : ''}
         </span>
       </div>
+
+      {/* 3D format picker */}
+      {isThreeDPicker && (
+        <div className="bg-gray-900/60 border border-gray-700 rounded-lg p-3">
+          <p className="text-xs text-gray-500 mb-2">Select 3D format</p>
+          <div className="flex flex-wrap gap-2">
+            {THREE_D_OPTIONS.map((opt) => (
+              <button
+                key={opt.value ?? 'none'}
+                onClick={() => handlers.setThreeD(file.id, opt.value ?? null)}
+                className={`text-xs px-2.5 py-1 rounded border transition-colors ${
+                  file.threeD === opt.value
+                    ? 'bg-teal-900/40 border-teal-600/60 text-teal-300'
+                    : 'border-gray-700 text-gray-400 hover:border-teal-600/40 hover:text-teal-400'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {handlers.deleteFile && (
         <div className="flex justify-end pt-1 border-t border-gray-700/50">
           <button
@@ -254,6 +314,7 @@ export function MovieDetailPage() {
   const [editingEditionFileId, setEditingEditionFileId] = useState<string | null>(null)
   const [editionInput, setEditionInput] = useState('')
   const [savingEdition, setSavingEdition] = useState(false)
+  const [threeDPickerFileId, setThreeDPickerFileId] = useState<string | null>(null)
   const [editions, setEditions] = useState<string[]>([])
   const [editingGlobalEdition, setEditingGlobalEdition] = useState<string | null>(null)
   const [globalRenameInput, setGlobalRenameInput] = useState('')
@@ -406,6 +467,20 @@ export function MovieDetailPage() {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     } finally {
       setRenamingGlobal(false)
+    }
+  }
+
+  function openThreeDPicker(fileId: string) {
+    setThreeDPickerFileId((prev) => prev === fileId ? null : fileId)
+  }
+
+  async function handleSetThreeD(fileId: string, value: string | null) {
+    setThreeDPickerFileId(null)
+    try {
+      await updateFileThreeD(fileId, value)
+      load()
+    } catch {
+      toast({ type: 'error', message: 'Failed to update 3D format' })
     }
   }
 
@@ -934,6 +1009,7 @@ export function MovieDetailPage() {
                       editingGlobalEdition={editingGlobalEdition}
                       globalRenameInput={globalRenameInput}
                       renamingGlobal={renamingGlobal}
+                      threeDPickerFileId={threeDPickerFileId}
                       handlers={{
                         openEditionPicker,
                         closeEditionPicker,
@@ -942,6 +1018,8 @@ export function MovieDetailPage() {
                         setEditingGlobalEdition,
                         setGlobalRenameInput,
                         globalRename: (from) => { void handleGlobalRename(from) },
+                        openThreeDPicker,
+                        setThreeD: (fileId, value) => { void handleSetThreeD(fileId, value) },
                         ...(movie.files.length > 1 ? { deleteFile: (fileId: string) => { void handleDeleteFileSingle(fileId) } } : {}),
                       }}
                     />

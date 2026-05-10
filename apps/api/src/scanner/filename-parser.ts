@@ -128,6 +128,31 @@ function stripNoise(str: string): string {
   return str.replace(NOISE_RE, '').trim()
 }
 
+// Separator between a boundary char and a keyword / between keyword parts.
+// Allows: dot, underscore, dash, space — any single optional separator.
+// sep  = between keyword tokens (e.g. "3D.SBS", "3D SBS", "3D-SBS")
+// bnd  = allowed boundary chars before/after a keyword
+const _3D_SEP = '[\\s._-]?'
+const _3D_BND_L = '[._\\-\\s\\[( ]'
+const _3D_BND_R = '[._\\-\\s\\])]'
+
+// Detect 3D format from a file path by scanning for common keyword patterns.
+// Returns the subtype or null if the file is not 3D.
+// Handles any word separator (. _ - space) between tokens and at boundaries.
+export function detect3DFormat(filePath: string): 'sbs' | 'ou' | 'full_sbs' | 'unknown' | null {
+  const name = filePath.toLowerCase()
+  const b = (inner: string) => new RegExp(`${_3D_BND_L}(?:${inner})${_3D_BND_R}`).test(name)
+  // Full side-by-side — check before generic SBS
+  if (b(`full${_3D_SEP}sbs|3d${_3D_SEP}fsbs|3d${_3D_SEP}full${_3D_SEP}sbs`)) return 'full_sbs'
+  // Side-by-side
+  if (b(`3d${_3D_SEP}sbs|hsbs|h${_3D_SEP}sbs|half${_3D_SEP}sbs|sbs3d`)) return 'sbs'
+  // Over-under
+  if (b(`3d${_3D_SEP}ou|hou|h${_3D_SEP}ou|half${_3D_SEP}ou|ou3d`)) return 'ou'
+  // Generic 3D with no subtype (boundary on both sides, or at end before extension)
+  if (new RegExp(`${_3D_BND_L}3d${_3D_BND_R}`).test(name) || /[._\-\s\[]3d$/.test(name)) return 'unknown'
+  return null
+}
+
 // Parse a movie folder name to extract title and year.
 // Best-effort: extracts (YEAR) if present, otherwise uses folder name as-is.
 // No noise stripping — folder names are closer to canonical than filenames.

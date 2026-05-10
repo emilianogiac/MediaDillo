@@ -156,6 +156,13 @@ export async function updateFileEdition(fileId: string, edition: string | null):
   })
 }
 
+export async function updateFileThreeD(fileId: string, threeD: string | null): Promise<void> {
+  await apiFetch(`/movies/files/${fileId}/threeD`, {
+    method: 'PATCH',
+    body: JSON.stringify({ threeD }),
+  })
+}
+
 export async function fetchEditions(): Promise<string[]> {
   const r = await apiFetch<{ editions: string[] }>('/movies/editions')
   return r.editions

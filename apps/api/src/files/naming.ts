@@ -11,17 +11,26 @@ export function canonicalMovieFolderName(title: string, year: number | null): st
   return year ? `${t} (${year})` : t
 }
 
+const THREE_D_LABELS: Record<string, string> = {
+  sbs: '3D SBS',
+  ou: '3D OU',
+  full_sbs: '3D Full-SBS',
+  unknown: '3D',
+}
+
 export function canonicalMovieFileName(
   title: string,
   year: number | null,
   ext: string,
   partNumber: number | null = null,
   edition: string | null = null,
+  threeD: string | null = null,
 ): string {
   const base = canonicalMovieFolderName(title, year)
   const part = partNumber !== null ? ` - part${partNumber}` : ''
+  const td = threeD ? ` - ${THREE_D_LABELS[threeD] ?? '3D'}` : ''
   const ed = edition ? ` {edition-${edition}}` : ''
-  return `${base}${part}${ed}${ext}`
+  return `${base}${part}${td}${ed}${ext}`
 }
 
 export function canonicalSeasonFolderName(seasonNumber: number): string {

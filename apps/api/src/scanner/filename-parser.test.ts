@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseFilename } from './filename-parser.js'
+import { parseFilename, detect3DFormat } from './filename-parser.js'
 
 describe('parseFilename — movies', () => {
   it('parses clean Jellyfin format', () => {
@@ -122,5 +122,47 @@ describe('parseFilename — TV shows', () => {
   it('parses dot-separated filename with S01.E01 pattern (mpg extension)', () => {
     const r = parseFilename('/tv/Show/S1/Show.S01.E07.Title.mpg')
     expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [7] })
+  })
+})
+
+describe('detect3DFormat', () => {
+  it('returns null for a standard 2D file', () => {
+    expect(detect3DFormat('/movies/Avatar (2009).mkv')).toBeNull()
+  })
+
+  it('detects SBS from .3D.SBS. pattern', () => {
+    expect(detect3DFormat('/movies/Avatar (2009).3D.SBS.mkv')).toBe('sbs')
+  })
+
+  it('detects SBS from HSBS keyword', () => {
+    expect(detect3DFormat('/movies/Avatar.HSBS.mkv')).toBe('sbs')
+  })
+
+  it('detects SBS from H-SBS keyword', () => {
+    expect(detect3DFormat('/movies/Avatar (2009) [H-SBS].mkv')).toBe('sbs')
+  })
+
+  it('detects OU from .3D.OU. pattern', () => {
+    expect(detect3DFormat('/movies/Avatar.3D.OU.mkv')).toBe('ou')
+  })
+
+  it('detects OU from HOU keyword', () => {
+    expect(detect3DFormat('/movies/Avatar (2009) HOU.mkv')).toBe('ou')
+  })
+
+  it('detects full_sbs from full-sbs keyword', () => {
+    expect(detect3DFormat('/movies/Avatar.3D.FULL.SBS.mkv')).toBe('full_sbs')
+  })
+
+  it('detects unknown from standalone [3D] tag', () => {
+    expect(detect3DFormat('/movies/Avatar (2009) [3D].mkv')).toBe('unknown')
+  })
+
+  it('detects unknown from .3D. dot-delimited', () => {
+    expect(detect3DFormat('/movies/Avatar.2009.3D.mkv')).toBe('unknown')
+  })
+
+  it('is case-insensitive', () => {
+    expect(detect3DFormat('/movies/Avatar (2009) [hsbs].mkv')).toBe('sbs')
   })
 })

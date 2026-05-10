@@ -86,7 +86,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         createdAt: true,
         scanRoot: { select: { id: true, label: true, path: true } },
         files: {
-          select: { path: true, edition: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
+          select: { path: true, edition: true, threeD: true, sortOrder: true, videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
           orderBy: [{ sortOrder: 'asc' }, { path: 'asc' }],
         },
       },
@@ -112,7 +112,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         const partNumber = (editionGroupSize.get(key) ?? 1) > 1 ? groupIdx + 1 : null
         const proposed = path.join(
           folderPath,
-          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), partNumber, file.edition ?? null),
+          canonicalMovieFileName(movie.title, movie.year, path.extname(file.path), partNumber, file.edition ?? null, file.threeD ?? null),
         )
         return file.path === proposed
       })
@@ -234,6 +234,23 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       await applyMovieRenames([file.id])
       const updated = await prisma.movieFile.findUnique({ where: { id: file.id } })
       return reply.send({ id: file.id, edition: file.edition, path: updated?.path })
+    },
+  )
+
+  // PATCH /api/movies/files/:fileId/threeD — set or clear 3D format, then rename the file
+  app.patch<{ Params: { fileId: string }; Body: { threeD: string | null } }>(
+    '/movies/files/:fileId/threeD',
+    async (req, reply) => {
+      const { threeD } = req.body
+      const validValues = ['sbs', 'ou', 'full_sbs', 'unknown', null]
+      if (!validValues.includes(threeD)) return reply.code(400).send({ error: 'Invalid threeD value' })
+      const file = await prisma.movieFile.update({
+        where: { id: req.params.fileId },
+        data: { threeD: (threeD as 'sbs' | 'ou' | 'full_sbs' | 'unknown' | null) ?? null },
+      })
+      await applyMovieRenames([file.id])
+      const updated = await prisma.movieFile.findUnique({ where: { id: file.id } })
+      return reply.send({ id: file.id, threeD: file.threeD, path: updated?.path })
     },
   )
 

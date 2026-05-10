@@ -69,7 +69,7 @@ export async function previewMovieRenames(movieIds?: string[]): Promise<RenamePr
       editionGroupIndex.set(key, groupIdx + 1)
       const partNumber = (editionGroupSize.get(key) ?? 1) > 1 ? groupIdx + 1 : null
       const ext = path.extname(file.path)
-      const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
+      const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null, file.threeD ?? null)
       const proposedPath = path.join(folderPath, fileName)
 
       items.push({
