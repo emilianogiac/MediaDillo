@@ -24,6 +24,7 @@ function GripIcon() {
 function SortableFilenameRow({ ep, isOriginal }: { ep: EpisodeDetail; isOriginal: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ep.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
+  const haFile = ep.files.length > 0
   const fileName = ep.files[0]?.path.split('/').pop() ?? ''
 
   return (
@@ -35,24 +36,30 @@ function SortableFilenameRow({ ep, isOriginal }: { ep: EpisodeDetail; isOriginal
           ? 'bg-gray-700 border-accent/60 shadow-lg z-50 opacity-90'
           : !isOriginal
           ? 'bg-yellow-900/20 border-yellow-700/40'
-          : 'bg-surface-raised border-gray-700'
+          : haFile
+          ? 'bg-surface-raised border-gray-700'
+          : 'bg-transparent border-gray-800'
       }`}
     >
       <button
         {...attributes}
         {...listeners}
-        className="cursor-grab active:cursor-grabbing flex-shrink-0 p-0.5 text-gray-600 hover:text-gray-400"
+        className="cursor-grab active:cursor-grabbing flex-shrink-0 p-0.5 text-gray-700 hover:text-gray-500"
         tabIndex={-1}
       >
         <GripIcon />
       </button>
-      <span
-        className="flex-1 min-w-0 text-xs text-gray-400 font-mono overflow-hidden whitespace-nowrap"
-        style={{ direction: 'rtl', textOverflow: 'ellipsis' }}
-        title={ep.files[0]?.path}
-      >
-        {fileName}
-      </span>
+      {haFile ? (
+        <span
+          className="flex-1 min-w-0 text-xs text-gray-400 font-mono overflow-hidden whitespace-nowrap"
+          style={{ direction: 'rtl', textOverflow: 'ellipsis' }}
+          title={ep.files[0]?.path}
+        >
+          {fileName}
+        </span>
+      ) : (
+        <span className="flex-1 text-xs text-gray-700 italic">— missing —</span>
+      )}
     </div>
   )
 }
@@ -69,17 +76,18 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
   const [open, setOpen] = useState(false)
   const [applying, setApplying] = useState(false)
 
-  const ownedEps = useMemo(
-    () => [...episodes.filter((e) => e.files.length > 0)].sort((a, b) => a.episodeNumber - b.episodeNumber),
+  const allEps = useMemo(
+    () => [...episodes].sort((a, b) => a.episodeNumber - b.episodeNumber),
     [episodes],
   )
+  const ownedCount = allEps.filter((e) => e.files.length > 0).length
 
-  const [order, setOrder] = useState<EpisodeDetail[]>(ownedEps)
+  const [order, setOrder] = useState<EpisodeDetail[]>(allEps)
 
-  const isDirty = order.some((ep, i) => ep.id !== ownedEps[i]?.id)
+  const isDirty = order.some((ep, i) => ep.id !== allEps[i]?.id)
 
   function toggleOpen() {
-    if (!open) setOrder(ownedEps)
+    if (!open) setOrder(allEps)
     setOpen((o) => !o)
   }
 
@@ -112,7 +120,7 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
     }
   }
 
-  if (ownedEps.length < 2) return null
+  if (ownedCount < 1 || allEps.length < 2) return null
 
   return (
     <div className="border border-gray-700 rounded-lg overflow-hidden">
@@ -133,12 +141,12 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
           <div className="flex gap-2">
             {/* Fixed left column: correct episode titles */}
             <div className="flex-1 space-y-1">
-              {ownedEps.map((ep) => (
+              {allEps.map((ep) => (
                 <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
                   <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
                     {String(ep.episodeNumber).padStart(2, '0')}
                   </span>
-                  <span className="text-sm text-gray-200 truncate">
+                  <span className={`text-sm truncate ${ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
                     {ep.title ?? `Episode ${ep.episodeNumber}`}
                   </span>
                 </div>
@@ -153,7 +161,7 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
                     <SortableFilenameRow
                       key={ep.id}
                       ep={ep}
-                      isOriginal={ep.id === ownedEps[i]?.id}
+                      isOriginal={ep.id === allEps[i]?.id}
                     />
                   ))}
                 </div>
@@ -171,7 +179,7 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
             </button>
             {isDirty && (
               <button
-                onClick={() => setOrder(ownedEps)}
+                onClick={() => setOrder(allEps)}
                 disabled={applying}
                 className="text-xs text-gray-500 hover:text-accent transition-colors"
               >

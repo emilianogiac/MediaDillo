@@ -434,20 +434,19 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     const season = await prisma.season.findFirst({ where: { showId: req.params.id, seasonNumber } })
     if (!season) return reply.code(404).send({ error: 'Season not found' })
 
-    // Load all owned episodes sorted by episodeNumber — these are the canonical slots
+    // Load ALL episodes (owned + missing) sorted by episodeNumber — these are the canonical slots
     const episodes = await prisma.episode.findMany({
-      where: { seasonId: season.id, files: { some: {} } },
+      where: { seasonId: season.id },
       include: { files: true },
       orderBy: { episodeNumber: 'asc' },
     })
 
-    const ownedIds = new Set(episodes.map((e) => e.id))
-    if (episodeIds.length !== episodes.length || !episodeIds.every((id) => ownedIds.has(id))) {
-      return reply.code(400).send({ error: 'episodeIds must be exactly the set of owned episodes in this season' })
+    const allIds = new Set(episodes.map((e) => e.id))
+    if (episodeIds.length !== episodes.length || !episodeIds.every((id) => allIds.has(id))) {
+      return reply.code(400).send({ error: 'episodeIds must be exactly the full episode list for this season' })
     }
 
     // slotNumbers[i] = the episode number at position i (the target slot for episodeIds[i])
-    // slotTitles[number] = the TMDB title for that episode slot
     const slotNumbers = episodes.map((e) => e.episodeNumber)
     const episodeByNumber = new Map(episodes.map((e) => [e.episodeNumber, e]))
 
@@ -458,8 +457,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       assignments.set(epId, { targetEpisode: target })
     })
 
-    // Only process episodes that actually need to move
-    const toMove = episodes.filter((ep) => assignments.get(ep.id)!.targetEpisode.id !== ep.id)
+    // Only process episodes that have files AND need to move
+    const toMove = episodes.filter((ep) => ep.files.length > 0 && assignments.get(ep.id)!.targetEpisode.id !== ep.id)
     if (toMove.length === 0) return reply.send({ renamed: 0, errors: [] })
 
     const errors: string[] = []
