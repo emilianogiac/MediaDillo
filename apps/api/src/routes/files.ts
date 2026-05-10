@@ -118,6 +118,68 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(202).send({ jobId: job.id, total: entries.length })
   })
 
+  // POST /api/files/rename-batch/shows — background job rename for selected shows
+  app.post<{ Body: { showIds: string[] } }>('/files/rename-batch/shows', async (req, reply) => {
+    const { showIds = [] } = req.body
+    if (showIds.length === 0) {
+      return reply.code(400).send({ error: 'No shows provided' })
+    }
+
+    const previews = await previewEpisodeRenames(showIds)
+    const needsRename = previews.filter((p) => p.needsRename && p.type === 'episode-file')
+    if (needsRename.length === 0) {
+      return reply.send({ jobId: null, total: 0, message: 'All episode files are already canonical' })
+    }
+
+    // Group file IDs by show
+    const shows = await prisma.tvShow.findMany({
+      where: { id: { in: showIds } },
+      select: { id: true, title: true },
+    })
+    const titleMap = new Map(shows.map((s) => [s.id, s.title]))
+
+    const fileIds = needsRename.map((p) => p.id)
+    const files = await prisma.episodeFile.findMany({
+      where: { id: { in: fileIds } },
+      select: { id: true, episode: { select: { season: { select: { showId: true } } } } },
+    })
+
+    const byShow = new Map<string, { title: string; fileIds: string[] }>()
+    for (const f of files) {
+      const showId = f.episode.season.showId
+      if (!byShow.has(showId)) {
+        byShow.set(showId, { title: titleMap.get(showId) ?? showId, fileIds: [] })
+      }
+      byShow.get(showId)!.fileIds.push(f.id)
+    }
+
+    const entries = [...byShow.entries()]
+    const job = createJob(entries.length)
+
+    const run = async () => {
+      for (const [, { title, fileIds: ids }] of entries) {
+        try {
+          const result = await applyEpisodeRenames(ids)
+          if (result.errors.length > 0) {
+            for (const e of result.errors) failJob(job.id, `"${title}": ${e}`)
+          }
+        } catch (err) {
+          failJob(job.id, `"${title}": ${err instanceof Error ? err.message : String(err)}`)
+        }
+        tickJob(job.id)
+      }
+      triggerLibraryRefresh(app.log).catch(() => {})
+      finishJob(job.id)
+    }
+
+    run().catch((err: unknown) => {
+      app.log.error(err, 'Batch show rename failed')
+      finishJob(job.id)
+    })
+
+    return reply.code(202).send({ jobId: job.id, total: entries.length })
+  })
+
   // GET /api/files/rename-log?movieId=xxx
   app.get<{ Querystring: { movieId?: string } }>('/files/rename-log', async (req, reply) => {
     const { movieId } = req.query

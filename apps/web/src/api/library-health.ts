@@ -78,9 +78,9 @@ export async function refreshMetadata(
   })
 }
 
-export async function cleanupBatch(movieIds: string[]): Promise<{ jobId: string; total: number }> {
+export async function cleanupBatch(movieIds: string[], showIds: string[] = []): Promise<{ jobId: string; total: number }> {
   return apiFetch('/library-health/cleanup', {
     method: 'POST',
-    body: JSON.stringify({ movieIds }),
+    body: JSON.stringify({ movieIds, showIds }),
   })
 }

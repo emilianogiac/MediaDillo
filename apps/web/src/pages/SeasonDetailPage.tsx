@@ -8,6 +8,10 @@ import { MergePartsPanel } from '../components/MergePartsPanel.js'
 import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
 import { useToast } from '../context/ToastContext.js'
 
+function Spinner() {
+  return <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-accent animate-spin flex-shrink-0" />
+}
+
 const STATUS_STYLES: Record<EpisodeDetail['status'], string> = {
   owned: 'bg-green-700/60 text-green-300',
   missing: 'bg-red-800/60 text-red-300',
@@ -37,31 +41,34 @@ interface EpisodeRenameInlineProps {
 }
 
 function EpisodeRenameInline({ fileIds, onDone }: EpisodeRenameInlineProps) {
-  const { toast } = useToast()
-  const [state, setState] = useState<'idle' | 'loading' | 'clean' | 'preview' | 'applying'>('idle')
+  const [state, setState] = useState<'idle' | 'loading' | 'clean' | 'preview' | 'applying' | 'error'>('idle')
   const [items, setItems] = useState<RenamePreviewItem[]>([])
+  const [renameErrors, setRenameErrors] = useState<string[]>([])
 
   async function check() {
     setState('loading')
+    setRenameErrors([])
     try {
       const preview = await fetchEpisodeFileRenamePreview(fileIds)
       const needsRename = preview.filter((p) => p.needsRename && p.type === 'episode-file')
       setItems(needsRename)
       setState(needsRename.length === 0 ? 'clean' : 'preview')
-    } catch {
-      setState('idle')
+    } catch (e) {
+      setRenameErrors([e instanceof Error ? e.message : 'Failed to load preview'])
+      setState('error')
     }
   }
 
   async function apply() {
     setState('applying')
+    setRenameErrors([])
     try {
       const result = await applyRenames('episodes', items.map((i) => i.id))
-      toast({ type: 'success', message: `${result.renamed} file${result.renamed !== 1 ? 's' : ''} renamed` })
+      if (result.errors.length > 0) setRenameErrors(result.errors)
       setState('idle')
       onDone()
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+      setRenameErrors([e instanceof Error ? e.message : 'Rename failed'])
       setState('preview')
     }
   }
@@ -73,12 +80,21 @@ function EpisodeRenameInline({ fileIds, onDone }: EpisodeRenameInlineProps) {
       </button>
     )
   }
-  if (state === 'loading') return <span className="text-xs text-gray-500">…</span>
+  if (state === 'loading') return <span className="flex items-center gap-1.5"><Spinner /><span className="text-xs text-gray-500">Checking…</span></span>
+  if (state === 'applying') return <span className="flex items-center gap-1.5"><Spinner /><span className="text-xs text-gray-500">Renaming…</span></span>
   if (state === 'clean') return <span className="text-xs text-green-600">✓ canonical</span>
-  if (state === 'applying') return <span className="text-xs text-gray-500">Renaming…</span>
+  if (state === 'error') {
+    return (
+      <div className="space-y-1">
+        {renameErrors.map((e, i) => <p key={i} className="text-xs text-red-400">✗ {e}</p>)}
+        <button onClick={check} className="text-xs text-gray-500 hover:text-accent">Retry</button>
+      </div>
+    )
+  }
   if (state === 'preview') {
     return (
       <div className="space-y-1">
+        {renameErrors.map((e, i) => <p key={i} className="text-xs text-red-400">✗ {e}</p>)}
         {items.map((item) => (
           <p key={item.id} className="text-xs text-gray-400 font-mono truncate" title={item.proposedPath}>
             → {shortName(item.proposedPath)}
@@ -100,6 +116,7 @@ export function SeasonDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
+  const [rescanError, setRescanError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (!id || !seasonNumber) return
@@ -116,12 +133,13 @@ export function SeasonDetailPage() {
     if (!id || !seasonNumber) return
     setRescanning(true)
     setRescanResult(null)
+    setRescanError(null)
     try {
       const result = await rescanSeason(id, parseInt(seasonNumber, 10))
       setRescanResult(result)
       load()
-    } catch {
-      // ignore, button will just stop spinning
+    } catch (e) {
+      setRescanError(e instanceof Error ? e.message : 'Rescan failed')
     } finally {
       setRescanning(false)
     }
@@ -164,38 +182,52 @@ export function SeasonDetailPage() {
         <button
           onClick={handleRescan}
           disabled={rescanning}
-          className="ml-auto text-xs px-3 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+          className="ml-auto text-xs px-3 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
         >
+          {rescanning && <Spinner />}
           {rescanning ? 'Scanning…' : 'Rescan'}
         </button>
-        {rescanResult && (
-          <span className={`text-xs ${rescanResult.folderFound ? 'text-gray-500' : 'text-red-400'}`}>
-            {!rescanResult.folderFound
-              ? 'Folder not found on disk'
-              : rescanResult.added + rescanResult.changed + rescanResult.removed === 0 && rescanResult.filesSkipped.length === 0
-              ? `Up to date (${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned)`
-              : [
-                  rescanResult.filesFound > 0 && `${rescanResult.filesFound} found`,
-                  rescanResult.added > 0 && `${rescanResult.added} added`,
-                  rescanResult.changed > 0 && `${rescanResult.changed} changed`,
-                  rescanResult.removed > 0 && `${rescanResult.removed} removed`,
-                  rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
-                ].filter(Boolean).join(', ')}
-          </span>
-        )}
       </div>
 
-      {/* Rescan skipped files */}
-      {rescanResult && rescanResult.filesSkipped.length > 0 && (
-        <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-lg px-4 py-3 space-y-1">
-          <p className="text-xs font-medium text-yellow-400">Skipped files</p>
-          {rescanResult.filesSkipped.map((f, i) => (
-            <div key={i} className="text-xs text-gray-400 font-mono truncate" title={f.path}>
-              <span className="text-yellow-600">{f.reason}</span>
-              {' — '}
-              {f.path.split('/').pop()}
+      {/* Rescan status */}
+      {(rescanning || rescanError || rescanResult) && (
+        <div className={`rounded-lg border px-4 py-3 space-y-2 text-sm ${
+          rescanError ? 'bg-red-900/20 border-red-700/40' :
+          rescanResult && !rescanResult.folderFound ? 'bg-red-900/20 border-red-700/40' :
+          'bg-surface-raised border-gray-700'
+        }`}>
+          {rescanning && (
+            <div className="flex items-center gap-2 text-gray-400">
+              <Spinner />
+              <span>Scanning season folder…</span>
             </div>
-          ))}
+          )}
+          {rescanError && (
+            <p className="text-red-400">✗ {rescanError}</p>
+          )}
+          {rescanResult && !rescanning && (
+            <p className={rescanResult.folderFound ? 'text-gray-300' : 'text-red-400'}>
+              {!rescanResult.folderFound
+                ? '✗ Season folder not found on disk'
+                : [
+                    `${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned`,
+                    rescanResult.added > 0 && `${rescanResult.added} added`,
+                    rescanResult.changed > 0 && `${rescanResult.changed} changed`,
+                    rescanResult.removed > 0 && `${rescanResult.removed} removed`,
+                    rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
+                  ].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {rescanResult?.filesSkipped.length ? (
+            <div className="space-y-1 pt-1 border-t border-gray-700/60">
+              <p className="text-xs font-medium text-yellow-400">Skipped</p>
+              {rescanResult.filesSkipped.map((f, i) => (
+                <p key={i} className="text-xs text-gray-400 font-mono truncate" title={f.path}>
+                  <span className="text-yellow-600">{f.reason}</span>{' — '}{f.path.split('/').pop()}
+                </p>
+              ))}
+            </div>
+          ) : null}
         </div>
       )}
 

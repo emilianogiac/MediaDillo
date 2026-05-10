@@ -6,7 +6,10 @@ import { TmdbClient } from '../metadata/tmdb-client.js'
 import { getApiConfig } from '../api-config.js'
 import { createJob, getJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
+import { detectStaleFiles } from '../scanner/stale-detector.js'
+import { readdir } from 'node:fs/promises'
 import fs from 'node:fs/promises'
+import path from 'node:path'
 import { getAutoCleanupSetting } from './settings.js'
 
 export interface HealthItem {
@@ -332,19 +335,43 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
     return reply.code(202).send({ jobId: job.id, total: job.total })
   })
 
-  // POST /library-health/cleanup — batch delete safe-to-delete files across multiple movie folders
-  app.post<{ Body: { movieIds?: string[] } }>('/library-health/cleanup', async (req, reply) => {
-    const { movieIds = [] } = req.body
-    if (movieIds.length === 0) {
-      return reply.code(400).send({ error: 'No movies provided' })
+  // POST /library-health/cleanup — batch delete safe-to-delete files across movie and/or show folders
+  app.post<{ Body: { movieIds?: string[]; showIds?: string[] } }>('/library-health/cleanup', async (req, reply) => {
+    const { movieIds = [], showIds = [] } = req.body
+    if (movieIds.length === 0 && showIds.length === 0) {
+      return reply.code(400).send({ error: 'No movies or shows provided' })
     }
 
-    const movies = await prisma.movie.findMany({
-      where: { id: { in: movieIds } },
-      select: { id: true, title: true },
-    })
+    const [movies, shows] = await Promise.all([
+      prisma.movie.findMany({ where: { id: { in: movieIds } }, select: { id: true, title: true } }),
+      prisma.tvShow.findMany({
+        where: { id: { in: showIds } },
+        select: {
+          id: true,
+          title: true,
+          seasons: { take: 1, select: { episodes: { take: 1, select: { files: { take: 1, select: { path: true } } } } } },
+        },
+      }),
+    ])
 
-    const job = createJob(movies.length)
+    const job = createJob(movies.length + shows.length)
+
+    // Find and delete stale-extension files in a folder tree (non-destructively skips videos/art/NFOs)
+    async function cleanShowFolder(dir: string, knownPaths: Set<string>) {
+      let entries: string[]
+      try { entries = await readdir(dir) } catch { return }
+      const stale = await detectStaleFiles(dir, knownPaths)
+      for (const f of stale) {
+        // Only auto-delete explicitly stale extensions — never "unrecognized" or "video not in library"
+        if (f.reason.startsWith('stale file type')) {
+          try { await fs.unlink(f.path) } catch { /* skip */ }
+        }
+      }
+      for (const entry of entries) {
+        if (entry.startsWith('.')) continue
+        if (!path.extname(entry)) await cleanShowFolder(path.join(dir, entry), knownPaths)
+      }
+    }
 
     const run = async () => {
       for (const movie of movies) {
@@ -353,11 +380,29 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
           if (scanned) {
             const toDelete = scanned.files.filter((f) => BATCH_SAFE_TO_DELETE.has(f.category))
             for (const f of toDelete) {
-              try { await fs.unlink(f.path) } catch { /* skip unreadable */ }
+              try { await fs.unlink(f.path) } catch { /* skip */ }
             }
           }
         } catch (err) {
           failJob(job.id, `"${movie.title}": ${err instanceof Error ? err.message : String(err)}`)
+        }
+        tickJob(job.id)
+      }
+      for (const show of shows) {
+        try {
+          const firstPath = show.seasons[0]?.episodes[0]?.files[0]?.path
+          if (firstPath) {
+            const showFolder = path.dirname(path.dirname(firstPath))
+            const knownPaths = new Set(
+              (await prisma.episodeFile.findMany({
+                where: { episode: { season: { showId: show.id } } },
+                select: { path: true },
+              })).map((f) => f.path),
+            )
+            await cleanShowFolder(showFolder, knownPaths)
+          }
+        } catch (err) {
+          failJob(job.id, `"${show.title}": ${err instanceof Error ? err.message : String(err)}`)
         }
         tickJob(job.id)
       }

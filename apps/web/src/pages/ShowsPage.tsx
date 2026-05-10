@@ -3,7 +3,8 @@ import { Link, useSearchParams, useLocation } from 'react-router-dom'
 import type { ShowSummary, ScanRoot } from '../api/types.js'
 import { fetchShows, deleteShow } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
-import { refreshMetadata } from '../api/library-health.js'
+import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
+import { renameBatchShows } from '../api/files.js'
 import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
@@ -420,6 +421,30 @@ export function ShowsPage() {
     }
   }
 
+  async function handleBatchRename() {
+    if (selected.size === 0) return
+    try {
+      const { jobId, total, message } = await renameBatchShows([...selected])
+      if (!jobId) {
+        toast({ type: 'success', message: message ?? 'Nothing to rename' })
+        return
+      }
+      trackJob({ label: `Renaming ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+    }
+  }
+
+  async function handleBatchCleanup() {
+    if (selected.size === 0) return
+    try {
+      const { jobId, total } = await cleanupBatch([], [...selected])
+      trackJob({ label: `Cleaning ${total} show folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
+    }
+  }
+
   const activeScanRoot = scanRoots.find((r) => r.id === filter.scanRootId)
 
   return (
@@ -687,6 +712,18 @@ export function ShowsPage() {
             className="text-xs px-3 py-1.5 rounded bg-accent/20 border border-accent/40 text-accent hover:bg-accent/30 transition-colors"
           >
             Rematch
+          </button>
+          <button
+            onClick={() => { void handleBatchRename() }}
+            className="text-xs px-3 py-1.5 rounded bg-blue-700/20 border border-blue-700/40 text-blue-400 hover:bg-blue-700/30 transition-colors"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => { void handleBatchCleanup() }}
+            className="text-xs px-3 py-1.5 rounded bg-gray-700/40 border border-gray-600/60 text-gray-300 hover:bg-gray-700/60 transition-colors"
+          >
+            Cleanup
           </button>
           <button
             onClick={handleBatchDelete}

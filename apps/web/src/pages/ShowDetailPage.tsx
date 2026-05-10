@@ -10,6 +10,10 @@ import { OrganizePanel } from '../components/OrganizePanel.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
 
+function Spinner() {
+  return <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-accent animate-spin flex-shrink-0" />
+}
+
 function completenessBar(owned: number, total: number) {
   if (total === 0) return null
   const pct = Math.round((owned / total) * 100)
@@ -47,6 +51,9 @@ export function ShowDetailPage() {
   const [artworkVersion, setArtworkVersion] = useState(() => Date.now())
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
+  const [rescanError, setRescanError] = useState<string | null>(null)
+  const [rematchStatus, setRematchStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [renameStatus, setRenameStatus] = useState<{ type: 'success' | 'error'; message: string; errors?: string[] } | null>(null)
 
   const load = useCallback(() => {
     if (!id) return
@@ -63,12 +70,13 @@ export function ShowDetailPage() {
   async function handleRematch() {
     if (!id || !show?.tmdbId) return
     setRematching(true)
+    setRematchStatus(null)
     try {
       await matchShow(id, show.tmdbId)
       load()
-      toast({ type: 'success', message: 'Metadata refreshed from TMDB' })
+      setRematchStatus({ type: 'success', message: 'Metadata refreshed from TMDB' })
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
+      setRematchStatus({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     } finally {
       setRematching(false)
     }
@@ -77,16 +85,21 @@ export function ShowDetailPage() {
   async function handleRenameAll() {
     if (!id) return
     setRenaming(true)
+    setRenameStatus(null)
     try {
       const result = await renameAllShowEpisodes(id)
       if (result.renamed === 0) {
-        toast({ type: 'success', message: 'All filenames are already canonical' })
+        setRenameStatus({ type: 'success', message: 'All filenames are already canonical' })
       } else {
-        toast({ type: 'success', message: `${result.renamed} episode file${result.renamed !== 1 ? 's' : ''} renamed` })
+        setRenameStatus({
+          type: result.errors.length > 0 ? 'error' : 'success',
+          message: `${result.renamed} file${result.renamed !== 1 ? 's' : ''} renamed${result.errors.length > 0 ? ` — ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : ''}`,
+          ...(result.errors.length > 0 ? { errors: result.errors } : {}),
+        })
         load()
       }
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
+      setRenameStatus({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     } finally {
       setRenaming(false)
     }
@@ -110,12 +123,13 @@ export function ShowDetailPage() {
     if (!id) return
     setRescanning(true)
     setRescanResult(null)
+    setRescanError(null)
     try {
       const result = await rescanShow(id)
       setRescanResult(result)
       load()
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Rescan failed' })
+      setRescanError(e instanceof Error ? e.message : 'Rescan failed')
     } finally {
       setRescanning(false)
     }
@@ -277,9 +291,10 @@ export function ShowDetailPage() {
                 <button
                   onClick={() => { void handleRematch() }}
                   disabled={rematching}
-                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+                  className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
                   title="Refresh metadata from TMDB using current match"
                 >
+                  {rematching && <Spinner />}
                   {rematching ? 'Refreshing…' : 'Re-match'}
                 </button>
                 <button
@@ -301,17 +316,19 @@ export function ShowDetailPage() {
             <button
               onClick={() => { void handleRenameAll() }}
               disabled={renaming}
-              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
               title="Rename all episode files to canonical format"
             >
+              {renaming && <Spinner />}
               {renaming ? 'Renaming…' : 'Rename all episodes'}
             </button>
             <button
               onClick={() => { void handleRescan() }}
               disabled={rescanning}
-              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40"
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
               title="Rescan show folder for new or changed episode files"
             >
+              {rescanning && <Spinner />}
               {rescanning ? 'Scanning…' : 'Rescan'}
             </button>
             <button
@@ -326,30 +343,60 @@ export function ShowDetailPage() {
         </div>
       </div>
 
-      {/* Rescan result */}
-      {rescanResult && (
-        <div className={`rounded-lg border px-4 py-3 space-y-2 ${rescanResult.folderFound ? 'bg-surface-raised border-gray-700' : 'bg-red-900/20 border-red-700/40'}`}>
-          <p className={`text-sm font-medium ${rescanResult.folderFound ? 'text-gray-300' : 'text-red-400'}`}>
-            {!rescanResult.folderFound
-              ? 'Show folder not found on disk'
-              : [
-                  `${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned`,
-                  rescanResult.added > 0 && `${rescanResult.added} added`,
-                  rescanResult.changed > 0 && `${rescanResult.changed} changed`,
-                  rescanResult.removed > 0 && `${rescanResult.removed} removed`,
-                  rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
-                ].filter(Boolean).join(' · ')}
-          </p>
-          {rescanResult.filesSkipped.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-xs text-yellow-400 font-medium">Skipped</p>
+      {/* Inline operation status panels */}
+      {(rematchStatus || rematching) && (
+        <div className={`rounded-lg border px-4 py-3 flex items-center gap-2 text-sm ${rematchStatus?.type === 'error' ? 'bg-red-900/20 border-red-700/40 text-red-400' : 'bg-surface-raised border-gray-700 text-gray-300'}`}>
+          {rematching && <Spinner />}
+          {rematchStatus && <span>{rematchStatus.type === 'success' ? '✓' : '✗'} {rematchStatus.message}</span>}
+          {rematching && <span>Fetching metadata from TMDB…</span>}
+        </div>
+      )}
+
+      {(renameStatus || renaming) && (
+        <div className={`rounded-lg border px-4 py-3 space-y-2 text-sm ${renameStatus?.type === 'error' ? 'bg-red-900/20 border-red-700/40' : 'bg-surface-raised border-gray-700'}`}>
+          {renaming && (
+            <div className="flex items-center gap-2 text-gray-400"><Spinner /><span>Renaming episode files…</span></div>
+          )}
+          {renameStatus && !renaming && (
+            <p className={renameStatus.type === 'success' ? 'text-gray-300' : 'text-red-400'}>
+              {renameStatus.type === 'success' ? '✓' : '✗'} {renameStatus.message}
+            </p>
+          )}
+          {renameStatus?.errors?.map((e, i) => (
+            <p key={i} className="text-xs text-red-400 font-mono">↳ {e}</p>
+          ))}
+        </div>
+      )}
+
+      {(rescanning || rescanError || rescanResult) && (
+        <div className={`rounded-lg border px-4 py-3 space-y-2 ${rescanError || (rescanResult && !rescanResult.folderFound) ? 'bg-red-900/20 border-red-700/40' : 'bg-surface-raised border-gray-700'}`}>
+          {rescanning && (
+            <div className="flex items-center gap-2 text-sm text-gray-400"><Spinner /><span>Scanning show folder…</span></div>
+          )}
+          {rescanError && <p className="text-sm text-red-400">✗ {rescanError}</p>}
+          {rescanResult && !rescanning && (
+            <p className={`text-sm ${rescanResult.folderFound ? 'text-gray-300' : 'text-red-400'}`}>
+              {!rescanResult.folderFound
+                ? '✗ Show folder not found on disk'
+                : [
+                    `${rescanResult.filesFound} file${rescanResult.filesFound !== 1 ? 's' : ''} scanned`,
+                    rescanResult.added > 0 && `${rescanResult.added} added`,
+                    rescanResult.changed > 0 && `${rescanResult.changed} changed`,
+                    rescanResult.removed > 0 && `${rescanResult.removed} removed`,
+                    rescanResult.filesSkipped.length > 0 && `${rescanResult.filesSkipped.length} skipped`,
+                  ].filter(Boolean).join(' · ')}
+            </p>
+          )}
+          {rescanResult?.filesSkipped.length ? (
+            <div className="space-y-1 pt-1 border-t border-gray-700/60">
+              <p className="text-xs font-medium text-yellow-400">Skipped</p>
               {rescanResult.filesSkipped.map((f, i) => (
                 <p key={i} className="text-xs text-gray-400 font-mono truncate" title={f.path}>
                   <span className="text-yellow-600">{f.reason}</span>{' — '}{f.path.split('/').pop()}
                 </p>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

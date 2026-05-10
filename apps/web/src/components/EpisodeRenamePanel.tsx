@@ -3,6 +3,10 @@ import type { RenamePreviewItem } from '../api/files.js'
 import { applyRenames } from '../api/files.js'
 import { useToast } from '../context/ToastContext.js'
 
+function Spinner() {
+  return <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-accent animate-spin flex-shrink-0" />
+}
+
 interface Props {
   fetchPreview: () => Promise<RenamePreviewItem[]>
   onDone: () => void
@@ -86,7 +90,9 @@ export function EpisodeRenamePanel({ fetchPreview, onDone, title = 'Rename Episo
 
       {open && (
         <div className="p-4 space-y-4 bg-surface border-t border-gray-700">
-          {loading && <p className="text-sm text-gray-400">Scanning…</p>}
+          {loading && (
+            <div className="flex items-center gap-2 text-sm text-gray-400"><Spinner /><span>Scanning…</span></div>
+          )}
 
           {result && result.errors.map((e, i) => (
             <p key={i} className="text-sm text-red-400">✗ {e}</p>
@@ -131,8 +137,9 @@ export function EpisodeRenamePanel({ fetchPreview, onDone, title = 'Rename Episo
                 <button
                   onClick={apply}
                   disabled={applying || !hasSelection}
-                  className="text-sm px-4 py-1.5 rounded bg-accent text-black font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-sm px-4 py-1.5 rounded bg-accent text-black font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
                 >
+                  {applying && <Spinner />}
                   {applying ? 'Renaming…' : `Rename ${selected.size} file${selected.size !== 1 ? 's' : ''}`}
                 </button>
                 <button onClick={load} disabled={loading} className="text-xs text-gray-500 hover:text-accent transition-colors">
