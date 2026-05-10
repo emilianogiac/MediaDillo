@@ -175,7 +175,7 @@ export async function previewEpisodeRenames(showIds?: string[]): Promise<RenameP
   const episodes = await prisma.episode.findMany({
     where: whereClause,
     include: {
-      files: true,
+      files: { orderBy: { path: 'asc' } },
       season: { include: { show: true } },
     },
   })

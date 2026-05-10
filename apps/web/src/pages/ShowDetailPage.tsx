@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -52,6 +52,8 @@ export function ShowDetailPage() {
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
   const [rescanError, setRescanError] = useState<string | null>(null)
+  const [cleaning, setCleaning] = useState(false)
+  const [cleanupStatus, setCleanupStatus] = useState<{ type: 'success' | 'error'; message: string; errors?: string[] } | null>(null)
   const [rematchStatus, setRematchStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [renameStatus, setRenameStatus] = useState<{ type: 'success' | 'error'; message: string; errors?: string[] } | null>(null)
   const [editingTvdbId, setEditingTvdbId] = useState(false)
@@ -160,6 +162,28 @@ export function ShowDetailPage() {
       setRescanError(e instanceof Error ? e.message : 'Rescan failed')
     } finally {
       setRescanning(false)
+    }
+  }
+
+  async function handleCleanup() {
+    if (!id) return
+    setCleaning(true)
+    setCleanupStatus(null)
+    try {
+      const result = await cleanupStaleFiles(id)
+      if (result.trashed === 0 && result.errors.length === 0) {
+        setCleanupStatus({ type: 'success', message: 'No stale files found' })
+      } else {
+        setCleanupStatus({
+          type: result.errors.length > 0 ? 'error' : 'success',
+          message: `${result.trashed} stale file${result.trashed !== 1 ? 's' : ''} removed${result.errors.length > 0 ? ` — ${result.errors.length} error${result.errors.length !== 1 ? 's' : ''}` : ''}`,
+          ...(result.errors.length > 0 ? { errors: result.errors } : {}),
+        })
+      }
+    } catch (e) {
+      setCleanupStatus({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
+    } finally {
+      setCleaning(false)
     }
   }
 
@@ -400,6 +424,15 @@ export function ShowDetailPage() {
               {renaming ? 'Renaming…' : 'Rename all episodes'}
             </button>
             <button
+              onClick={() => { void handleCleanup() }}
+              disabled={cleaning}
+              className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
+              title="Auto-trash stale and orphaned files from the show folder"
+            >
+              {cleaning && <Spinner />}
+              {cleaning ? 'Cleaning…' : 'Cleanup Show'}
+            </button>
+            <button
               onClick={() => { void handleRescan() }}
               disabled={rescanning}
               className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
@@ -440,6 +473,22 @@ export function ShowDetailPage() {
             </p>
           )}
           {renameStatus?.errors?.map((e, i) => (
+            <p key={i} className="text-xs text-red-400 font-mono">↳ {e}</p>
+          ))}
+        </div>
+      )}
+
+      {(cleanupStatus || cleaning) && (
+        <div className={`rounded-lg border px-4 py-3 space-y-2 text-sm ${cleanupStatus?.type === 'error' ? 'bg-red-900/20 border-red-700/40' : 'bg-surface-raised border-gray-700'}`}>
+          {cleaning && (
+            <div className="flex items-center gap-2 text-gray-400"><Spinner /><span>Scanning for stale files…</span></div>
+          )}
+          {cleanupStatus && !cleaning && (
+            <p className={cleanupStatus.type === 'success' ? 'text-gray-300' : 'text-red-400'}>
+              {cleanupStatus.type === 'success' ? '✓' : '✗'} {cleanupStatus.message}
+            </p>
+          )}
+          {cleanupStatus?.errors?.map((e, i) => (
             <p key={i} className="text-xs text-red-400 font-mono">↳ {e}</p>
           ))}
         </div>

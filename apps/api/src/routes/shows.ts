@@ -230,17 +230,26 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     let trashed = 0
     const errors: string[] = []
 
+    const showFolderItems: RenamePreviewItem[] = []
     if (renames && renames.length > 0) {
-      // Separate show-folder items (type: 'show-folder') from file items
-      // by fetching the full preview and splitting
       const allItems = await previewEpisodeRenames([req.params.id])
-      const showFolderItems = allItems.filter((i) => i.type === 'show-folder' && i.needsRename)
+      showFolderItems.push(...allItems.filter((i) => i.type === 'show-folder' && i.needsRename))
       const result = await applyEpisodeRenames(renames, showFolderItems)
       renamed = result.renamed
       errors.push(...result.errors)
     }
 
-    for (const filePath of (trash ?? [])) {
+    // Remap trash paths if a show folder was renamed during the apply above
+    const remappedTrash = (trash ?? []).map((p) => {
+      for (const item of showFolderItems) {
+        if (p.startsWith(item.currentPath + '/')) {
+          return item.proposedPath + p.slice(item.currentPath.length)
+        }
+      }
+      return p
+    })
+
+    for (const filePath of remappedTrash) {
       try {
         await deleteToTrash(filePath)
         trashed++
@@ -250,6 +259,56 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return reply.send({ renamed, trashed, errors })
+  })
+
+  // POST /api/shows/:id/cleanup-stale — auto-trash all stale files in the show folder
+  app.post<{ Params: { id: string } }>('/shows/:id/cleanup-stale', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({
+      where: { id: req.params.id },
+      include: {
+        seasons: {
+          include: { episodes: { include: { files: { select: { path: true } } } } },
+        },
+      },
+    })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    const firstFilePath = show.seasons
+      .flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
+      .sort()[0]
+    if (!firstFilePath) return reply.send({ trashed: 0, errors: [] })
+
+    const showFolder = path.dirname(path.dirname(firstFilePath))
+    const knownPaths = new Set(
+      show.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path))),
+    )
+
+    const stalePaths: string[] = []
+    async function walkForStale(dir: string) {
+      let entries: string[]
+      try { entries = await readdir(dir) } catch { return }
+      const staleInDir = await detectStaleFiles(dir, knownPaths)
+      stalePaths.push(...staleInDir.map((s) => s.path))
+      for (const entry of entries) {
+        if (entry.startsWith('.')) continue
+        const full = path.join(dir, entry)
+        if (!path.extname(entry)) await walkForStale(full)
+      }
+    }
+    await walkForStale(showFolder)
+
+    let trashed = 0
+    const errors: string[] = []
+    for (const p of stalePaths) {
+      try {
+        await deleteToTrash(p)
+        trashed++
+      } catch (err) {
+        errors.push(`${p}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    return reply.send({ trashed, errors })
   })
 
   // POST /api/shows/:id/rescan — rescan the entire show folder
@@ -367,7 +426,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     // Load episodes to renumber, ordered DESC to avoid collision when shifting down
     const episodes = await prisma.episode.findMany({
       where: { seasonId: season.id, episodeNumber: { gte: fromEpisode } },
-      include: { files: true },
+      include: { files: { orderBy: { path: 'asc' } } },
       orderBy: { episodeNumber: shift < 0 ? 'asc' : 'desc' },
     })
 
@@ -380,7 +439,9 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       for (const file of ep.files) {
         const ext = path.extname(file.path)
         const dir = path.dirname(file.path)
-        const newName = canonicalEpisodeFileName(show.title, seasonNumber, newEpNum, ep.title, ext)
+        const fileIdx = ep.files.findIndex((f) => f.id === file.id)
+        const partNumber = ep.files.length > 1 ? fileIdx + 1 : null
+        const newName = canonicalEpisodeFileName(show.title, seasonNumber, newEpNum, ep.title, ext, file.multiEpisodeEnd ?? null, partNumber)
         const newPath = path.join(dir, newName)
         if (newPath === file.path) continue
         try {
@@ -492,14 +553,28 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       await prisma.episodeFile.update({ where: { id: file.id }, data: { episodeId: target.id } })
     }
 
+    // Group successful fileJobs by target episode (sorted by original path) for part numbering
+    const jobsByTarget = new Map<string, Array<{ file: (typeof fileJobs)[0]['file']; target: (typeof fileJobs)[0]['target'] }>>()
+    for (const job of fileJobs) {
+      if (!tmpPaths.has(job.file.id)) continue
+      if (!jobsByTarget.has(job.target.id)) jobsByTarget.set(job.target.id, [])
+      jobsByTarget.get(job.target.id)!.push(job)
+    }
+    for (const jobs of jobsByTarget.values()) {
+      jobs.sort((a, b) => (a.file.path < b.file.path ? -1 : 1))
+    }
+
     // Phase 2: rename tmp → canonical final name
     for (const { file, target } of fileJobs) {
       const tmpPath = tmpPaths.get(file.id)
       if (!tmpPath) continue
       const ext = path.extname(file.path)
       const dir = path.dirname(tmpPath)
+      const targetJobs = jobsByTarget.get(target.id)!
+      const fileIdx = targetJobs.findIndex((j) => j.file.id === file.id)
+      const partNumber = targetJobs.length > 1 ? fileIdx + 1 : null
       const finalName = canonicalEpisodeFileName(
-        show.title, seasonNumber, target.episodeNumber, target.title, ext, file.multiEpisodeEnd ?? null,
+        show.title, seasonNumber, target.episodeNumber, target.title, ext, file.multiEpisodeEnd ?? null, partNumber,
       )
       const finalPath = path.join(dir, finalName)
       try {

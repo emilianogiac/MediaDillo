@@ -132,6 +132,10 @@ export async function rescanShow(showId: string): Promise<RescanResult> {
   return apiFetch(`/shows/${showId}/rescan`, { method: 'POST' })
 }
 
+export async function cleanupStaleFiles(showId: string): Promise<{ trashed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/cleanup-stale`, { method: 'POST' })
+}
+
 export async function reorderEpisodes(
   showId: string,
   seasonNumber: number,
