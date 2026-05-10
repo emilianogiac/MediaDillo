@@ -339,7 +339,7 @@ export function ShowDetailPage() {
                   onClick={() => { void handleRematch() }}
                   disabled={rematching}
                   className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
-                  title="Refresh metadata from TMDB using current match"
+                  title="Refresh metadata (episodes from TVDB if configured, artwork from TMDB)"
                 >
                   {rematching && <Spinner />}
                   {rematching ? 'Refreshing…' : 'Re-match'}
@@ -395,7 +395,7 @@ export function ShowDetailPage() {
         <div className={`rounded-lg border px-4 py-3 flex items-center gap-2 text-sm ${rematchStatus?.type === 'error' ? 'bg-red-900/20 border-red-700/40 text-red-400' : 'bg-surface-raised border-gray-700 text-gray-300'}`}>
           {rematching && <Spinner />}
           {rematchStatus && <span>{rematchStatus.type === 'success' ? '✓' : '✗'} {rematchStatus.message}</span>}
-          {rematching && <span>Fetching metadata from TMDB…</span>}
+          {rematching && <span>Fetching metadata…</span>}
         </div>
       )}
 
