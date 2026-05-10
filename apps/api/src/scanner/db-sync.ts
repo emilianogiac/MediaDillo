@@ -345,13 +345,28 @@ export async function syncMovieFolder(
 
 export async function syncEpisodeFile(
   file: ScannedFile,
+  scanRootPath?: string,
 ): Promise<'added' | 'changed' | 'unchanged'> {
   if (file.parsed.type !== 'tv') throw new Error('Expected TV file')
   const { show, year, season: seasonNum, episodes, episodeTitle } = file.parsed
   const specs = file.techSpecs
 
-  // Show root folder is 2 levels up from the episode file (show/Season XX/episode.mkv)
-  const showFolder = path.dirname(path.dirname(file.path))
+  // Derive show folder. The standard structure is:
+  //   <scanRoot>/<ShowFolder>/Season N/<episode.mkv>   → 2 levels up from file
+  //
+  // But some shows place episodes directly in the show folder with no season
+  // subfolder:
+  //   <scanRoot>/<ShowFolder>/<episode.mkv>            → 1 level up from file
+  //
+  // Detect that case: if going 2 levels up lands at (or above) the scan root,
+  // the episode must be directly inside the show folder, so go only 1 level up.
+  const fileDir = path.dirname(file.path)
+  const twoUp = path.dirname(fileDir)
+  const showFolder =
+    scanRootPath && (twoUp === scanRootPath || !fileDir.startsWith(scanRootPath + path.sep))
+      ? fileDir
+      : twoUp
+
   const [showArtwork, showNfo, episodeNfo] = await Promise.all([
     detectLocalArtwork(showFolder),
     parseShowNfo(showFolder),
@@ -363,15 +378,31 @@ export async function syncEpisodeFile(
   const showTitle = episodeNfo?.showtitle ?? showNfo?.title ?? show
 
   // Find or create TvShow.
-  // Try exact match (title + year) first, then title-only fallback — year is
-  // often inconsistently included in episode filenames, which would otherwise
-  // create a separate TvShow record per uniquely-named file.
-  let tvShow =
-    (year !== null
-      ? await prisma.tvShow.findFirst({ where: { title: showTitle, year } })
-      : null) ??
-    await prisma.tvShow.findFirst({ where: { title: showTitle, year: null } }) ??
-    await prisma.tvShow.findFirst({ where: { title: showTitle } })
+  //
+  // Priority 1: anchor on showFolder — find any existing EpisodeFile whose path
+  // lives under the show folder and return its TvShow. This is the most reliable
+  // signal and prevents duplicate creation when a title varies slightly between
+  // files (e.g. year present in one filename but not another, or NFO showtitle
+  // differs from a previously-used filename title).
+  const existingFileUnderFolder = await prisma.episodeFile.findFirst({
+    where: { path: { startsWith: showFolder + path.sep } },
+    select: { episode: { select: { season: { select: { showId: true } } } } },
+  })
+  let tvShow = existingFileUnderFolder
+    ? await prisma.tvShow.findUnique({ where: { id: existingFileUnderFolder.episode.season.showId } })
+    : null
+
+  // Priority 2: title-based lookup — year is often inconsistently included in
+  // episode filenames, which would otherwise create a separate TvShow record per
+  // uniquely-named file.
+  if (!tvShow) {
+    tvShow =
+      (year !== null
+        ? await prisma.tvShow.findFirst({ where: { title: showTitle, year } })
+        : null) ??
+      await prisma.tvShow.findFirst({ where: { title: showTitle, year: null } }) ??
+      await prisma.tvShow.findFirst({ where: { title: showTitle } })
+  }
 
   if (!tvShow) {
     tvShow = await prisma.tvShow.create({

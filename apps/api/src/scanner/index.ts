@@ -95,7 +95,7 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
           const techSpecs = await extractTechSpecs(walkedFile.path)
           const scannedFile = { path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }
           try {
-            const result = await syncEpisodeFile(scannedFile)
+            const result = await syncEpisodeFile(scannedFile, rootConfig.path)
             if (result === 'added') added++
             else if (result === 'changed') changed++
           } catch (err) {
@@ -256,7 +256,8 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
 
     const techSpecs = await extractTechSpecs(walkedFile.path)
     try {
-      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs })
+      // scanRootPath = two levels up from season folder (scanRoot/show/season)
+      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }, path.dirname(path.dirname(seasonFolderPath)))
       if (result === 'added') added++
       else if (result === 'changed') changed++
     } catch (err) {
@@ -324,7 +325,8 @@ export async function runShowScan(showId: string): Promise<SeasonScanResult> {
 
     const techSpecs = await extractTechSpecs(walkedFile.path)
     try {
-      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs })
+      // scanRootPath = one level up from the show folder (scanRoot/show)
+      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }, path.dirname(showFolder))
       if (result === 'added') added++
       else if (result === 'changed') changed++
     } catch (err) {
