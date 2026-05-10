@@ -1,5 +1,6 @@
 import { prisma } from '@mediadillo/db'
 import { TmdbClient } from './tmdb-client.js'
+import type { TvdbClient } from './tvdb-client.js'
 import { searchMovieCandidates, searchTvCandidates, bestAutoMatch } from './matcher.js'
 import { enrichMovie, enrichTvShow } from './enricher.js'
 
@@ -17,7 +18,10 @@ export interface MetadataScanSummary {
   durationMs: number
 }
 
-export async function runMetadataScan(tmdbClient: TmdbClient): Promise<MetadataScanSummary> {
+export async function runMetadataScan(
+  tmdbClient: TmdbClient,
+  tvdbClient: TvdbClient | null = null,
+): Promise<MetadataScanSummary> {
   if (metadataScanRunning) throw new Error('Metadata scan already running')
   metadataScanRunning = true
 
@@ -65,7 +69,7 @@ export async function runMetadataScan(tmdbClient: TmdbClient): Promise<MetadataS
       const candidates = await searchTvCandidates(tmdbClient, show.title, show.year)
       const best = bestAutoMatch(candidates)
       if (best) {
-        await enrichTvShow(tmdbClient, show.id, best.tmdbId)
+        await enrichTvShow(tmdbClient, show.id, best.tmdbId, tvdbClient)
         showsMatched++
       } else {
         showsSkipped++

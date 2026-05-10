@@ -91,6 +91,11 @@ export interface TmdbFindResult {
   tv_results: TmdbTvResult[]
 }
 
+export interface TmdbExternalIds {
+  tvdb_id: number | null
+  imdb_id: string | null
+}
+
 export class TmdbClient {
   private readonly apiKey: string
   private readonly language: string
@@ -128,6 +133,10 @@ export class TmdbClient {
 
   async findByImdbId(imdbId: string): Promise<TmdbFindResult> {
     return this.get<TmdbFindResult>(`/find/${imdbId}?external_source=imdb_id&language=${this.language}`)
+  }
+
+  async getExternalIds(tmdbId: number): Promise<TmdbExternalIds> {
+    return this.get<TmdbExternalIds>(`/tv/${tmdbId}/external_ids`)
   }
 
   private async get<T>(path: string): Promise<T> {

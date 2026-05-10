@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { prisma } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
+import { TvdbClient } from '../metadata/tvdb-client.js'
 import { searchMovieCandidates, searchTvCandidates, type MovieCandidate } from '../metadata/matcher.js'
 import { enrichMovie, enrichTvShow } from '../metadata/enricher.js'
 import { runMetadataScan, isMetadataScanRunning } from '../metadata/index.js'
@@ -17,6 +18,18 @@ async function getTmdbClient(): Promise<TmdbClient> {
   return new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
 }
 
+// Module-level cache — one TvdbClient instance per process so the JWT token is reused
+let _tvdbClientCache: { apiKey: string; client: TvdbClient } | null = null
+
+async function getTvdbClientOrNull(): Promise<TvdbClient | null> {
+  const cfg = await getApiConfig()
+  if (!cfg.tvdbApiKey) return null
+  if (_tvdbClientCache?.apiKey === cfg.tvdbApiKey) return _tvdbClientCache.client
+  const client = new TvdbClient(cfg.tvdbApiKey)
+  _tvdbClientCache = { apiKey: cfg.tvdbApiKey, client }
+  return client
+}
+
 export async function metadataRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/metadata/scan — batch auto-match all unmatched items
   app.post('/metadata/scan', async (_req, reply) => {
@@ -29,7 +42,8 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const client = await getTmdbClient()
-    runMetadataScan(client).catch((err: unknown) => {
+    const tvdbClient = await getTvdbClientOrNull()
+    runMetadataScan(client, tvdbClient).catch((err: unknown) => {
       app.log.error(err, 'Metadata scan failed')
     })
 
@@ -177,12 +191,13 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       }
 
       const client = await getTmdbClient()
+      const tvdbClient = await getTvdbClientOrNull()
 
       // Persist tmdbId before enrichment so it survives even if enrichment throws
       await prisma.tvShow.update({ where: { id: show.id }, data: { tmdbId } })
 
       try {
-        await enrichTvShow(client, show.id, tmdbId)
+        await enrichTvShow(client, show.id, tmdbId, tvdbClient)
       } catch (err) {
         // Enrichment failure is non-fatal — the tmdbId is already saved
         app.log.error(err, `enrichTvShow failed for show ${show.id} (tmdbId ${tmdbId}); match persisted`)
@@ -198,6 +213,32 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(updated)
     },
   )
+
+  // POST /api/metadata/shows/:id/enrich — refresh metadata for an already-matched show
+  app.post<{ Params: { id: string } }>('/metadata/shows/:id/enrich', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+    if (!show.tmdbId) return reply.code(422).send({ error: 'Show is not matched to TMDB' })
+
+    const client = await getTmdbClient()
+    const tvdbClient = await getTvdbClientOrNull()
+
+    try {
+      await enrichTvShow(client, show.id, show.tmdbId, tvdbClient)
+    } catch (err) {
+      app.log.error(err, `enrichTvShow failed for show ${show.id}`)
+      return reply.code(500).send({ error: 'Enrichment failed' })
+    }
+
+    try {
+      await downloadShowArtwork(show.id, 'all', true)
+    } catch (err) {
+      app.log.warn(err, `Post-enrich artwork download failed for show ${show.id}`)
+    }
+
+    const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })
+    return reply.send(updated)
+  })
 
   // PUT /api/metadata/movies/:id — manual field override
   app.put<{

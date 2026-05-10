@@ -178,3 +178,7 @@ export async function moveShow(showId: string, targetScanRootId: string): Promis
 export async function deleteShow(id: string): Promise<void> {
   await apiFetch(`/shows/${id}`, { method: 'DELETE' })
 }
+
+export async function enrichShow(id: string): Promise<ShowDetail> {
+  return apiFetch<ShowDetail>(`/metadata/shows/${id}/enrich`, { method: 'POST' })
+}

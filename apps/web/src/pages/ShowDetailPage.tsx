@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -72,11 +72,11 @@ export function ShowDetailPage() {
     setRematching(true)
     setRematchStatus(null)
     try {
-      await matchShow(id, show.tmdbId)
+      await enrichShow(id)
       load()
-      setRematchStatus({ type: 'success', message: 'Metadata refreshed from TMDB' })
+      setRematchStatus({ type: 'success', message: 'Metadata refreshed' })
     } catch (e) {
-      setRematchStatus({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
+      setRematchStatus({ type: 'error', message: e instanceof Error ? e.message : 'Refresh failed' })
     } finally {
       setRematching(false)
     }

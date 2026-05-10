@@ -8,6 +8,7 @@ import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
 import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
+import { TvdbClient } from '../metadata/tvdb-client.js'
 import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
@@ -398,13 +399,14 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
     await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
 
-    // Refresh episode titles from TMDB so they match the new numbering
+    // Refresh episode titles so they match the new numbering (TVDB if available, else TMDB)
     if (show.tmdbId) {
       try {
         const cfg = await getApiConfig()
         if (cfg.tmdbApiKey) {
-          const client = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
-          await syncSeasonTitles(client, req.params.id, show.tmdbId, seasonNumber)
+          const tmdbClient = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
+          const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey) : null
+          await syncSeasonTitles(tmdbClient, req.params.id, show.tmdbId, seasonNumber, tvdbClient)
         }
       } catch { /* non-fatal — titles will be correct after next rematch */ }
     }
