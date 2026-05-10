@@ -6,6 +6,8 @@ import type { EpisodeDetail } from '../api/types.js'
 import { reorderEpisodes } from '../api/shows.js'
 import { useToast } from '../context/ToastContext.js'
 
+const ROW_H = 'h-9'
+
 function GripIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -19,13 +21,7 @@ function GripIcon() {
   )
 }
 
-interface RowProps {
-  ep: EpisodeDetail
-  slotNumber: number
-  isOriginal: boolean
-}
-
-function SortableRow({ ep, slotNumber, isOriginal }: RowProps) {
+function SortableFilenameRow({ ep, isOriginal }: { ep: EpisodeDetail; isOriginal: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ep.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
   const fileName = ep.files[0]?.path.split('/').pop() ?? ''
@@ -34,9 +30,9 @@ function SortableRow({ ep, slotNumber, isOriginal }: RowProps) {
     <div
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-3 px-3 py-2 rounded border text-sm select-none ${
+      className={`${ROW_H} flex items-center gap-2 px-2 rounded border select-none ${
         isDragging
-          ? 'bg-gray-700 border-accent/60 shadow-lg z-50'
+          ? 'bg-gray-700 border-accent/60 shadow-lg z-50 opacity-90'
           : !isOriginal
           ? 'bg-yellow-900/20 border-yellow-700/40'
           : 'bg-surface-raised border-gray-700'
@@ -50,27 +46,8 @@ function SortableRow({ ep, slotNumber, isOriginal }: RowProps) {
       >
         <GripIcon />
       </button>
-
-      {/* Slot number (target) */}
-      <span className="text-xs font-mono text-gray-400 w-7 flex-shrink-0">
-        {String(slotNumber).padStart(2, '0')}
-      </span>
-
-      {/* Source indicator when moved */}
-      {!isOriginal && (
-        <span className="text-xs font-mono text-yellow-500 flex-shrink-0">
-          ← {String(ep.episodeNumber).padStart(2, '0')}
-        </span>
-      )}
-
-      {/* Title */}
-      <span className="flex-1 min-w-0 text-gray-200 truncate">
-        {ep.title ?? `Episode ${ep.episodeNumber}`}
-      </span>
-
-      {/* Current filename — flex-[2] for more space; direction:rtl shows end of string */}
       <span
-        className="flex-[2] min-w-0 text-xs text-gray-600 font-mono overflow-hidden whitespace-nowrap hidden sm:block"
+        className="flex-1 min-w-0 text-xs text-gray-400 font-mono overflow-hidden whitespace-nowrap"
         style={{ direction: 'rtl', textOverflow: 'ellipsis' }}
         title={ep.files[0]?.path}
       >
@@ -99,13 +76,10 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
 
   const [order, setOrder] = useState<EpisodeDetail[]>(ownedEps)
 
-  // slotNumbers[i] = the canonical episode number at position i (fixed, based on sorted owned episodes)
-  const slotNumbers = useMemo(() => ownedEps.map((e) => e.episodeNumber), [ownedEps])
-
   const isDirty = order.some((ep, i) => ep.id !== ownedEps[i]?.id)
 
   function toggleOpen() {
-    if (!open) setOrder(ownedEps) // always start fresh
+    if (!open) setOrder(ownedEps)
     setOpen((o) => !o)
   }
 
@@ -153,24 +127,39 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
       {open && (
         <div className="p-4 space-y-3 bg-surface border-t border-gray-700">
           <p className="text-xs text-gray-500">
-            Drag episodes into the correct order. The left number is the target slot; highlighted rows show source → target.
-            Files are renamed via a two-phase tmp rename to avoid collisions.
+            Titles (left) are fixed TMDB metadata. Drag filenames (right) until each matches its title.
           </p>
 
-          <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
-              <div className="space-y-1">
-                {order.map((ep, i) => (
-                  <SortableRow
-                    key={ep.id}
-                    ep={ep}
-                    slotNumber={slotNumbers[i]!}
-                    isOriginal={ep.id === ownedEps[i]?.id}
-                  />
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
+          <div className="flex gap-2">
+            {/* Fixed left column: correct episode titles */}
+            <div className="flex-1 space-y-1">
+              {ownedEps.map((ep) => (
+                <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
+                  <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
+                    {String(ep.episodeNumber).padStart(2, '0')}
+                  </span>
+                  <span className="text-sm text-gray-200 truncate">
+                    {ep.title ?? `Episode ${ep.episodeNumber}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Draggable right column: filenames */}
+            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+                <div className="flex-[2] space-y-1">
+                  {order.map((ep, i) => (
+                    <SortableFilenameRow
+                      key={ep.id}
+                      ep={ep}
+                      isOriginal={ep.id === ownedEps[i]?.id}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
 
           <div className="flex items-center gap-3 pt-1">
             <button
