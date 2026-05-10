@@ -133,7 +133,7 @@ export async function applyMovieRenames(
     const groupIdx = indexMap.get(editionKey) ?? 0
     indexMap.set(editionKey, groupIdx + 1)
     const partNumber = (sizeMap.get(editionKey) ?? 1) > 1 ? groupIdx + 1 : null
-    const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null)
+    const fileName = canonicalMovieFileName(movie.title, movie.year, ext, partNumber, file.edition ?? null, file.threeD ?? null)
     const proposedPath = path.join(folderPath, fileName)
 
     if (file.path === proposedPath) continue
