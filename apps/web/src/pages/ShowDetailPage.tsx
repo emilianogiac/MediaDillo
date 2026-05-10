@@ -170,7 +170,7 @@ export function ShowDetailPage() {
   const cast = show.credits.filter((c) => c.role === 'cast').slice(0, 12)
 
   return (
-    <div className="p-6 space-y-8 max-w-5xl">
+    <div className="p-6 space-y-8">
       <button onClick={() => navigate(backToShows)} className="text-sm text-gray-400 hover:text-accent transition-colors">
         ← TV Shows
       </button>

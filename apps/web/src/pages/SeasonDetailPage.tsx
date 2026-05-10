@@ -164,7 +164,7 @@ export function SeasonDetailPage() {
   const total = season.episodes.length
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl">
+    <div className="p-6 space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-400">
         <Link to="/shows" className="hover:text-accent transition-colors">TV Shows</Link>
