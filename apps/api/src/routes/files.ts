@@ -126,9 +126,14 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const previews = await previewEpisodeRenames(showIds)
-    const needsRename = previews.filter((p) => p.needsRename && p.type === 'episode-file')
-    if (needsRename.length === 0) {
-      return reply.send({ jobId: null, total: 0, message: 'All episode files are already canonical' })
+    const needsRenameFiles = previews.filter((p) => p.needsRename && p.type === 'episode-file')
+    // show-folder items: id === showId
+    const folderByShowId = new Map(
+      previews.filter((p) => p.needsRename && p.type === 'show-folder').map((p) => [p.id, p]),
+    )
+
+    if (needsRenameFiles.length === 0 && folderByShowId.size === 0) {
+      return reply.send({ jobId: null, total: 0, message: 'All episode files and folders are already canonical' })
     }
 
     // Group file IDs by show
@@ -138,13 +143,13 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     })
     const titleMap = new Map(shows.map((s) => [s.id, s.title]))
 
-    const fileIds = needsRename.map((p) => p.id)
+    const fileIds = needsRenameFiles.map((p) => p.id)
     const files = await prisma.episodeFile.findMany({
       where: { id: { in: fileIds } },
       select: { id: true, episode: { select: { season: { select: { showId: true } } } } },
     })
 
-    const byShow = new Map<string, { title: string; fileIds: string[] }>()
+    const byShow = new Map<string, { title: string; fileIds: string[]; folderItem?: RenamePreviewItem }>()
     for (const f of files) {
       const showId = f.episode.season.showId
       if (!byShow.has(showId)) {
@@ -152,14 +157,28 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
       }
       byShow.get(showId)!.fileIds.push(f.id)
     }
+    // Include shows that only need a folder rename (no file renames)
+    for (const [showId, folderItem] of folderByShowId) {
+      if (!byShow.has(showId)) {
+        byShow.set(showId, { title: titleMap.get(showId) ?? showId, fileIds: [] })
+      }
+      byShow.get(showId)!.folderItem = folderItem
+    }
+    // Attach folder items to shows that also have file renames
+    for (const [showId, entry] of byShow) {
+      const fi = folderByShowId.get(showId)
+      if (!entry.folderItem && fi) {
+        entry.folderItem = fi
+      }
+    }
 
     const entries = [...byShow.entries()]
     const job = createJob(entries.length)
 
     const run = async () => {
-      for (const [, { title, fileIds: ids }] of entries) {
+      for (const [, { title, fileIds: ids, folderItem }] of entries) {
         try {
-          const result = await applyEpisodeRenames(ids)
+          const result = await applyEpisodeRenames(ids, folderItem ? [folderItem] : undefined)
           if (result.errors.length > 0) {
             for (const e of result.errors) failJob(job.id, `"${title}": ${e}`)
           }
