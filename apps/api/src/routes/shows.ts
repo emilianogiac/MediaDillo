@@ -10,6 +10,7 @@ import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/nam
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
+import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended
@@ -408,6 +409,108 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       } catch { /* non-fatal — titles will be correct after next rematch */ }
     }
 
+    return reply.send({ renamed, errors })
+  })
+
+  // POST /api/shows/:id/seasons/:seasonNumber/reorder — reassign files to correct episode slots
+  // episodeIds: desired order of episode IDs (owned episodes only, sorted by current episodeNumber).
+  // The i-th episode's files are reassigned to the slot that originally held position i.
+  // Two-phase rename (tmp → final) avoids collisions in circular swaps.
+  app.post<{
+    Params: { id: string; seasonNumber: string }
+    Body: { episodeIds: string[] }
+  }>('/shows/:id/seasons/:seasonNumber/reorder', async (req, reply) => {
+    const seasonNumber = parseInt(req.params.seasonNumber, 10)
+    if (isNaN(seasonNumber)) return reply.code(400).send({ error: 'Invalid season number' })
+
+    const { episodeIds } = req.body
+    if (!Array.isArray(episodeIds) || episodeIds.length < 2) {
+      return reply.code(400).send({ error: 'episodeIds must have at least 2 entries' })
+    }
+
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    const season = await prisma.season.findFirst({ where: { showId: req.params.id, seasonNumber } })
+    if (!season) return reply.code(404).send({ error: 'Season not found' })
+
+    // Load all owned episodes sorted by episodeNumber — these are the canonical slots
+    const episodes = await prisma.episode.findMany({
+      where: { seasonId: season.id, files: { some: {} } },
+      include: { files: true },
+      orderBy: { episodeNumber: 'asc' },
+    })
+
+    const ownedIds = new Set(episodes.map((e) => e.id))
+    if (episodeIds.length !== episodes.length || !episodeIds.every((id) => ownedIds.has(id))) {
+      return reply.code(400).send({ error: 'episodeIds must be exactly the set of owned episodes in this season' })
+    }
+
+    // slotNumbers[i] = the episode number at position i (the target slot for episodeIds[i])
+    // slotTitles[number] = the TMDB title for that episode slot
+    const slotNumbers = episodes.map((e) => e.episodeNumber)
+    const episodeByNumber = new Map(episodes.map((e) => [e.episodeNumber, e]))
+
+    // Build assignments: which Episode record each source episode's files should move to
+    const assignments = new Map<string, { targetEpisode: (typeof episodes)[0] }>()
+    episodeIds.forEach((epId, i) => {
+      const target = episodeByNumber.get(slotNumbers[i]!)!
+      assignments.set(epId, { targetEpisode: target })
+    })
+
+    // Only process episodes that actually need to move
+    const toMove = episodes.filter((ep) => assignments.get(ep.id)!.targetEpisode.id !== ep.id)
+    if (toMove.length === 0) return reply.send({ renamed: 0, errors: [] })
+
+    const errors: string[] = []
+    let renamed = 0
+
+    // Collect all files with their target info
+    const fileJobs = toMove.flatMap((ep) =>
+      ep.files.map((f) => ({ file: f, target: assignments.get(ep.id)!.targetEpisode })),
+    )
+
+    // Phase 1: rename to tmp names to avoid collision
+    const tmpPaths = new Map<string, string>() // fileId → tmpPath
+    for (const { file } of fileJobs) {
+      const ext = path.extname(file.path)
+      const dir = path.dirname(file.path)
+      const tmpPath = path.join(dir, `.tmp-${file.id}${ext}`)
+      try {
+        await fsRename(file.path, tmpPath)
+        tmpPaths.set(file.id, tmpPath)
+        await prisma.episodeFile.update({ where: { id: file.id }, data: { path: tmpPath } })
+      } catch (err) {
+        errors.push(`tmp rename failed for ${path.basename(file.path)}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Reassign EpisodeFile → target Episode in DB
+    for (const { file, target } of fileJobs) {
+      if (!tmpPaths.has(file.id)) continue
+      await prisma.episodeFile.update({ where: { id: file.id }, data: { episodeId: target.id } })
+    }
+
+    // Phase 2: rename tmp → canonical final name
+    for (const { file, target } of fileJobs) {
+      const tmpPath = tmpPaths.get(file.id)
+      if (!tmpPath) continue
+      const ext = path.extname(file.path)
+      const dir = path.dirname(tmpPath)
+      const finalName = canonicalEpisodeFileName(
+        show.title, seasonNumber, target.episodeNumber, target.title, ext, file.multiEpisodeEnd ?? null,
+      )
+      const finalPath = path.join(dir, finalName)
+      try {
+        await fsRename(tmpPath, finalPath)
+        await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+        renamed++
+      } catch (err) {
+        errors.push(`final rename failed for ${path.basename(tmpPath)}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    triggerLibraryRefresh(app.log).catch(() => {})
     return reply.send({ renamed, errors })
   })
 

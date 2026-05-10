@@ -6,6 +6,7 @@ import { fetchEpisodeFileRenamePreview, applyRenames, type RenamePreviewItem } f
 import { TechBadge } from '../components/TechBadge.js'
 import { MergePartsPanel } from '../components/MergePartsPanel.js'
 import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
+import { ReorderEpisodesPanel } from '../components/ReorderEpisodesPanel.js'
 import { useToast } from '../context/ToastContext.js'
 
 function Spinner() {
@@ -304,6 +305,15 @@ export function SeasonDetailPage() {
         <EpisodeRenamePanel
           title="Rename Season Episodes"
           fetchPreview={() => fetchSeasonRenamePreview(id, seasonNum)}
+          onDone={load}
+        />
+      )}
+
+      {id && (
+        <ReorderEpisodesPanel
+          showId={id}
+          seasonNumber={seasonNum}
+          episodes={season.episodes}
           onDone={load}
         />
       )}

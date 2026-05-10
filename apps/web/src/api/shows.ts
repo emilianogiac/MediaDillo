@@ -132,6 +132,17 @@ export async function rescanShow(showId: string): Promise<RescanResult> {
   return apiFetch(`/shows/${showId}/rescan`, { method: 'POST' })
 }
 
+export async function reorderEpisodes(
+  showId: string,
+  seasonNumber: number,
+  episodeIds: string[],
+): Promise<{ renamed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/seasons/${seasonNumber}/reorder`, {
+    method: 'POST',
+    body: JSON.stringify({ episodeIds }),
+  })
+}
+
 export async function mergeParts(
   showId: string,
   seasonNumber: number,
