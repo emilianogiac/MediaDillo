@@ -173,11 +173,11 @@ export function SeasonDetailPage() {
           {season.show.title}
         </Link>
         <span className="text-gray-600">›</span>
-        <span className="text-gray-200">Season {season.seasonNumber}</span>
+        <span className="text-gray-200">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</span>
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <h1 className="text-2xl font-bold">Season {season.seasonNumber}</h1>
+        <h1 className="text-2xl font-bold">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</h1>
         <span className="text-sm text-gray-500">{owned}/{total} owned</span>
         <button
           onClick={handleRescan}

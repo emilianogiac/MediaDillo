@@ -425,7 +425,7 @@ export function ShowDetailPage() {
                   to={`/shows/${show.id}/season/${season.seasonNumber}`}
                   className="bg-surface-raised border border-gray-700 hover:border-accent/60 rounded-lg p-3 space-y-2 transition-colors"
                 >
-                  <p className="text-sm font-medium">Season {season.seasonNumber}</p>
+                  <p className="text-sm font-medium">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</p>
                   <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
                     <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
                   </div>

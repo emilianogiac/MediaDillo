@@ -63,6 +63,13 @@ export async function enrichTvShow(tmdbClient: TmdbClient, showId: string, tmdbI
     await delay(RATE_LIMIT_MS)
     await syncSeason(tmdbClient, showId, tmdbId, s)
   }
+
+  // Season 0 (Specials) — only hydrate if we already own some specials; never create missing rows
+  const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
+  if (hasSpecials) {
+    await delay(RATE_LIMIT_MS)
+    await syncSeason(tmdbClient, showId, tmdbId, 0, { ownedOnly: true })
+  }
 }
 
 export async function syncSeasonTitles(
@@ -71,7 +78,8 @@ export async function syncSeasonTitles(
   tmdbId: number,
   seasonNumber: number,
 ): Promise<void> {
-  return syncSeason(tmdbClient, showId, tmdbId, seasonNumber)
+  // Season 0 (Specials): never create missing rows, only hydrate what we own
+  return syncSeason(tmdbClient, showId, tmdbId, seasonNumber, { ownedOnly: seasonNumber === 0 })
 }
 
 async function syncSeason(
@@ -79,12 +87,15 @@ async function syncSeason(
   showId: string,
   tmdbId: number,
   seasonNumber: number,
+  options: { ownedOnly?: boolean } = {},
 ): Promise<void> {
+  const { ownedOnly = false } = options
   const season = await tmdbClient.getTvSeason(tmdbId, seasonNumber)
 
   // Upsert season
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
   if (!dbSeason) {
+    if (ownedOnly) return // Don't create a Season 0 record if we have no owned specials
     dbSeason = await prisma.season.create({
       data: { showId, seasonNumber, episodeCount: season.episodes.length },
     })
@@ -104,10 +115,8 @@ async function syncSeason(
     })
 
     if (!existing) {
-      // Episode not in our library — determine status
-      const status =
-        airDate && airDate > today ? 'not_yet_aired' : 'missing'
-
+      if (ownedOnly) continue // Never create missing/not_yet_aired rows for specials
+      const status = airDate && airDate > today ? 'not_yet_aired' : 'missing'
       await prisma.episode.create({
         data: {
           seasonId: dbSeason.id,
