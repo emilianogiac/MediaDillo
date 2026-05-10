@@ -68,8 +68,12 @@ function SortableRow({ ep, slotNumber, isOriginal }: RowProps) {
         {ep.title ?? `Episode ${ep.episodeNumber}`}
       </span>
 
-      {/* Current filename */}
-      <span className="text-xs text-gray-600 font-mono truncate max-w-xs hidden sm:block" title={ep.files[0]?.path}>
+      {/* Current filename — flex-[2] for more space; direction:rtl shows end of string */}
+      <span
+        className="flex-[2] min-w-0 text-xs text-gray-600 font-mono overflow-hidden whitespace-nowrap hidden sm:block"
+        style={{ direction: 'rtl', textOverflow: 'ellipsis' }}
+        title={ep.files[0]?.path}
+      >
         {fileName}
       </span>
     </div>
