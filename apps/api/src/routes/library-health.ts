@@ -356,7 +356,8 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
 
     const job = createJob(movies.length + shows.length)
 
-    // Find and delete stale-extension files in a folder tree (non-destructively skips videos/art/NFOs)
+    // Find and delete stale-extension files in a folder tree, then remove empty subdirectories.
+    // Non-destructively skips videos/art/NFOs. Never removes the root dir passed in.
     async function cleanShowFolder(dir: string, knownPaths: Set<string>) {
       let entries: string[]
       try { entries = await readdir(dir) } catch { return }
@@ -369,7 +370,12 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
       }
       for (const entry of entries) {
         if (entry.startsWith('.')) continue
-        if (!path.extname(entry)) await cleanShowFolder(path.join(dir, entry), knownPaths)
+        if (!path.extname(entry)) {
+          const subdir = path.join(dir, entry)
+          await cleanShowFolder(subdir, knownPaths)
+          // Remove if now empty (rmdir fails silently on non-empty dirs)
+          try { await fs.rmdir(subdir) } catch { /* non-empty or already gone */ }
+        }
       }
     }
 
