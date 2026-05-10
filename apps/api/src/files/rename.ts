@@ -338,7 +338,10 @@ export async function applyEpisodeRenames(
     where: { id: { in: fileIds } },
     include: {
       episode: {
-        include: { season: { include: { show: true } } },
+        include: {
+          files: { orderBy: { path: 'asc' } },
+          season: { include: { show: true } },
+        },
       },
     },
   })
@@ -363,6 +366,10 @@ export async function applyEpisodeRenames(
     }
 
     const seasonFolder = canonicalSeasonFolderName(season.seasonNumber)
+    const allEpFiles = episode.files
+    const fileCount = allEpFiles.length
+    const fileIdx = allEpFiles.findIndex((f) => f.id === file.id)
+    const partNumber = fileCount > 1 ? fileIdx + 1 : null
     const fileName = canonicalEpisodeFileName(
       show.title,
       season.seasonNumber,
@@ -370,6 +377,7 @@ export async function applyEpisodeRenames(
       episode.title,
       ext,
       file.multiEpisodeEnd ?? null,
+      partNumber,
     )
     const seasonPath = path.join(showDir, seasonFolder)
     const proposedPath = path.join(seasonPath, fileName)

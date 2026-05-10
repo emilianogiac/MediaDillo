@@ -119,6 +119,7 @@ export interface SeasonDetail {
 export interface ShowDetail extends ShowSummary {
   imdbId: string | null
   tvdbId: number | null
+  tvdbOrder: string | null
   overview: string | null
   backdropUrl: string | null
   seasons: SeasonSummary[]

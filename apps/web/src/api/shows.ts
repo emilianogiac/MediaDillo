@@ -183,9 +183,16 @@ export async function enrichShow(id: string): Promise<ShowDetail> {
   return apiFetch<ShowDetail>(`/metadata/shows/${id}/enrich`, { method: 'POST' })
 }
 
+export async function fetchTvdbOrders(id: string): Promise<{ type: string; name: string }[]> {
+  const data = await apiFetch<{ orders: { type: string; name: string }[] }>(
+    `/metadata/shows/${id}/tvdb-orders`,
+  )
+  return data.orders
+}
+
 export async function updateShowMetadata(
   id: string,
-  fields: { title?: string; year?: number; overview?: string; tvdbId?: number | null },
+  fields: { title?: string; year?: number; overview?: string; tvdbId?: number | null; tvdbOrder?: string | null },
 ): Promise<ShowDetail> {
   return apiFetch<ShowDetail>(`/metadata/shows/${id}`, {
     method: 'PUT',

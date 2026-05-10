@@ -154,6 +154,7 @@ model TvShow {
   id                 String       @id @default(cuid())
   tmdbId             Int?
   tvdbId             Int?
+  tvdbOrder          String?
   title              String
   year               Int?
   overview           String?

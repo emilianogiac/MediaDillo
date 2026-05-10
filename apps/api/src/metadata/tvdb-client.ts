@@ -9,6 +9,11 @@ export interface TvdbEpisode {
   seasonNumber: number
 }
 
+export interface TvdbSeasonType {
+  type: string   // 'official' | 'dvd' | 'absolute' | ...
+  name: string   // 'Aired Order' | 'DVD Order' | 'Absolute Order' | ...
+}
+
 export class TvdbClient {
   private tokenCache: { token: string; expiresAt: number } | null = null
 
@@ -50,15 +55,27 @@ export class TvdbClient {
     return res.json() as Promise<T>
   }
 
-  async getEpisodes(tvdbId: number, seasonNumber: number): Promise<TvdbEpisode[]> {
+  async getSeriesTypes(tvdbId: number): Promise<TvdbSeasonType[]> {
+    const data = await this.get<{ data: { seasonTypes: TvdbSeasonType[] } }>(
+      `/series/${tvdbId}/extended`,
+    )
+    return data.data.seasonTypes ?? []
+  }
+
+  async getEpisodes(
+    tvdbId: number,
+    orderType: string,
+    seasonNumber?: number,
+  ): Promise<TvdbEpisode[]> {
     const episodes: TvdbEpisode[] = []
     let page = 0
 
     while (true) {
+      const seasonParam = seasonNumber !== undefined ? `season=${seasonNumber}&` : ''
       const data = await this.get<{
         data: { episodes: TvdbEpisode[] } | null
         links: { next: string | null }
-      }>(`/series/${tvdbId}/episodes/official?season=${seasonNumber}&page=${page}`)
+      }>(`/series/${tvdbId}/episodes/${orderType}?${seasonParam}page=${page}`)
 
       const batch = data.data?.episodes ?? []
       episodes.push(...batch)

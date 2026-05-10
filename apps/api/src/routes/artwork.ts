@@ -126,7 +126,9 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
       where: { id: req.params.id },
       include: {
         seasons: {
-          include: { episodes: { include: { files: { take: 1 } }, take: 1 } },
+          where: { episodes: { some: { files: { some: {} } } } },
+          orderBy: { seasonNumber: 'asc' },
+          include: { episodes: { where: { files: { some: {} } }, include: { files: { take: 1 } }, take: 1 } },
           take: 1,
         },
       },
@@ -144,7 +146,9 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
       where: { id: req.params.id },
       include: {
         seasons: {
-          include: { episodes: { include: { files: { take: 1 } }, take: 1 } },
+          where: { episodes: { some: { files: { some: {} } } } },
+          orderBy: { seasonNumber: 'asc' },
+          include: { episodes: { where: { files: { some: {} } }, include: { files: { take: 1 } }, take: 1 } },
           take: 1,
         },
       },
@@ -256,7 +260,9 @@ export async function artworkRoutes(app: FastifyInstance): Promise<void> {
       where: { id: req.params.id },
       include: {
         seasons: {
-          include: { episodes: { include: { files: { take: 1 } }, take: 1 } },
+          where: { episodes: { some: { files: { some: {} } } } },
+          orderBy: { seasonNumber: 'asc' },
+          include: { episodes: { where: { files: { some: {} } }, include: { files: { take: 1 } }, take: 1 } },
           take: 1,
         },
       },

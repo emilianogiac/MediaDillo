@@ -67,7 +67,7 @@ export async function enrichTvShow(
   // Resolve TVDB ID: prefer stored value, fall back to TMDB external_ids
   let resolvedTvdbId: number | null = null
   if (tvdbClient) {
-    const dbShow = await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbId: true } })
+    const dbShow = await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbId: true, tvdbOrder: true } })
     resolvedTvdbId = dbShow?.tvdbId ?? null
 
     if (!resolvedTvdbId) {
@@ -81,19 +81,39 @@ export async function enrichTvShow(
         // non-fatal — fall through to TMDB episode data
       }
     }
+
+    const orderType = dbShow?.tvdbOrder ?? 'official'
+
+    if (tvdbClient && resolvedTvdbId && orderType === 'absolute') {
+      await syncAllSeasonsAbsolute(tvdbClient, showId, resolvedTvdbId)
+      return
+    }
+
+    // Fetch all seasons and reconcile episodes
+    for (let s = 1; s <= details.number_of_seasons; s++) {
+      await delay(RATE_LIMIT_MS)
+      await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, s, { orderType })
+    }
+
+    // Season 0 (Specials) — only hydrate if we already own some specials; never create missing rows
+    const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
+    if (hasSpecials) {
+      await delay(RATE_LIMIT_MS)
+      await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, 0, { ownedOnly: true, orderType })
+    }
+    return
   }
 
-  // Fetch all seasons and reconcile episodes
+  // No tvdbClient — TMDB only
   for (let s = 1; s <= details.number_of_seasons; s++) {
     await delay(RATE_LIMIT_MS)
-    await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, s)
+    await syncSeasonData(tmdbClient, null, null, showId, tmdbId, s)
   }
 
-  // Season 0 (Specials) — only hydrate if we already own some specials; never create missing rows
   const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
   if (hasSpecials) {
     await delay(RATE_LIMIT_MS)
-    await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, 0, { ownedOnly: true })
+    await syncSeasonData(tmdbClient, null, null, showId, tmdbId, 0, { ownedOnly: true })
   }
 }
 
@@ -104,12 +124,15 @@ export async function syncSeasonTitles(
   seasonNumber: number,
   tvdbClient: TvdbClient | null = null,
 ): Promise<void> {
-  const tvdbId = tvdbClient
-    ? ((await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbId: true } }))?.tvdbId ?? null)
+  const dbShow = tvdbClient
+    ? (await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbId: true, tvdbOrder: true } }))
     : null
+  const tvdbId = dbShow?.tvdbId ?? null
+  const orderType = dbShow?.tvdbOrder ?? 'official'
   // Season 0 (Specials): never create missing rows, only hydrate what we own
   return syncSeasonData(tmdbClient, tvdbClient, tvdbId, showId, tmdbId, seasonNumber, {
     ownedOnly: seasonNumber === 0,
+    orderType,
   })
 }
 
@@ -124,7 +147,7 @@ async function syncSeasonData(
   showId: string,
   tmdbId: number,
   seasonNumber: number,
-  options: { ownedOnly?: boolean } = {},
+  options: { ownedOnly?: boolean; orderType?: string } = {},
 ): Promise<void> {
   if (tvdbClient && tvdbId) {
     try {
@@ -146,15 +169,16 @@ async function syncSeasonFromTvdb(
   showId: string,
   tvdbId: number,
   seasonNumber: number,
-  options: { ownedOnly?: boolean } = {},
+  options: { ownedOnly?: boolean; orderType?: string } = {},
 ): Promise<void> {
-  const { ownedOnly = false } = options
-  const episodes = await tvdbClient.getEpisodes(tvdbId, seasonNumber)
+  const { ownedOnly = false, orderType = 'official' } = options
+  const episodes = await tvdbClient.getEpisodes(tvdbId, orderType, seasonNumber)
 
   // Upsert season
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
   if (!dbSeason) {
     if (ownedOnly) return
+    if (episodes.length === 0) return  // don't create phantom empty-season records
     dbSeason = await prisma.season.create({
       data: { showId, seasonNumber, episodeCount: episodes.length },
     })
@@ -212,6 +236,81 @@ async function syncSeasonFromTvdb(
 }
 
 // ---------------------------------------------------------------------------
+// TVDB absolute ordering — all episodes flat, grouped by TVDB seasonNumber
+// ---------------------------------------------------------------------------
+
+async function syncAllSeasonsAbsolute(
+  tvdbClient: TvdbClient,
+  showId: string,
+  tvdbId: number,
+): Promise<void> {
+  const episodes = await tvdbClient.getEpisodes(tvdbId, 'absolute')
+
+  // Group by seasonNumber as reported by TVDB
+  const bySeasonNumber = new Map<number, TvdbEpisode[]>()
+  for (const ep of episodes) {
+    const sn = ep.seasonNumber ?? 1
+    const arr = bySeasonNumber.get(sn) ?? []
+    arr.push(ep)
+    bySeasonNumber.set(sn, arr)
+  }
+
+  const today = new Date()
+
+  for (const [seasonNumber, eps] of bySeasonNumber) {
+    let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
+    if (!dbSeason) {
+      dbSeason = await prisma.season.create({
+        data: { showId, seasonNumber, episodeCount: eps.length },
+      })
+    } else {
+      await prisma.season.update({
+        where: { id: dbSeason.id },
+        data: { episodeCount: eps.length },
+      })
+    }
+
+    for (const ep of eps) {
+      const airDate = ep.aired ? new Date(ep.aired) : null
+      const existing = await prisma.episode.findFirst({
+        where: { seasonId: dbSeason.id, episodeNumber: ep.number },
+      })
+
+      if (!existing) {
+        const status = airDate && airDate > today ? 'not_yet_aired' : 'missing'
+        await prisma.episode.create({
+          data: {
+            seasonId: dbSeason.id,
+            episodeNumber: ep.number,
+            title: ep.name,
+            airDate,
+            status,
+          },
+        })
+      } else {
+        const newStatus =
+          existing.status === 'owned' || existing.status === 'ignored'
+            ? existing.status
+            : airDate && airDate > today
+              ? 'not_yet_aired'
+              : 'missing'
+        await prisma.episode.update({
+          where: { id: existing.id },
+          data: { title: ep.name, airDate, status: newStatus },
+        })
+      }
+    }
+  }
+
+  const ownedCount = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+  const totalCount = await prisma.episode.count({ where: { season: { showId } } })
+  await prisma.tvShow.update({
+    where: { id: showId },
+    data: { ownedEpisodes: ownedCount, totalEpisodes: totalCount },
+  })
+}
+
+// ---------------------------------------------------------------------------
 // TMDB season sync (original)
 // ---------------------------------------------------------------------------
 
@@ -229,6 +328,7 @@ async function syncSeason(
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
   if (!dbSeason) {
     if (ownedOnly) return // Don't create a Season 0 record if we have no owned specials
+    if (season.episodes.length === 0) return  // don't create phantom empty-season records
     dbSeason = await prisma.season.create({
       data: { showId, seasonNumber, episodeCount: season.episodes.length },
     })

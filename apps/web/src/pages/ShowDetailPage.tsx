@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
 import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
+import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
@@ -57,6 +57,7 @@ export function ShowDetailPage() {
   const [editingTvdbId, setEditingTvdbId] = useState(false)
   const [tvdbIdInput, setTvdbIdInput] = useState('')
   const [savingTvdbId, setSavingTvdbId] = useState(false)
+  const [tvdbOrders, setTvdbOrders] = useState<{ type: string; name: string }[]>([])
 
   const load = useCallback(() => {
     if (!id) return
@@ -69,6 +70,10 @@ export function ShowDetailPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+  useEffect(() => {
+    if (!id || !show?.tvdbId) { setTvdbOrders([]); return }
+    fetchTvdbOrders(id).then(setTvdbOrders).catch(() => setTvdbOrders([]))
+  }, [id, show?.tvdbId])
 
   async function handleRematch() {
     if (!id || !show?.tmdbId) return
@@ -270,6 +275,13 @@ export function ShowDetailPage() {
             </div>
           )}
 
+          {(show.tmdbId || show.tvdbId) && (
+            <p className="text-xs text-gray-600 space-x-3">
+              {show.tmdbId && <span>TMDB: {show.tmdbId}</span>}
+              {show.tvdbId && <span>TVDB: {show.tvdbId}</span>}
+            </p>
+          )}
+
           {show.overview && (
             <p className="text-sm text-gray-300 leading-relaxed max-w-2xl">{show.overview}</p>
           )}
@@ -321,6 +333,24 @@ export function ShowDetailPage() {
                 >
                   {show.tvdbId ? '✎' : '+ TVDB ID'}
                 </button>
+              )}
+              {show.tvdbId && tvdbOrders.length > 1 && (
+                <select
+                  value={show.tvdbOrder ?? 'official'}
+                  onChange={async (e) => {
+                    if (!id) return
+                    const label = tvdbOrders.find((o) => o.type === e.target.value)?.name ?? e.target.value
+                    const updated = await updateShowMetadata(id, { tvdbOrder: e.target.value })
+                    setShow(updated)
+                    toast({ type: 'success', message: `Episode order set to ${label} — re-enriching…` })
+                  }}
+                  className="text-xs bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-gray-300"
+                  title="TVDB episode ordering"
+                >
+                  {tvdbOrders.map((o) => (
+                    <option key={o.type} value={o.type}>{o.name}</option>
+                  ))}
+                </select>
               )}
               {show.imdbId && (
                 <a

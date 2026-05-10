@@ -146,44 +146,49 @@ export function OrganizePanel({ showId, onDone }: Props) {
 
           {preview && !result && (
             <>
-              {/* Renames */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium text-gray-300">
-                    Files to rename
-                    {preview.renames.length === 0 && (
-                      <span className="ml-2 text-xs text-green-500 font-normal">— all clean</span>
-                    )}
-                  </h3>
-                  {preview.renames.length > 0 && (
-                    <div className="flex gap-2 text-xs text-gray-500">
-                      <button onClick={() => selectAllRenames(preview.renames)} className="hover:text-accent">all</button>
-                      <span>/</span>
-                      <button onClick={selectNoneRenames} className="hover:text-accent">none</button>
+              {/* Renames — episode files only (folder renames handled by "Rename all episodes" button) */}
+              {(() => {
+                const episodeRenames = preview.renames.filter((r) => r.type === 'episode-file')
+                return (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-gray-300">
+                        Files to rename
+                        {episodeRenames.length === 0 && (
+                          <span className="ml-2 text-xs text-green-500 font-normal">— all clean</span>
+                        )}
+                      </h3>
+                      {episodeRenames.length > 0 && (
+                        <div className="flex gap-2 text-xs text-gray-500">
+                          <button onClick={() => selectAllRenames(episodeRenames)} className="hover:text-accent">all</button>
+                          <span>/</span>
+                          <button onClick={selectNoneRenames} className="hover:text-accent">none</button>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-                {preview.renames.map((item) => (
-                  <label key={item.id} className="flex items-start gap-2 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={selectedRenames.has(item.id)}
-                      onChange={() => toggleRename(item.id)}
-                      className="mt-0.5 accent-accent flex-shrink-0"
-                    />
-                    <div className="min-w-0 text-xs space-y-0.5">
-                      <p className="text-gray-400 truncate" title={item.currentPath}>
-                        <span className="text-gray-600">from: </span>
-                        {shortPath(item.currentPath, preview.showFolder)}
-                      </p>
-                      <p className="text-gray-200 truncate" title={item.proposedPath}>
-                        <span className="text-gray-600">to: </span>
-                        {shortPath(item.proposedPath, preview.showFolder)}
-                      </p>
-                    </div>
-                  </label>
-                ))}
-              </div>
+                    {episodeRenames.map((item) => (
+                      <label key={item.id} className="flex items-start gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={selectedRenames.has(item.id)}
+                          onChange={() => toggleRename(item.id)}
+                          className="mt-0.5 accent-accent flex-shrink-0"
+                        />
+                        <div className="min-w-0 text-xs space-y-0.5">
+                          <p className="text-gray-400 truncate" title={item.currentPath}>
+                            <span className="text-gray-600">from: </span>
+                            {shortPath(item.currentPath, preview.showFolder)}
+                          </p>
+                          <p className="text-gray-200 truncate" title={item.proposedPath}>
+                            <span className="text-gray-600">to: </span>
+                            {shortPath(item.proposedPath, preview.showFolder)}
+                          </p>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )
+              })()}
 
               {/* Removals */}
               <div className="space-y-2">

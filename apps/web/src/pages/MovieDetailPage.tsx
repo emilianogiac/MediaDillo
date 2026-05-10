@@ -829,6 +829,13 @@ export function MovieDetailPage() {
             </div>
           )}
 
+          {(movie.tmdbId || movie.imdbId) && (
+            <p className="text-xs text-gray-600 space-x-3">
+              {movie.tmdbId && <span>TMDB: {movie.tmdbId}</span>}
+              {movie.imdbId && <span>IMDb: {movie.imdbId}</span>}
+            </p>
+          )}
+
           {editField === 'overview' ? (
             <div className="space-y-2 max-w-2xl">
               <textarea

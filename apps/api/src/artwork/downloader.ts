@@ -77,7 +77,9 @@ export async function downloadShowArtwork(
     where: { id: showId },
     include: {
       seasons: {
-        include: { episodes: { include: { files: { take: 1 } }, take: 1 } },
+        where: { episodes: { some: { files: { some: {} } } } },
+        orderBy: { seasonNumber: 'asc' },
+        include: { episodes: { where: { files: { some: {} } }, include: { files: { take: 1 } }, take: 1 } },
         take: 1,
       },
     },

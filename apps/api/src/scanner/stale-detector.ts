@@ -39,23 +39,60 @@ export async function detectStaleFiles(
   folderPath: string,
   knownVideoPaths: Set<string>,
 ): Promise<StaleFileEntry[]> {
-  const files = await listFolderFiles(folderPath)
+  const fileList = await listFolderFiles(folderPath)
+  const files = new Set(fileList.map((f) => f.toLowerCase()))
   const stale: StaleFileEntry[] = []
 
-  for (const filePath of files) {
+  for (const filePath of fileList) {
     const basename = path.basename(filePath).toLowerCase()
     const ext = path.extname(filePath).toLowerCase()
 
     // Known video file in our DB
     if (knownVideoPaths.has(filePath)) continue
 
-    // Known artwork filenames (bare names or TMM-style {basename}-poster/-fanart etc.)
+    // Known artwork filenames (bare canonical names are always kept)
     if (KNOWN_ARTWORK.has(basename)) continue
+
+    // TMM-style suffixed artwork (show-poster.jpg, show-fanart.jpg, etc.) — stale when a
+    // canonical counterpart (poster.jpg / backdrop.jpg) already exists in the same folder.
     const artworkSuffixes = ['-poster', '_poster', '-fanart', '_fanart', '-backdrop', '_backdrop',
       '-landscape', '_landscape', '-banner', '_banner', '-clearart', '_clearart',
       '-discart', '_discart', '-disc', '_disc', '-logo', '_logo', '-thumb', '_thumb']
     const nameWithoutExt = basename.replace(/\.[^.]+$/, '')
-    if (artworkSuffixes.some(s => nameWithoutExt.endsWith(s))) continue
+    if (artworkSuffixes.some(s => nameWithoutExt.endsWith(s))) {
+      // Determine which canonical file this TMM image corresponds to
+      const suffix = artworkSuffixes.find(s => nameWithoutExt.endsWith(s))!
+      const canonicalMap: Record<string, string[]> = {
+        '-poster': ['poster.jpg', 'poster.jpeg', 'poster.png'],
+        '_poster': ['poster.jpg', 'poster.jpeg', 'poster.png'],
+        '-fanart': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png', 'fanart.jpg', 'fanart.jpeg', 'fanart.png'],
+        '_fanart': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png', 'fanart.jpg', 'fanart.jpeg', 'fanart.png'],
+        '-backdrop': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
+        '_backdrop': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
+        '-landscape': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
+        '_landscape': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
+        '-banner': ['banner.jpg', 'banner.jpeg', 'banner.png'],
+        '_banner': ['banner.jpg', 'banner.jpeg', 'banner.png'],
+        '-clearart': ['clearart.png'],
+        '_clearart': ['clearart.png'],
+        '-discart': ['disc.png', 'discart.png'],
+        '_discart': ['disc.png', 'discart.png'],
+        '-disc': ['disc.png', 'discart.png'],
+        '_disc': ['disc.png', 'discart.png'],
+        '-logo': ['logo.jpg', 'logo.png'],
+        '_logo': ['logo.jpg', 'logo.png'],
+        '-thumb': ['thumb.jpg', 'thumb.jpeg', 'thumb.png'],
+        '_thumb': ['thumb.jpg', 'thumb.jpeg', 'thumb.png'],
+      }
+      const canonicals = canonicalMap[suffix] ?? []
+      const dir = path.dirname(filePath)
+      const hasCanonical = canonicals.some(c => files.has(path.join(dir, c).toLowerCase()))
+      if (hasCanonical) {
+        stale.push({ path: filePath, reason: 'stale file type (tmm artwork superseded by canonical)' })
+      }
+      // If no canonical exists, preserve the TMM file (it's the best we have)
+      continue
+    }
 
     // Known metadata filenames
     if (KNOWN_METADATA.has(basename)) continue
