@@ -395,12 +395,12 @@ export function MovieDetailPage() {
       const parts = [r.added > 0 && `${r.added} added`, r.changed > 0 && `${r.changed} changed`, r.removed > 0 && `${r.removed} removed`].filter(Boolean)
       setRescanResult(parts.length > 0 ? parts.join(', ') : 'Up to date')
       setCleanupTrigger((n) => n + 1)
-      load()
     } catch {
       setRescanResult('Rescan failed')
       toast({ type: 'error', message: 'Rescan failed' })
     } finally {
       setRescanning(false)
+      load()
     }
   }
 

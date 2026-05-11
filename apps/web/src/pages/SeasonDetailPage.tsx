@@ -138,11 +138,11 @@ export function SeasonDetailPage() {
     try {
       const result = await rescanSeason(id, parseInt(seasonNumber, 10))
       setRescanResult(result)
-      load()
     } catch (e) {
       setRescanError(e instanceof Error ? e.message : 'Rescan failed')
     } finally {
       setRescanning(false)
+      load()
     }
   }
 
