@@ -169,6 +169,16 @@ export async function reorderEpisodes(
   })
 }
 
+export async function crossReassignEpisodes(
+  showId: string,
+  moves: { fromEpisodeId: string; toEpisodeId: string }[],
+): Promise<{ renamed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/cross-reassign`, {
+    method: 'POST',
+    body: JSON.stringify({ moves }),
+  })
+}
+
 export async function mergeParts(
   showId: string,
   seasonNumber: number,

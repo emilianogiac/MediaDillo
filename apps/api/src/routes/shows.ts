@@ -2,7 +2,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '@mediadillo/db'
+import { prisma, EpisodeStatus } from '@mediadillo/db'
 import { previewEpisodeRenames, previewEpisodeFileRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
@@ -589,6 +589,124 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     triggerLibraryRefresh(app.log).catch(() => {})
     return reply.send({ renamed, errors })
   })
+
+  // POST /api/shows/:id/cross-reassign — move files across seasons (and within season)
+  // moves: [{ fromEpisodeId, toEpisodeId }] — each entry moves all files from source to target episode.
+  app.post<{ Params: { id: string }; Body: { moves: { fromEpisodeId: string; toEpisodeId: string }[] } }>(
+    '/shows/:id/cross-reassign',
+    async (req, reply) => {
+      const { moves } = req.body
+      if (!Array.isArray(moves) || moves.length === 0) {
+        return reply.code(400).send({ error: 'moves must be a non-empty array' })
+      }
+
+      const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+      if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+      const allEpisodeIds = [...new Set([...moves.map(m => m.fromEpisodeId), ...moves.map(m => m.toEpisodeId)])]
+      const episodes = await prisma.episode.findMany({
+        where: { id: { in: allEpisodeIds }, season: { showId: req.params.id } },
+        include: { files: true, season: { select: { seasonNumber: true } } },
+      })
+
+      if (episodes.length !== allEpisodeIds.length) {
+        return reply.code(400).send({ error: 'One or more episode IDs are invalid or belong to a different show' })
+      }
+
+      const epMap = new Map(episodes.map(e => [e.id, e]))
+
+      // Collect file jobs: which file moves to which target episode
+      const fileJobs: Array<{ file: (typeof episodes)[0]['files'][0]; target: (typeof episodes)[0] }> = []
+      for (const move of moves) {
+        const src = epMap.get(move.fromEpisodeId)!
+        const tgt = epMap.get(move.toEpisodeId)!
+        for (const file of src.files) {
+          fileJobs.push({ file, target: tgt })
+        }
+      }
+
+      if (fileJobs.length === 0) return reply.send({ renamed: 0, errors: [] })
+
+      const errors: string[] = []
+      let renamed = 0
+
+      // Phase 1: rename all files to tmp names to avoid collision
+      const tmpPaths = new Map<string, string>()
+      for (const { file } of fileJobs) {
+        const ext = path.extname(file.path)
+        const dir = path.dirname(file.path)
+        const tmpPath = path.join(dir, `.tmp-${file.id}${ext}`)
+        try {
+          await fsRename(file.path, tmpPath)
+          tmpPaths.set(file.id, tmpPath)
+          await prisma.episodeFile.update({ where: { id: file.id }, data: { path: tmpPath } })
+        } catch (err) {
+          errors.push(`tmp rename failed for ${path.basename(file.path)}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      // Reassign EpisodeFile → target Episode
+      for (const { file, target } of fileJobs) {
+        if (!tmpPaths.has(file.id)) continue
+        await prisma.episodeFile.update({ where: { id: file.id }, data: { episodeId: target.id } })
+      }
+
+      // Group by target for part numbering
+      const jobsByTarget = new Map<string, Array<typeof fileJobs[0]>>()
+      for (const job of fileJobs) {
+        if (!tmpPaths.has(job.file.id)) continue
+        if (!jobsByTarget.has(job.target.id)) jobsByTarget.set(job.target.id, [])
+        jobsByTarget.get(job.target.id)!.push(job)
+      }
+      for (const jobs of jobsByTarget.values()) jobs.sort((a, b) => (a.file.path < b.file.path ? -1 : 1))
+
+      // Phase 2: rename tmp → canonical final name using target episode's season
+      for (const { file, target } of fileJobs) {
+        const tmpPath = tmpPaths.get(file.id)
+        if (!tmpPath) continue
+        const ext = path.extname(file.path)
+        const dir = path.dirname(tmpPath)
+        const targetJobs = jobsByTarget.get(target.id)!
+        const fileIdx = targetJobs.findIndex(j => j.file.id === file.id)
+        const partNumber = targetJobs.length > 1 ? fileIdx + 1 : null
+        const finalName = canonicalEpisodeFileName(
+          show.title, target.season.seasonNumber, target.episodeNumber, target.title, ext,
+          file.multiEpisodeEnd ?? null, partNumber,
+        )
+        const finalPath = path.join(dir, finalName)
+        try {
+          await fsRename(tmpPath, finalPath)
+          await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+          renamed++
+        } catch (err) {
+          errors.push(`final rename failed for ${path.basename(tmpPath)}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      // Update episode statuses for affected source and target episodes
+      const movedFromIds = new Set(moves.map(m => m.fromEpisodeId))
+      const movedToIds = new Set(moves.map(m => m.toEpisodeId))
+      const affected = await prisma.episode.findMany({
+        where: { id: { in: [...movedFromIds, ...movedToIds] } },
+        include: { files: true },
+      })
+      for (const ep of affected) {
+        const today = new Date()
+        let status: EpisodeStatus
+        if (ep.files.length > 0) {
+          status = EpisodeStatus.owned
+        } else if (ep.airDate && new Date(ep.airDate) > today) {
+          status = EpisodeStatus.not_yet_aired
+        } else {
+          status = EpisodeStatus.missing
+        }
+        await prisma.episode.update({ where: { id: ep.id }, data: { status } })
+      }
+
+      triggerLibraryRefresh(app.log).catch(() => {})
+      return reply.send({ renamed, errors })
+    },
+  )
 
   // GET /api/shows/:id/seasons/:seasonNumber/rename-preview — canonical rename preview scoped to a season
   app.get<{ Params: { id: string; seasonNumber: string } }>(
