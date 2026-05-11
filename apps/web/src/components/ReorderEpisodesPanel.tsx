@@ -75,6 +75,9 @@ interface SeasonBlockProps {
 
 function SeasonBlock({ seasonData, order, original, onDragEnd, onReset }: SeasonBlockProps) {
   const isDirty = order.some((ep, i) => ep.id !== original[i]?.id)
+  // Episodes whose number exceeds TVDB's known count are mis-tagged and can't be placed into a valid slot.
+  const knownCount = seasonData.episodeCount
+  const isOutOfRange = (ep: EpisodeDetail) => knownCount > 0 && ep.episodeNumber > knownCount
 
   return (
     <div className="space-y-2">
@@ -93,16 +96,19 @@ function SeasonBlock({ seasonData, order, original, onDragEnd, onReset }: Season
       </div>
       <div className="flex gap-2">
         <div className="flex-1 space-y-1">
-          {original.map((ep) => (
-            <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
-              <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
-                {String(ep.episodeNumber).padStart(2, '0')}
-              </span>
-              <span className={`text-sm truncate ${ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
-                {ep.title ?? `Episode ${ep.episodeNumber}`}
-              </span>
-            </div>
-          ))}
+          {original.map((ep) => {
+            const oor = isOutOfRange(ep)
+            return (
+              <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3 ${oor ? 'rounded border border-yellow-700/40 bg-yellow-900/20' : ''}`}>
+                <span className={`text-xs font-mono w-7 flex-shrink-0 ${oor ? 'text-yellow-500' : 'text-gray-500'}`}>
+                  {String(ep.episodeNumber).padStart(2, '0')}
+                </span>
+                <span className={`text-sm truncate ${oor ? 'text-yellow-400' : ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
+                  {oor ? `⚠ E${ep.episodeNumber} not in TVDB (${knownCount} episodes)` : (ep.title ?? `Episode ${ep.episodeNumber}`)}
+                </span>
+              </div>
+            )
+          })}
         </div>
         <DndContext collisionDetection={closestCenter} onDragEnd={(e) => onDragEnd(seasonData.seasonNumber, e)}>
           <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
@@ -290,7 +296,7 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
 
           {showAll && allSeasons ? (
             <div className="space-y-6">
-              {allSeasons.map((s) => {
+              {allSeasons.filter((s) => s.episodes.some((e) => e.files.length > 0)).map((s) => {
                 const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
                 const cur = allOrder.get(s.seasonNumber) ?? sorted
                 return (
