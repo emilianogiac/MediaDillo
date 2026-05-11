@@ -2,8 +2,8 @@ import { useState, useMemo } from 'react'
 import { DndContext, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { EpisodeDetail } from '../api/types.js'
-import { reorderEpisodes } from '../api/shows.js'
+import type { EpisodeDetail, SeasonDetail } from '../api/types.js'
+import { reorderEpisodes, fetchShow, fetchSeason } from '../api/shows.js'
 import { useToast } from '../context/ToastContext.js'
 
 const ROW_H = 'h-9'
@@ -64,6 +64,64 @@ function SortableFilenameRow({ ep, isOriginal }: { ep: EpisodeDetail; isOriginal
   )
 }
 
+interface SeasonBlockProps {
+  showId: string
+  seasonData: SeasonDetail
+  order: EpisodeDetail[]
+  original: EpisodeDetail[]
+  onDragEnd: (seasonNumber: number, event: DragEndEvent) => void
+  onReset: (seasonNumber: number) => void
+}
+
+function SeasonBlock({ seasonData, order, original, onDragEnd, onReset }: SeasonBlockProps) {
+  const isDirty = order.some((ep, i) => ep.id !== original[i]?.id)
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+          Season {seasonData.seasonNumber}
+        </span>
+        {isDirty && (
+          <button
+            onClick={() => onReset(seasonData.seasonNumber)}
+            className="text-xs text-gray-600 hover:text-accent transition-colors"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <div className="flex-1 space-y-1">
+          {original.map((ep) => (
+            <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
+              <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
+                {String(ep.episodeNumber).padStart(2, '0')}
+              </span>
+              <span className={`text-sm truncate ${ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
+                {ep.title ?? `Episode ${ep.episodeNumber}`}
+              </span>
+            </div>
+          ))}
+        </div>
+        <DndContext collisionDetection={closestCenter} onDragEnd={(e) => onDragEnd(seasonData.seasonNumber, e)}>
+          <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+            <div className="flex-[2] space-y-1">
+              {order.map((ep, i) => (
+                <SortableFilenameRow
+                  key={ep.id}
+                  ep={ep}
+                  isOriginal={ep.id === original[i]?.id}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+      </div>
+    </div>
+  )
+}
+
 interface Props {
   showId: string
   seasonNumber: number
@@ -75,6 +133,10 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [showAll, setShowAll] = useState(false)
+  const [loadingAll, setLoadingAll] = useState(false)
+  const [allSeasons, setAllSeasons] = useState<SeasonDetail[] | null>(null)
+  const [allOrder, setAllOrder] = useState<Map<number, EpisodeDetail[]>>(new Map())
 
   const allEps = useMemo(
     () => [...episodes].sort((a, b) => a.episodeNumber - b.episodeNumber),
@@ -83,12 +145,43 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
   const ownedCount = allEps.filter((e) => e.files.length > 0).length
 
   const [order, setOrder] = useState<EpisodeDetail[]>(allEps)
-
   const isDirty = order.some((ep, i) => ep.id !== allEps[i]?.id)
+  const isAllDirty = allSeasons !== null && allSeasons.some((s) => {
+    const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
+    const cur = allOrder.get(s.seasonNumber) ?? sorted
+    return cur.some((ep, i) => ep.id !== sorted[i]?.id)
+  })
 
   function toggleOpen() {
-    if (!open) setOrder(allEps)
+    if (!open) {
+      setOrder(allEps)
+      setShowAll(false)
+    }
     setOpen((o) => !o)
+  }
+
+  async function toggleAllSeasons() {
+    if (!showAll && allSeasons === null) {
+      setLoadingAll(true)
+      try {
+        const show = await fetchShow(showId)
+        const seasons = await Promise.all(
+          show.seasons.map((s) => fetchSeason(showId, s.seasonNumber))
+        )
+        const initOrder = new Map<number, EpisodeDetail[]>()
+        for (const s of seasons) {
+          initOrder.set(s.seasonNumber, [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber))
+        }
+        setAllSeasons(seasons)
+        setAllOrder(initOrder)
+      } catch {
+        toast({ type: 'error', message: 'Failed to load all seasons' })
+        setLoadingAll(false)
+        return
+      }
+      setLoadingAll(false)
+    }
+    setShowAll((v) => !v)
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -101,16 +194,33 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
     })
   }
 
+  function handleAllDragEnd(sn: number, event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    setAllOrder((prev) => {
+      const cur = prev.get(sn) ?? []
+      const oldIdx = cur.findIndex((e) => e.id === active.id)
+      const newIdx = cur.findIndex((e) => e.id === over.id)
+      const next = new Map(prev)
+      next.set(sn, arrayMove(cur, oldIdx, newIdx))
+      return next
+    })
+  }
+
+  function resetSeason(sn: number) {
+    if (!allSeasons) return
+    const s = allSeasons.find((x) => x.seasonNumber === sn)
+    if (!s) return
+    const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
+    setAllOrder((prev) => { const next = new Map(prev); next.set(sn, sorted); return next })
+  }
+
   async function apply() {
     setApplying(true)
     try {
       const result = await reorderEpisodes(showId, seasonNumber, order.map((e) => e.id))
-      if (result.errors.length > 0) {
-        result.errors.forEach((e) => toast({ type: 'error', message: e }))
-      }
-      if (result.renamed > 0) {
-        toast({ type: 'success', message: `${result.renamed} file${result.renamed !== 1 ? 's' : ''} reassigned and renamed` })
-      }
+      if (result.errors.length > 0) result.errors.forEach((e) => toast({ type: 'error', message: e }))
+      if (result.renamed > 0) toast({ type: 'success', message: `${result.renamed} file${result.renamed !== 1 ? 's' : ''} reassigned and renamed` })
       setOpen(false)
       onDone()
     } catch (e) {
@@ -118,6 +228,33 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
     } finally {
       setApplying(false)
     }
+  }
+
+  async function applyAll() {
+    if (!allSeasons) return
+    setApplying(true)
+    let totalRenamed = 0
+    const errors: string[] = []
+
+    for (const s of allSeasons) {
+      const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
+      const cur = allOrder.get(s.seasonNumber) ?? sorted
+      const dirty = cur.some((ep, i) => ep.id !== sorted[i]?.id)
+      if (!dirty) continue
+      try {
+        const result = await reorderEpisodes(showId, s.seasonNumber, cur.map((e) => e.id))
+        totalRenamed += result.renamed
+        errors.push(...result.errors)
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : `Season ${s.seasonNumber} reorder failed`)
+      }
+    }
+
+    if (errors.length > 0) errors.forEach((e) => toast({ type: 'error', message: e }))
+    if (totalRenamed > 0) toast({ type: 'success', message: `${totalRenamed} file${totalRenamed !== 1 ? 's' : ''} reassigned and renamed` })
+    setOpen(false)
+    onDone()
+    setApplying(false)
   }
 
   if (ownedCount < 1 || allEps.length < 2) return null
@@ -134,57 +271,101 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
 
       {open && (
         <div className="p-4 space-y-3 bg-surface border-t border-gray-700">
-          <p className="text-xs text-gray-500">
-            Titles (left) are fixed TMDB metadata. Drag filenames (right) until each matches its title.
-          </p>
-
-          <div className="flex gap-2">
-            {/* Fixed left column: correct episode titles */}
-            <div className="flex-1 space-y-1">
-              {allEps.map((ep) => (
-                <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
-                  <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
-                    {String(ep.episodeNumber).padStart(2, '0')}
-                  </span>
-                  <span className={`text-sm truncate ${ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
-                    {ep.title ?? `Episode ${ep.episodeNumber}`}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* Draggable right column: filenames */}
-            <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
-                <div className="flex-[2] space-y-1">
-                  {order.map((ep, i) => (
-                    <SortableFilenameRow
-                      key={ep.id}
-                      ep={ep}
-                      isOriginal={ep.id === allEps[i]?.id}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">
+              Titles (left) are fixed TMDB metadata. Drag filenames (right) until each matches its title.
+            </p>
+            <button
+              onClick={() => void toggleAllSeasons()}
+              disabled={loadingAll}
+              className={`flex-shrink-0 ml-4 text-xs px-2.5 py-1 rounded border transition-colors ${
+                showAll
+                  ? 'border-accent/60 text-accent bg-accent/10'
+                  : 'border-gray-600 text-gray-400 hover:border-accent/60 hover:text-accent'
+              } disabled:opacity-40`}
+            >
+              {loadingAll ? 'Loading…' : 'All seasons'}
+            </button>
           </div>
 
+          {showAll && allSeasons ? (
+            <div className="space-y-6">
+              {allSeasons.map((s) => {
+                const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
+                const cur = allOrder.get(s.seasonNumber) ?? sorted
+                return (
+                  <SeasonBlock
+                    key={s.seasonNumber}
+                    showId={showId}
+                    seasonData={s}
+                    order={cur}
+                    original={sorted}
+                    onDragEnd={handleAllDragEnd}
+                    onReset={resetSeason}
+                  />
+                )
+              })}
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1">
+                {allEps.map((ep) => (
+                  <div key={ep.id} className={`${ROW_H} flex items-center gap-2 px-3`}>
+                    <span className="text-xs font-mono text-gray-500 w-7 flex-shrink-0">
+                      {String(ep.episodeNumber).padStart(2, '0')}
+                    </span>
+                    <span className={`text-sm truncate ${ep.files.length > 0 ? 'text-gray-200' : 'text-gray-600 italic'}`}>
+                      {ep.title ?? `Episode ${ep.episodeNumber}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                <SortableContext items={order.map((e) => e.id)} strategy={verticalListSortingStrategy}>
+                  <div className="flex-[2] space-y-1">
+                    {order.map((ep, i) => (
+                      <SortableFilenameRow
+                        key={ep.id}
+                        ep={ep}
+                        isOriginal={ep.id === allEps[i]?.id}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            </div>
+          )}
+
           <div className="flex items-center gap-3 pt-1">
-            <button
-              onClick={apply}
-              disabled={applying || !isDirty}
-              className="text-sm px-4 py-1.5 rounded bg-accent text-black font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              {applying ? 'Applying…' : 'Apply reorder'}
-            </button>
-            {isDirty && (
-              <button
-                onClick={() => setOrder(allEps)}
-                disabled={applying}
-                className="text-xs text-gray-500 hover:text-accent transition-colors"
-              >
-                Reset
-              </button>
+            {showAll ? (
+              <>
+                <button
+                  onClick={() => void applyAll()}
+                  disabled={applying || !isAllDirty}
+                  className="text-sm px-4 py-1.5 rounded bg-accent text-black font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {applying ? 'Applying…' : 'Apply reorder'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => void apply()}
+                  disabled={applying || !isDirty}
+                  className="text-sm px-4 py-1.5 rounded bg-accent text-black font-medium hover:bg-accent/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {applying ? 'Applying…' : 'Apply reorder'}
+                </button>
+                {isDirty && (
+                  <button
+                    onClick={() => setOrder(allEps)}
+                    disabled={applying}
+                    className="text-xs text-gray-500 hover:text-accent transition-colors"
+                  >
+                    Reset
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
