@@ -712,7 +712,7 @@ export function ShowsPage() {
       {!loading && !error && displayShows.length > 0 && filter.view === 'grid' && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
           {displayShows.map((show) => (
-            <ShowCard key={show.id} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} listSearch={location.search} />
+            <ShowCard key={show.listKey} show={show} nonce={listNonce} isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)} listSearch={location.search} />
           ))}
         </div>
       )}

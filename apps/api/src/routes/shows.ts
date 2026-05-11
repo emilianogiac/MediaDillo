@@ -70,7 +70,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
         ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
         ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
-        ...(scanRootPath ? { seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: scanRootPath } } } } } } } } : {}),
+        ...(scanRootPath ? { seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: scanRootPath.endsWith('/') ? scanRootPath : scanRootPath + '/' } } } } } } } } : {}),
         ...(status === 'continuing' || status === 'ended' ? { status } : {}),
       },
       select: {
@@ -128,7 +128,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const inRoot = await prisma.tvShow.findMany({
         where: {
           id: { in: filteredIds },
-          seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: root.path } } } } } } },
+          seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: root.path.endsWith('/') ? root.path : root.path + '/' } } } } } } },
         },
         select: { id: true },
       })
@@ -186,7 +186,31 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       ownedCount: s._count.episodes,
     }))
 
-    return reply.send({ ...show, seasons })
+    // Build scanRoots for this show (which scan roots contain its episode files)
+    const allScanRoots = await prisma.scanRoot.findMany({ select: { id: true, label: true, path: true } })
+    const showScanRoots: { id: string; label: string }[] = []
+    for (const root of allScanRoots) {
+      const rootPath = root.path.endsWith('/') ? root.path : root.path + '/'
+      const hasFiles = await prisma.episodeFile.findFirst({
+        where: { path: { startsWith: rootPath }, episode: { season: { showId: show.id } } },
+        select: { id: true },
+      })
+      if (hasFiles) showScanRoots.push({ id: root.id, label: root.label })
+    }
+
+    // Duplicate detection for this show's tmdbId
+    const dupCount = show.tmdbId
+      ? await prisma.tvShow.count({ where: { tmdbId: show.tmdbId } })
+      : 1
+
+    return reply.send({
+      ...show,
+      seasons,
+      scanRoots: showScanRoots,
+      isDuplicate: dupCount > 1,
+      duplicateCount: dupCount,
+      isOrganized: false, // detail page doesn't use isOrganized; included for type compatibility
+    })
   })
 
   // GET /api/shows/:id/organize — rename preview + stale file scan for this show
