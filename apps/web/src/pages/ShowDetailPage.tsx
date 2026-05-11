@@ -273,6 +273,11 @@ export function ShowDetailPage() {
 
           <div className="flex flex-wrap gap-3 text-sm text-gray-400">
             {show.year && <span>{show.year}</span>}
+            {show.scanRoot && (
+              <span className="text-xs px-2 py-0.5 rounded bg-gray-700/60 text-gray-400 border border-gray-600/40 self-center">
+                {show.scanRoot.label}
+              </span>
+            )}
             {show.rating !== null && (
               <span className="text-yellow-400">★ {show.rating.toFixed(1)}</span>
             )}
