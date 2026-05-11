@@ -219,6 +219,11 @@ export function SeasonDetailPage() {
                   ].filter(Boolean).join(' · ')}
             </p>
           )}
+          {rescanResult?._debug && (
+            <p className="text-xs text-gray-600 font-mono truncate" title={rescanResult._debug.seasonFolderPath}>
+              folder: {rescanResult._debug.seasonFolderPath}
+            </p>
+          )}
           {rescanResult?.filesSkipped.length ? (
             <div className="space-y-1 pt-1 border-t border-gray-700/60">
               <p className="text-xs font-medium text-yellow-400">Skipped</p>

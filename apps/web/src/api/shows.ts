@@ -144,6 +144,7 @@ export interface RescanResult {
   filesFound: number
   filesSkipped: { path: string; reason: string }[]
   folderFound: boolean
+  _debug?: { seasonFolderPath: string; scanRootPath: string }
 }
 
 export async function rescanSeason(showId: string, seasonNumber: number): Promise<RescanResult> {

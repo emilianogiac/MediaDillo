@@ -14,6 +14,7 @@ export interface SeasonScanResult extends ScanCounts {
   filesFound: number
   filesSkipped: { path: string; reason: string }[]
   folderFound: boolean
+  _debug?: { seasonFolderPath: string; scanRootPath: string }
 }
 
 let scanning = false
@@ -240,6 +241,9 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
     return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
   }
 
+  const scanRootPath = path.dirname(path.dirname(seasonFolderPath))
+  console.log(`[season-scan] show=${showId} season=${seasonNumber} folder=${seasonFolderPath} scanRoot=${scanRootPath}`)
+
   let added = 0
   let changed = 0
   let filesFound = 0
@@ -256,8 +260,7 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
 
     const techSpecs = await extractTechSpecs(walkedFile.path)
     try {
-      // scanRootPath = two levels up from season folder (scanRoot/show/season)
-      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }, path.dirname(path.dirname(seasonFolderPath)))
+      const result = await syncEpisodeFile({ path: walkedFile.path, sizeBytes: walkedFile.sizeBytes, mtimeMs: walkedFile.mtimeMs, parsed, techSpecs }, scanRootPath)
       if (result === 'added') added++
       else if (result === 'changed') changed++
     } catch (err) {
@@ -290,7 +293,8 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
     await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
   }
 
-  return { added, changed, removed, filesFound, filesSkipped, folderFound: true }
+  console.log(`[season-scan] done: found=${filesFound} added=${added} changed=${changed} removed=${removed} skipped=${filesSkipped.length}`)
+  return { added, changed, removed, filesFound, filesSkipped, folderFound: true, _debug: { seasonFolderPath, scanRootPath } }
 }
 
 export async function runShowScan(showId: string): Promise<SeasonScanResult> {
