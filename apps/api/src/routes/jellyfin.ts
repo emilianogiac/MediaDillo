@@ -66,6 +66,28 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ ok: true })
   })
 
+  // GET /api/jellyfin/show-url/:showId — deep-link URL for a TV show in the Jellyfin web UI
+  app.get<{ Params: { showId: string } }>('/jellyfin/show-url/:showId', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({
+      where: { id: req.params.showId },
+      select: { tmdbId: true },
+    })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+    if (!show.tmdbId) return reply.code(422).send({ error: 'Show not matched to TMDB' })
+
+    const client = await getClient()
+    if (!client) return reply.code(503).send({ error: 'Jellyfin not configured' })
+
+    try {
+      const url = await client.getTvShowDeepLink(show.tmdbId)
+      return reply.send({ url })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      const code = msg.includes('not found in Jellyfin') ? 404 : 502
+      return reply.code(code).send({ error: msg })
+    }
+  })
+
   // GET /api/jellyfin/item-url/:movieId — deep-link URL for a movie in the Jellyfin web UI
   app.get<{ Params: { movieId: string } }>('/jellyfin/item-url/:movieId', async (req, reply) => {
     const movie = await prisma.movie.findUnique({

@@ -59,6 +59,8 @@ export interface Credit {
   person: Person
 }
 
+export interface ShowScanRoot { id: string; label: string }
+
 export interface ShowSummary {
   id: string
   title: string
@@ -76,6 +78,7 @@ export interface ShowSummary {
   ownedEpisodes: number
   totalEpisodes: number
   createdAt: string
+  scanRoots: ShowScanRoot[]
 }
 
 export interface SeasonSummary {

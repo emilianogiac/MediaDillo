@@ -4,6 +4,7 @@ import type { ShowDetail } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
 import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, fetchOrganizePreview, fetchTvdbCandidates, matchShowFromTvdb, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
+import { fetchJellyfinStatus, fetchJellyfinShowUrl } from '../api/jellyfin.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
@@ -62,6 +63,8 @@ export function ShowDetailPage() {
   const [tvdbOrders, setTvdbOrders] = useState<{ type: string; name: string }[]>([])
   const [organizeDots, setOrganizeDots] = useState<{ renames: boolean; removals: boolean } | null>(null)
   const [organizeTrigger, setOrganizeTrigger] = useState(0)
+  const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
+  const [openingJellyfin, setOpeningJellyfin] = useState(false)
 
   const load = useCallback(() => {
     if (!id) return
@@ -74,6 +77,7 @@ export function ShowDetailPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { fetchScanRoots().then(setScanRoots).catch(() => {}) }, [])
+  useEffect(() => { fetchJellyfinStatus().then((s) => setJellyfinConfigured(s.configured && s.connected)).catch(() => {}) }, [])
   useEffect(() => {
     if (!id || !show?.tvdbId) { setTvdbOrders([]); return }
     fetchTvdbOrders(id).then(setTvdbOrders).catch(() => setTvdbOrders([]))
@@ -89,6 +93,19 @@ export function ShowDetailPage() {
   }
 
   useEffect(() => { void loadOrganizeDots() }, [id])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleOpenInJellyfin() {
+    if (!id) return
+    setOpeningJellyfin(true)
+    try {
+      const { url } = await fetchJellyfinShowUrl(id)
+      window.open(url, '_blank', 'noopener,noreferrer')
+    } catch {
+      toast({ type: 'error', message: 'Show not found in Jellyfin — try triggering a library refresh first' })
+    } finally {
+      setOpeningJellyfin(false)
+    }
+  }
 
   async function handleRematch() {
     if (!id || (!show?.tmdbId && !show?.tvdbId)) return
@@ -273,9 +290,9 @@ export function ShowDetailPage() {
 
           <div className="flex flex-wrap gap-3 text-sm text-gray-400">
             {show.year && <span>{show.year}</span>}
-            {show.scanRoot && (
+            {show.scanRoots.length > 0 && (
               <span className="text-xs px-2 py-0.5 rounded bg-gray-700/60 text-gray-400 border border-gray-600/40 self-center">
-                {show.scanRoot.label}
+                {show.scanRoots.map((r) => r.label).join(', ')}
               </span>
             )}
             {show.rating !== null && (
@@ -353,6 +370,15 @@ export function ShowDetailPage() {
                 >
                   TMDB ↗
                 </a>
+              )}
+              {show.tmdbId && jellyfinConfigured && (
+                <button
+                  onClick={() => { void handleOpenInJellyfin() }}
+                  disabled={openingJellyfin}
+                  className="px-2 py-0.5 rounded bg-purple-900/40 border border-purple-700/40 text-purple-300 hover:text-purple-100 transition-colors disabled:opacity-40"
+                >
+                  {openingJellyfin ? '…' : 'Jellyfin ↗'}
+                </button>
               )}
               {show.tvdbId && !editingTvdbId && (
                 <a

@@ -81,6 +81,21 @@ export class JellyfinClient {
     return this._baseUrl
   }
 
+  async getTvShowDeepLink(tmdbId: number): Promise<string> {
+    const params = new URLSearchParams({
+      IncludeItemTypes: 'Series',
+      Recursive: 'true',
+      AnyProviderIdEquals: `tmdb.${tmdbId}`,
+      Fields: 'ProviderIds',
+      Limit: '1',
+    })
+    const data = await this.get<{ Items: { Id: string }[] }>(`/Items?${params}`)
+    const item = data.Items[0]
+    if (!item) throw new Error('Show not found in Jellyfin library')
+    const serverId = await this.getServerId()
+    return `${this.baseUrl}/web/index.html#!/details?id=${item.Id}&serverId=${serverId}`
+  }
+
   async getMovieDeepLink(tmdbId: number): Promise<string> {
     const params = new URLSearchParams({
       IncludeItemTypes: 'Movie',

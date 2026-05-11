@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams, useLocation } from 'react-router-dom'
-import type { ShowSummary, ScanRoot } from '../api/types.js'
+import type { ShowSummary, ShowScanRoot, ScanRoot } from '../api/types.js'
 import { fetchShows, deleteShow } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { refreshMetadata, cleanupBatch } from '../api/library-health.js'
@@ -65,7 +65,10 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
   )
 }
 
-function ShowCard({ show, nonce, isNew, listSearch }: { show: ShowSummary; nonce: number; isNew: boolean; listSearch: string }) {
+// A display entry is a ShowSummary scoped to a specific library (for multi-library splits)
+type DisplayShow = ShowSummary & { displayLibrary: ShowScanRoot | null; listKey: string }
+
+function ShowCard({ show, nonce, isNew, listSearch }: { show: DisplayShow; nonce: number; isNew: boolean; listSearch: string }) {
   const unmatched = !show.tmdbId
   const missingArt = !show.posterDownloaded || !show.backdropDownloaded
   const isDuplicate = show.duplicateCount > 1
@@ -118,7 +121,10 @@ function ShowCard({ show, nonce, isNew, listSearch }: { show: ShowSummary; nonce
 
       <div className="p-2 space-y-1.5">
         <p className="text-xs font-medium text-gray-100 truncate">{show.title}</p>
-        <p className="text-xs text-gray-500">{show.year ?? '—'}</p>
+        <p className="text-xs text-gray-500">
+          {show.year ?? '—'}
+          {show.displayLibrary && <span className="ml-1.5 text-gray-600">{show.displayLibrary.label}</span>}
+        </p>
         {show.totalEpisodes > 0 && (
           <div className="space-y-0.5">
             <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
@@ -133,7 +139,7 @@ function ShowCard({ show, nonce, isNew, listSearch }: { show: ShowSummary; nonce
 }
 
 interface ListRowProps {
-  show: ShowSummary
+  show: DisplayShow
   selected: boolean
   index: number
   nonce: number
@@ -180,7 +186,10 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
 
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-100">{show.title}</p>
-          <p className="text-xs text-gray-500">{show.year ?? '—'}</p>
+          <p className="text-xs text-gray-500">
+            {show.year ?? '—'}
+            {show.displayLibrary && <span className="ml-2 text-gray-600">{show.displayLibrary.label}</span>}
+          </p>
         </div>
 
         {/* Completeness bar */}
@@ -203,11 +212,13 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
         </div>
 
         {/* Status chips */}
-        <div className="flex-shrink-0 w-32 flex gap-1 items-center">
+        <div className="flex-shrink-0 w-40 flex gap-1 items-center flex-wrap">
           {isNew && <span className="bg-sky-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">New</span>}
           {unmatched && <span className="bg-red-600/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">Unmatched</span>}
           {isDuplicate && <span className="bg-orange-500/90 text-white text-xs px-1.5 py-0.5 rounded font-medium">{show.duplicateCount}×</span>}
-          {show.isOrganized && <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>}
+          {show.isOrganized
+            ? <span className="bg-green-600/90 text-white text-xs px-1 py-0.5 rounded font-medium">✓</span>
+            : <span className="bg-yellow-700/60 text-yellow-300 text-xs px-1.5 py-0.5 rounded font-medium">⚠ Organize</span>}
         </div>
       </Link>
     </div>
@@ -322,8 +333,8 @@ export function ShowsPage() {
   // Client-side genre filter
   const allGenres = useMemo(() => [...new Set(shows.flatMap((s) => s.genres))].sort(), [shows])
 
-  // Client-side sort + genre filter
-  const displayShows = useMemo(() => {
+  // Client-side sort + genre filter + multi-library split
+  const displayShows = useMemo<DisplayShow[]>(() => {
     let arr = filter.genre ? shows.filter((s) => s.genres.includes(filter.genre)) : [...shows]
     switch (filter.sort) {
       case 'title_desc':
@@ -346,8 +357,27 @@ export function ShowsPage() {
         })
         break
     }
-    return arr
+    // Explode shows with multiple scan roots into separate display entries
+    return arr.flatMap((show) => {
+      if (show.scanRoots.length <= 1) {
+        return [{ ...show, displayLibrary: show.scanRoots[0] ?? null, listKey: show.id }]
+      }
+      return show.scanRoots.map((root) => ({
+        ...show,
+        displayLibrary: root,
+        listKey: `${show.id}_${root.id}`,
+      }))
+    })
   }, [shows, filter.sort, filter.genre])
+
+  // Deselect items that are no longer visible after filtering
+  useEffect(() => {
+    const visibleKeys = new Set(displayShows.map((s) => s.listKey))
+    setSelected((prev) => {
+      const next = new Set([...prev].filter((k) => visibleKeys.has(k)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [displayShows])
 
   // Counts for toggle filters
   const counts = useMemo(() => ({
@@ -362,24 +392,29 @@ export function ShowsPage() {
     filter.unmatched || filter.needsOrganizing || filter.duplicates || filter.status || filter.scanRootId
   )
 
-  const allIds = displayShows.map((s) => s.id)
-  const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
+  const allKeys = displayShows.map((s) => s.listKey)
+  const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
   const someSelected = selected.size > 0
 
-  function toggleAll() { setSelected(allSelected ? new Set() : new Set(allIds)) }
+  function toggleAll() { setSelected(allSelected ? new Set() : new Set(allKeys)) }
 
-  function toggleOne(id: string, index: number, shiftKey: boolean) {
+  function toggleOne(key: string, index: number, shiftKey: boolean) {
     if (shiftKey && lastSelectedIdx !== null) {
       const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
       setSelected((prev) => {
         const next = new Set(prev)
-        displayShows.slice(from, to + 1).forEach((s) => next.add(s.id))
+        displayShows.slice(from, to + 1).forEach((s) => next.add(s.listKey))
         return next
       })
     } else {
-      setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
+      setSelected((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next })
       setLastSelectedIdx(index)
     }
+  }
+
+  // Extract unique show IDs from selected keys (deduplicate multi-library entries)
+  function selectedShowIds(): string[] {
+    return [...new Set([...selected].map((k) => k.split('_')[0]!))]
   }
 
   function clearFilters() {
@@ -387,7 +422,7 @@ export function ShowsPage() {
   }
 
   function handleBatchDelete() {
-    const ids = [...selected]
+    const ids = selectedShowIds()
     if (ids.length === 0) return
     setConfirm({
       title: 'Remove records',
@@ -408,7 +443,7 @@ export function ShowsPage() {
   }
 
   async function handleBatchRematch() {
-    const matchedIds = [...selected].filter((id) => shows.find((s) => s.id === id)?.tmdbId)
+    const matchedIds = selectedShowIds().filter((id) => shows.find((s) => s.id === id)?.tmdbId)
     if (matchedIds.length === 0) {
       toast({ type: 'error', message: 'No matched shows selected — rematch only works on already-matched items' })
       return
@@ -424,7 +459,7 @@ export function ShowsPage() {
   async function handleBatchRename() {
     if (selected.size === 0) return
     try {
-      const { jobId, total, message } = await renameBatchShows([...selected])
+      const { jobId, total, message } = await renameBatchShows(selectedShowIds())
       if (!jobId) {
         toast({ type: 'success', message: message ?? 'Nothing to rename' })
         return
@@ -438,7 +473,7 @@ export function ShowsPage() {
   async function handleBatchCleanup() {
     if (selected.size === 0) return
     try {
-      const { jobId, total } = await cleanupBatch([], [...selected])
+      const { jobId, total } = await cleanupBatch([], selectedShowIds())
       trackJob({ label: `Cleaning ${total} show folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
@@ -689,14 +724,14 @@ export function ShowsPage() {
           </div>
           {displayShows.map((show, idx) => (
             <ShowListRow
-              key={show.id}
+              key={show.listKey}
               show={show}
-              selected={selected.has(show.id)}
+              selected={selected.has(show.listKey)}
               index={idx}
               nonce={listNonce}
               isNew={!!lastScanAt && new Date(show.createdAt) >= new Date(lastScanAt)}
               listSearch={location.search}
-              onToggle={(e) => toggleOne(show.id, idx, e.shiftKey)}
+              onToggle={(e) => toggleOne(show.listKey, idx, e.shiftKey)}
             />
           ))}
         </div>

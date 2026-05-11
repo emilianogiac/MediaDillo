@@ -29,3 +29,7 @@ export async function fetchWatchedData(): Promise<WatchedData> {
 export async function fetchJellyfinMovieUrl(movieId: string): Promise<{ url: string }> {
   return apiFetch<{ url: string }>(`/jellyfin/item-url/${movieId}`)
 }
+
+export async function fetchJellyfinShowUrl(showId: string): Promise<{ url: string }> {
+  return apiFetch<{ url: string }>(`/jellyfin/show-url/${showId}`)
+}

@@ -120,12 +120,32 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       filtered = filtered.filter((s) => !isShowOrganized(s))
     }
 
+    // Build a showId → scanRoots[] map by checking which scan roots each show has files in.
+    const allScanRoots = await prisma.scanRoot.findMany({ select: { id: true, label: true, path: true } })
+    const filteredIds = filtered.map((s) => s.id)
+    const showScanRoots = new Map<string, { id: string; label: string }[]>()
+    for (const root of allScanRoots) {
+      const inRoot = await prisma.tvShow.findMany({
+        where: {
+          id: { in: filteredIds },
+          seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: root.path } } } } } } },
+        },
+        select: { id: true },
+      })
+      for (const s of inRoot) {
+        const arr = showScanRoots.get(s.id) ?? []
+        arr.push({ id: root.id, label: root.label })
+        showScanRoots.set(s.id, arr)
+      }
+    }
+
     const dupSet = new Set(dupTmdbIds)
     const tagged = filtered.map(({ seasons, ...rest }) => ({
       ...rest,
       isDuplicate: rest.tmdbId != null && dupSet.has(rest.tmdbId),
       duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
       isOrganized: isShowOrganized({ seasons, ...rest }),
+      scanRoots: showScanRoots.get(rest.id) ?? [],
     }))
 
     return reply.send(tagged)
