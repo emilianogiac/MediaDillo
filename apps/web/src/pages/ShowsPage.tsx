@@ -238,6 +238,7 @@ export function ShowsPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
+  const [selectedOnly, setSelectedOnly] = useState(false)
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
 
   const [lastScanAt, setLastScanAt] = useState<string | null>(() => localStorage.getItem('mediaDillo.lastScanAt'))
@@ -300,8 +301,8 @@ export function ShowsPage() {
       .catch(() => {})
   }, [])
 
-  function load() {
-    setLoading(true)
+  function load(silent = false) {
+    if (!silent) setLoading(true)
     setError(null)
     const showFilter: import('../api/shows.js').ShowsFilter = {}
     if (filter.scanRootId) showFilter.scanRootId = filter.scanRootId
@@ -379,6 +380,14 @@ export function ShowsPage() {
     })
   }, [displayShows])
 
+  // Auto-clear selectedOnly when selection empties
+  useEffect(() => { if (selected.size === 0) setSelectedOnly(false) }, [selected])
+
+  const visibleShows = useMemo(
+    () => selectedOnly ? displayShows.filter((s) => selected.has(s.listKey)) : displayShows,
+    [displayShows, selectedOnly, selected],
+  )
+
   // Counts for toggle filters
   const counts = useMemo(() => ({
     missingArtwork: shows.filter((s) => !s.posterDownloaded || !s.backdropDownloaded).length,
@@ -392,7 +401,7 @@ export function ShowsPage() {
     filter.unmatched || filter.needsOrganizing || filter.duplicates || filter.status || filter.scanRootId
   )
 
-  const allKeys = displayShows.map((s) => s.listKey)
+  const allKeys = visibleShows.map((s) => s.listKey)
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k))
   const someSelected = selected.size > 0
 
@@ -403,7 +412,7 @@ export function ShowsPage() {
       const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
       setSelected((prev) => {
         const next = new Set(prev)
-        displayShows.slice(from, to + 1).forEach((s) => next.add(s.listKey))
+        visibleShows.slice(from, to + 1).forEach((s) => next.add(s.listKey))
         return next
       })
     } else {
@@ -437,7 +446,7 @@ export function ShowsPage() {
           toast({ type: 'success', message: `${ids.length} record${ids.length !== 1 ? 's' : ''} removed` })
         }
         setSelected(new Set())
-        load()
+        load(true)
       },
     })
   }
@@ -450,7 +459,7 @@ export function ShowsPage() {
     }
     try {
       const { jobId, total } = await refreshMetadata([], matchedIds)
-      trackJob({ label: `Re-matching ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Re-matching ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
@@ -464,7 +473,7 @@ export function ShowsPage() {
         toast({ type: 'success', message: message ?? 'Nothing to rename' })
         return
       }
-      trackJob({ label: `Renaming ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Renaming ${total} show${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     }
@@ -474,7 +483,7 @@ export function ShowsPage() {
     if (selected.size === 0) return
     try {
       const { jobId, total } = await cleanupBatch([], selectedShowIds())
-      trackJob({ label: `Cleaning ${total} show folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Cleaning ${total} show folder${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
     }
@@ -719,10 +728,10 @@ export function ShowsPage() {
               className="accent-accent cursor-pointer"
             />
             <span className="text-xs text-gray-500">
-              {someSelected ? `${selected.size} selected` : `${displayShows.length} items`}
+              {someSelected ? `${selected.size} selected` : `${visibleShows.length} items`}
             </span>
           </div>
-          {displayShows.map((show, idx) => (
+          {visibleShows.map((show, idx) => (
             <ShowListRow
               key={show.listKey}
               show={show}
@@ -741,6 +750,12 @@ export function ShowsPage() {
       {filter.view === 'list' && someSelected && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-900 border border-gray-700 rounded-xl px-5 py-3 shadow-2xl">
           <span className="text-sm text-gray-300 font-medium">{selected.size} selected</span>
+          <button
+            onClick={() => setSelectedOnly((v) => !v)}
+            className={['text-xs px-2.5 py-1 rounded border transition-colors', selectedOnly ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-600 text-gray-400 hover:text-gray-200'].join(' ')}
+          >
+            Only show selected
+          </button>
           <div className="w-px h-4 bg-gray-700" />
           <button
             onClick={() => { void handleBatchRematch() }}
@@ -767,7 +782,7 @@ export function ShowsPage() {
             Remove records
           </button>
           <button
-            onClick={() => setSelected(new Set())}
+            onClick={() => { setSelected(new Set()); setSelectedOnly(false) }}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
           >
             Deselect

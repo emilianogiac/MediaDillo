@@ -171,6 +171,7 @@ export function MoviesPage() {
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
+  const [selectedOnly, setSelectedOnly] = useState(false)
 
   const [batchQueue, setBatchQueue] = useState<string[]>([])
   const [batchAction, setBatchAction] = useState<'rename' | null>(null)
@@ -271,8 +272,8 @@ export function MoviesPage() {
     fetchEditions().then(setEditionLabels).catch(() => {})
   }, [])
 
-  function load() {
-    setLoading(true)
+  function load(silent = false) {
+    if (!silent) setLoading(true)
     setError(null)
     const movieFilter: import('../api/movies.js').MoviesFilter = {}
     if (filter.scanRootId) movieFilter.scanRootId = filter.scanRootId
@@ -374,7 +375,12 @@ export function MoviesPage() {
   const hasActiveFilter =
     filter.search || filter.genre || filter.qualityTier || filter.missingArtwork || filter.unmatched || filter.missingFile || filter.needsRename || filter.needsOrganizing || filter.duplicates || filter.edition
 
-  const allIds = sortedMovies.map((m) => m.id)
+  const visibleMovies = useMemo(
+    () => selectedOnly ? sortedMovies.filter((m) => selected.has(m.id)) : sortedMovies,
+    [sortedMovies, selectedOnly, selected],
+  )
+
+  const allIds = visibleMovies.map((m) => m.id)
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id))
   const someSelected = selected.size > 0
 
@@ -387,7 +393,7 @@ export function MoviesPage() {
       const [from, to] = lastSelectedIdx <= index ? [lastSelectedIdx, index] : [index, lastSelectedIdx]
       setSelected((prev) => {
         const next = new Set(prev)
-        sortedMovies.slice(from, to + 1).forEach((m) => next.add(m.id))
+        visibleMovies.slice(from, to + 1).forEach((m) => next.add(m.id))
         return next
       })
     } else {
@@ -408,7 +414,7 @@ export function MoviesPage() {
     }
     try {
       const { jobId, total } = await refreshMetadata(matchedIds, [])
-      trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Re-matching ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rematch failed' })
     }
@@ -430,7 +436,7 @@ export function MoviesPage() {
           toast({ type: 'success', message: `${ids.length} record${ids.length !== 1 ? 's' : ''} removed` })
         }
         setSelected(new Set())
-        load()
+        load(true)
       },
     })
   }
@@ -440,7 +446,7 @@ export function MoviesPage() {
     if (ids.length === 0) return
     try {
       const { jobId, total } = await cleanupBatch(ids)
-      trackJob({ label: `Cleaning ${total} folder${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Cleaning ${total} folder${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Cleanup failed' })
     }
@@ -454,7 +460,7 @@ export function MoviesPage() {
         toast({ type: 'success', message: message ?? 'Nothing to rename' })
         return
       }
-      trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+      trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
     }
@@ -472,7 +478,7 @@ export function MoviesPage() {
     try {
       await Promise.all(ids.map((id) => triggerMovieDownload(id, 'all')))
       toast({ type: 'success', message: `Downloading artwork for ${ids.length} movie${ids.length !== 1 ? 's' : ''}` })
-      load()
+      load(true)
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Artwork download failed' })
     }
@@ -484,7 +490,7 @@ export function MoviesPage() {
       try {
         const { jobId, total } = await renameBatch(remainingIds)
         if (jobId) {
-          trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: load })
+          trackJob({ label: `Renaming ${total} movie${total !== 1 ? 's' : ''}`, jobId, onComplete: () => load(true) })
         }
       } catch (e) {
         toast({ type: 'error', message: e instanceof Error ? e.message : 'Rename failed' })
@@ -506,17 +512,20 @@ export function MoviesPage() {
       setBatchAction(null)
       setBatchQueue([])
       setBatchIdx(0)
-      load()
+      load(true)
     } else {
       setBatchIdx((i) => i + 1)
     }
   }
 
+  // Auto-clear selectedOnly when selection empties
+  useEffect(() => { if (selected.size === 0) setSelectedOnly(false) }, [selected])
+
   function cancelBatch() {
     setBatchAction(null)
     setBatchQueue([])
     setBatchIdx(0)
-    load()
+    load(true)
   }
 
   function getEmptyMessage() {
@@ -853,11 +862,11 @@ export function MoviesPage() {
               className="accent-accent cursor-pointer"
             />
             <span className="text-xs text-gray-500">
-              {someSelected ? `${selected.size} selected` : `${sortedMovies.length} items`}
+              {someSelected ? `${selected.size} selected` : `${visibleMovies.length} items`}
             </span>
           </div>
 
-          {sortedMovies.map((movie, idx) => {
+          {visibleMovies.map((movie, idx) => {
             const isNew = lastScanAt ? new Date(movie.createdAt) >= new Date(lastScanAt) : false
             return (
               <MovieListRow
@@ -879,6 +888,12 @@ export function MoviesPage() {
       {filter.view === 'list' && someSelected && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-gray-900 border border-gray-700 rounded-xl px-5 py-3 shadow-2xl">
           <span className="text-sm text-gray-300 font-medium">{selected.size} selected</span>
+          <button
+            onClick={() => setSelectedOnly((v) => !v)}
+            className={['text-xs px-2.5 py-1 rounded border transition-colors', selectedOnly ? 'bg-accent/20 border-accent/40 text-accent' : 'border-gray-600 text-gray-400 hover:text-gray-200'].join(' ')}
+          >
+            Only show selected
+          </button>
           <div className="w-px h-4 bg-gray-700" />
           <button
             onClick={() => { void handleBatchRematch() }}
@@ -917,7 +932,7 @@ export function MoviesPage() {
             Remove records
           </button>
           <button
-            onClick={() => setSelected(new Set())}
+            onClick={() => { setSelected(new Set()); setSelectedOnly(false) }}
             className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
           >
             Deselect
