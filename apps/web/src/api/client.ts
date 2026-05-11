@@ -5,8 +5,8 @@ export async function apiFetch<T>(path: string, init?: Parameters<typeof fetch>[
     ...init,
   })
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(body.error ?? `HTTP ${res.status}`)
+    const body = await res.json().catch(() => ({})) as { error?: string; message?: string }
+    throw new Error(body.message ?? body.error ?? `HTTP ${res.status}`)
   }
   // Skip JSON parsing for empty responses (204 No Content or Content-Length: 0)
   if (res.status === 204 || res.headers.get('Content-Length') === '0') {

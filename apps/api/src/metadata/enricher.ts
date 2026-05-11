@@ -345,7 +345,22 @@ export async function enrichShowFromTvdb(
   })
 
   const dbShow = await prisma.tvShow.findUnique({ where: { id: showId }, select: { tvdbOrder: true } })
-  const orderType = dbShow?.tvdbOrder ?? 'official'
+  let orderType = dbShow?.tvdbOrder ?? 'official'
+
+  // Some shows (older anime, international) only have episodes under 'absolute' ordering.
+  // If the preferred order returns nothing, fall back to 'absolute' and persist it so future
+  // enrichments use the right ordering automatically.
+  if (orderType === 'official') {
+    const probe = await tvdbClient.getEpisodes(tvdbId, 'official')
+    if (probe.length === 0) {
+      const fallback = await tvdbClient.getEpisodes(tvdbId, 'absolute')
+      if (fallback.length > 0) {
+        orderType = 'absolute'
+        await prisma.tvShow.update({ where: { id: showId }, data: { tvdbOrder: 'absolute' } })
+      }
+    }
+  }
+
   await syncAllSeasonsFromTvdb(tvdbClient, showId, tvdbId, orderType)
 }
 

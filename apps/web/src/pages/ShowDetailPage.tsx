@@ -91,7 +91,7 @@ export function ShowDetailPage() {
   useEffect(() => { void loadOrganizeDots() }, [id])  // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRematch() {
-    if (!id || !show?.tmdbId) return
+    if (!id || (!show?.tmdbId && !show?.tvdbId)) return
     setRematching(true)
     setRematchStatus(null)
     try {

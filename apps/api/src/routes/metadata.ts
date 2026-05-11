@@ -135,8 +135,13 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       if (!tvdbClient) return reply.code(422).send({ error: 'TVDB API key is not configured' })
 
       const query = req.query.q ?? show.title
-      const candidates = await tvdbClient.searchSeries(query)
-      return reply.send({ candidates })
+      try {
+        const candidates = await tvdbClient.searchSeries(query)
+        return reply.send({ candidates })
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'TVDB search failed'
+        return reply.code(502).send({ error: msg })
+      }
     },
   )
 
