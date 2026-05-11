@@ -42,6 +42,19 @@ function ScanButton() {
       .catch(() => {})
   }, [])
 
+  // On mount: resume progress display if a scan is already running
+  useEffect(() => {
+    apiFetch<ScanProgress>('/scan/progress')
+      .then((p) => {
+        if (p.scanning) {
+          setProgress(p)
+          setTriggered(true)
+          pollRef.current = setInterval(() => { void pollProgress() }, 2000)
+        }
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   function toggleRoot(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev)
@@ -65,8 +78,9 @@ function ScanButton() {
         stopPolling()
         setTriggered(false)
         setMsg(`Scan complete — ${p.filesProcessed} files processed`)
-        if (scanStartedAtRef.current) {
-          localStorage.setItem(LAST_SCAN_KEY, scanStartedAtRef.current)
+        const startedAt = scanStartedAtRef.current ?? p.startedAt
+        if (startedAt) {
+          localStorage.setItem(LAST_SCAN_KEY, startedAt)
           scanStartedAtRef.current = null
         }
       }
