@@ -102,8 +102,14 @@ function ScanButton() {
       scanStartedAtRef.current = scanRes.startedAt
       pollRef.current = setInterval(() => { void pollProgress() }, 2000)
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Failed')
-      setTriggered(false)
+      const msg = e instanceof Error ? e.message : 'Failed'
+      if (msg.includes('already in progress') || msg.includes('409')) {
+        // Scan already running — reconnect to it silently
+        pollRef.current = setInterval(() => { void pollProgress() }, 2000)
+      } else {
+        setMsg(msg)
+        setTriggered(false)
+      }
     }
   }
 
