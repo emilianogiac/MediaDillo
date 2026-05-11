@@ -296,7 +296,7 @@ export function ReorderEpisodesPanel({ showId, seasonNumber, episodes, onDone }:
 
           {showAll && allSeasons ? (
             <div className="space-y-6">
-              {allSeasons.filter((s) => s.episodes.some((e) => e.files.length > 0)).map((s) => {
+              {allSeasons.map((s) => {
                 const sorted = [...s.episodes].sort((a, b) => a.episodeNumber - b.episodeNumber)
                 const cur = allOrder.get(s.seasonNumber) ?? sorted
                 return (
