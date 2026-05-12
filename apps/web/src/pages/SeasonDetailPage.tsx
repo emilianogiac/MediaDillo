@@ -163,7 +163,7 @@ export function SeasonDetailPage() {
 
   const seasonNum = parseInt(seasonNumber ?? '0', 10)
   const owned = season.episodes.filter((e) => e.status === 'owned').length
-  const total = season.episodes.length
+  const total = season.episodeCount
 
   return (
     <div className="p-6 space-y-6">
@@ -240,10 +240,16 @@ export function SeasonDetailPage() {
 
       {/* Episode list */}
       <div className="space-y-2">
-        {season.episodes.map((ep) => (
+        {season.episodes.map((ep) => {
+          const outOfBounds = ep.episodeNumber > season.episodeCount
+          return (
           <div
             key={ep.id}
-            className="bg-surface-raised border border-gray-700 rounded-lg px-4 py-3 space-y-2"
+            className={`rounded-lg px-4 py-3 space-y-2 border ${
+              outOfBounds
+                ? 'bg-orange-900/20 border-orange-700/50'
+                : 'bg-surface-raised border-gray-700'
+            }`}
           >
             <div className="flex items-start gap-3">
               {/* Episode number */}
@@ -299,7 +305,7 @@ export function SeasonDetailPage() {
               </div>
             )}
           </div>
-        ))}
+        )})}
 
         {season.episodes.length === 0 && (
           <p className="text-gray-500 text-sm py-8 text-center">No episodes found for this season.</p>

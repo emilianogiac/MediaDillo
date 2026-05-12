@@ -12,6 +12,7 @@ export interface ShowsFilter {
   addedSince?: string
   scanRootId?: string
   status?: 'continuing' | 'ended'
+  tmdbId?: number
 }
 
 export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[]> {
@@ -25,8 +26,25 @@ export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[
   if (filter.addedSince) params.set('addedSince', filter.addedSince)
   if (filter.scanRootId) params.set('scanRootId', filter.scanRootId)
   if (filter.status) params.set('status', filter.status)
+  if (filter.tmdbId != null) params.set('tmdbId', String(filter.tmdbId))
   const qs = params.toString()
   return apiFetch<ShowSummary[]>(`/shows${qs ? `?${qs}` : ''}`)
+}
+
+export async function consolidateShow(targetId: string, siblingId: string): Promise<{ consolidated: number }> {
+  return apiFetch(`/shows/${targetId}/consolidate`, { method: 'POST', body: JSON.stringify({ siblingId }) })
+}
+
+export async function dismissShowDuplicate(id: string): Promise<void> {
+  await apiFetch(`/shows/${id}/dismiss`, { method: 'POST' })
+}
+
+export async function undismissShowDuplicate(id: string): Promise<void> {
+  await apiFetch(`/shows/${id}/undismiss`, { method: 'POST' })
+}
+
+export async function deleteShowWithFiles(id: string): Promise<{ deleted: number; showFolder: string | null }> {
+  return apiFetch(`/shows/${id}/with-files`, { method: 'DELETE' })
 }
 
 export async function fetchShow(id: string): Promise<ShowDetail> {

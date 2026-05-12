@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom'
-import type { ShowDetail } from '../api/types.js'
+import type { ShowDetail, ShowSummary } from '../api/types.js'
 import type { ScanRoot } from '../api/types.js'
-import { fetchShow, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, fetchOrganizePreview, fetchTvdbCandidates, matchShowFromTvdb, type RescanResult } from '../api/shows.js'
+import { fetchShow, fetchShows, triggerShowDownload, fetchShowImages, selectShowImage, fetchShowCandidates, matchShow, enrichShow, updateShowMetadata, fetchTvdbOrders, moveShow, deleteShow, deleteShowWithFiles, renameAllShowEpisodes, rescanShow, cleanupStaleFiles, fetchOrganizePreview, fetchTvdbCandidates, matchShowFromTvdb, consolidateShow, dismissShowDuplicate, undismissShowDuplicate, type RescanResult } from '../api/shows.js'
 import { fetchScanRoots } from '../api/movies.js'
 import { fetchJellyfinStatus, fetchJellyfinShowUrl } from '../api/jellyfin.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
@@ -10,6 +10,7 @@ import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
+import { TechBadge } from '../components/TechBadge.js'
 
 function Spinner() {
   return <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-accent animate-spin flex-shrink-0" />
@@ -66,6 +67,11 @@ export function ShowDetailPage() {
   const [organizeTrigger, setOrganizeTrigger] = useState(0)
   const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
   const [openingJellyfin, setOpeningJellyfin] = useState(false)
+  const [siblings, setSiblings] = useState<ShowSummary[]>([])
+  const [consolidateTarget, setConsolidateTarget] = useState<ShowSummary | null>(null)
+  const [consolidating, setConsolidating] = useState(false)
+  const [dismissingId, setDismissingId] = useState<string | null>(null)
+  const [deletingSiblingId, setDeletingSiblingId] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (!id) return
@@ -83,6 +89,12 @@ export function ShowDetailPage() {
     if (!id || !show?.tvdbId) { setTvdbOrders([]); return }
     fetchTvdbOrders(id).then(setTvdbOrders).catch(() => setTvdbOrders([]))
   }, [id, show?.tvdbId])
+  useEffect(() => {
+    if (!show?.tmdbId) { setSiblings([]); return }
+    fetchShows({ tmdbId: show.tmdbId })
+      .then((all) => setSiblings(all.filter((s) => s.id !== show.id)))
+      .catch(() => setSiblings([]))
+  }, [show?.tmdbId, show?.id])
 
   async function loadOrganizeDots() {
     if (!id) return
@@ -106,6 +118,72 @@ export function ShowDetailPage() {
     } finally {
       setOpeningJellyfin(false)
     }
+  }
+
+  async function handleConsolidate() {
+    if (!consolidateTarget || !id) return
+    setConsolidating(true)
+    try {
+      const r = await consolidateShow(id, consolidateTarget.id)
+      toast({ type: 'success', message: `Consolidated ${r.consolidated} file${r.consolidated !== 1 ? 's' : ''} into this show's folder` })
+      setSiblings((prev) => prev.filter((s) => s.id !== consolidateTarget.id))
+      setConsolidateTarget(null)
+      load()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Consolidate failed' })
+    } finally {
+      setConsolidating(false)
+    }
+  }
+
+  async function handleDismiss(siblingId: string) {
+    setDismissingId(siblingId)
+    try {
+      await dismissShowDuplicate(siblingId)
+      setSiblings((prev) => prev.map((s) => s.id === siblingId ? { ...s, dismissedAsDuplicate: true } : s))
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Dismiss failed' })
+    } finally {
+      setDismissingId(null)
+    }
+  }
+
+  async function handleUndismiss(siblingId: string) {
+    setDismissingId(siblingId)
+    try {
+      await undismissShowDuplicate(siblingId)
+      setSiblings((prev) => prev.map((s) => s.id === siblingId ? { ...s, dismissedAsDuplicate: false } : s))
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Undo dismiss failed' })
+    } finally {
+      setDismissingId(null)
+    }
+  }
+
+  function handleDeleteSibling(siblingId: string) {
+    const sibling = siblings.find((s) => s.id === siblingId)
+    const label = sibling?.scanRoots[0]?.label ?? 'this copy'
+    setConfirm({
+      title: 'Delete duplicate copy',
+      message: `Permanently delete "${label}" and its episode files from disk? This cannot be undone.`,
+      onConfirm: async () => {
+        setConfirm(null)
+        setDeletingSiblingId(siblingId)
+        try {
+          if ((sibling?.ownedEpisodes ?? 0) > 0) {
+            await deleteShowWithFiles(siblingId)
+          } else {
+            await deleteShow(siblingId)
+          }
+          setSiblings((prev) => prev.filter((s) => s.id !== siblingId))
+          toast({ type: 'success', message: 'Duplicate copy deleted' })
+        } catch (e) {
+          toast({ type: 'error', message: e instanceof Error ? e.message : 'Delete failed' })
+        } finally {
+          setDeletingSiblingId(null)
+        }
+      },
+    })
   }
 
   async function handleRematch() {
@@ -336,6 +414,22 @@ export function ShowDetailPage() {
               )
             })()}
           </div>
+
+          {show.showFolder && (
+            <p className="text-xs text-gray-500 font-mono truncate" title={show.showFolder}>{show.showFolder}</p>
+          )}
+
+          {show.repFile && (
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {show.repFile.videoQualityTier && <TechBadge label={show.repFile.videoQualityTier} variant="quality" />}
+              {show.repFile.videoCodec && <span className="text-xs text-gray-500">{show.repFile.videoCodec}</span>}
+              {show.repFile.audioCodec && (
+                <span className="text-xs text-gray-500">
+                  {[show.repFile.audioCodec, show.repFile.audioChannels].filter(Boolean).join(' ')}
+                </span>
+              )}
+            </div>
+          )}
 
           {show.genres.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
@@ -664,6 +758,122 @@ export function ShowDetailPage() {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Duplicate copies */}
+      {siblings.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold text-orange-400">
+            Duplicate Copies
+            <span className="text-sm font-normal text-gray-500 ml-2">({siblings.length + 1} records share this TMDB ID)</span>
+          </h2>
+          <div className="bg-surface-raised border border-orange-700/30 rounded-lg divide-y divide-gray-700/60">
+            {siblings.filter((s) => !s.dismissedAsDuplicate).map((s) => (
+              <div key={s.id} className="flex items-start justify-between gap-4 px-4 py-3">
+                <div className="flex-1 min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm text-gray-200">{s.scanRoots[0]?.label ?? 'Unknown collection'}</span>
+                    {s.scanRoots.length > 1 && (
+                      <span className="text-xs text-gray-600">{s.scanRoots.slice(1).map((r) => r.label).join(', ')}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">{s.ownedEpisodes}/{s.totalEpisodes} episodes owned</p>
+                  {s.repFile && (
+                    <div className="flex flex-wrap gap-1 pt-0.5">
+                      {s.repFile.videoQualityTier && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-teal-400 border border-gray-700">{s.repFile.videoQualityTier}</span>}
+                      {s.repFile.videoCodec && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">{s.repFile.videoCodec}</span>}
+                      {s.repFile.audioCodec && <span className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 border border-gray-700">{s.repFile.audioCodec}</span>}
+                    </div>
+                  )}
+                  {s.ownedEpisodes === 0 && <p className="text-xs text-red-400">No owned episodes (stale record)</p>}
+                </div>
+                <div className="flex flex-col gap-1.5 shrink-0">
+                  <button
+                    onClick={() => navigate(`/shows/${s.id}`)}
+                    className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors"
+                  >
+                    Browse →
+                  </button>
+                  <button
+                    onClick={() => setConsolidateTarget(s)}
+                    className="text-xs px-2.5 py-1 rounded border border-blue-700/40 text-blue-400 hover:bg-blue-700/20 transition-colors"
+                  >
+                    Consolidate
+                  </button>
+                  <button
+                    onClick={() => { void handleDismiss(s.id) }}
+                    disabled={dismissingId === s.id}
+                    className="text-xs px-2.5 py-1 rounded border border-gray-600 text-gray-500 hover:text-gray-300 hover:border-gray-500 transition-colors disabled:opacity-40"
+                  >
+                    {dismissingId === s.id ? '…' : 'Dismiss'}
+                  </button>
+                  <button
+                    onClick={() => { void handleDeleteSibling(s.id) }}
+                    disabled={deletingSiblingId === s.id}
+                    className="text-xs px-2.5 py-1 rounded border border-red-700/40 text-red-500 hover:bg-red-700/20 transition-colors disabled:opacity-40"
+                  >
+                    {deletingSiblingId === s.id ? 'Deleting…' : 'Delete'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {siblings.filter((s) => s.dismissedAsDuplicate).length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-500 mb-1">Dismissed (intentional duplicates):</p>
+              <div className="bg-surface-raised border border-gray-700/40 rounded-lg divide-y divide-gray-700/40">
+                {siblings.filter((s) => s.dismissedAsDuplicate).map((s) => (
+                  <div key={s.id} className="flex items-center justify-between gap-4 px-4 py-2">
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm text-gray-500">{s.scanRoots[0]?.label ?? 'Unknown collection'}</span>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button onClick={() => navigate(`/shows/${s.id}`)} className="text-xs text-gray-500 hover:text-accent transition-colors">Browse →</button>
+                      <button
+                        onClick={() => { void handleUndismiss(s.id) }}
+                        disabled={dismissingId === s.id}
+                        className="text-xs px-2 py-0.5 rounded border border-gray-700 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-40"
+                      >
+                        {dismissingId === s.id ? '…' : 'Undo dismiss'}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-600">Consolidate moves files here · Dismiss hides intentional duplicates · Delete removes from disk.</p>
+        </section>
+      )}
+
+      {/* Consolidate confirmation dialog */}
+      {consolidateTarget && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div className="bg-surface-raised border border-gray-700 rounded-xl w-full max-w-md p-6 space-y-4 shadow-2xl">
+            <h2 className="font-semibold text-gray-100">Consolidate into this show?</h2>
+            <p className="text-sm text-gray-400">
+              Move all episode files from <strong className="text-gray-200">{consolidateTarget.scanRoots[0]?.label ?? 'the other copy'}</strong> ({consolidateTarget.ownedEpisodes} owned ep{consolidateTarget.ownedEpisodes !== 1 ? 's' : ''}) into this show's folder. The sibling record will be deleted.
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConsolidateTarget(null)}
+                disabled={consolidating}
+                className="text-sm px-4 py-1.5 rounded border border-gray-600 text-gray-400 hover:text-gray-200 transition-colors disabled:opacity-40"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleConsolidate() }}
+                disabled={consolidating}
+                className="text-sm px-4 py-1.5 rounded bg-blue-700/80 hover:bg-blue-600/80 text-white transition-colors disabled:opacity-40"
+              >
+                {consolidating ? 'Consolidating…' : 'Consolidate'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Organize */}

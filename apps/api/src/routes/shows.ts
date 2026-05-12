@@ -12,6 +12,7 @@ import { TvdbClient } from '../metadata/tvdb-client.js'
 import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
+import { moveFile } from '../files/move.js'
 
 // Derive the show folder from a set of known episode file paths, bounded by TV scan roots.
 // Using path.dirname twice assumes showFolder/seasonFolder/file structure and goes too high
@@ -35,7 +36,7 @@ async function deriveShowFolder(filePaths: string[]): Promise<string | null> {
 }
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
-  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended
+  // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended&tmdbId=
   app.get<{
     Querystring: {
       search?: string
@@ -47,14 +48,15 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       addedSince?: string
       scanRootId?: string
       status?: string
+      tmdbId?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince, scanRootId, status } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince, scanRootId, status, tmdbId: tmdbIdFilter } = req.query
 
-    // Always compute dup groups with count
+    // Always compute dup groups with count (dismissed shows excluded — they don't inflate counts)
     const dupGroups = await prisma.tvShow.groupBy({
       by: ['tmdbId'],
-      where: { tmdbId: { not: null } },
+      where: { tmdbId: { not: null }, dismissedAsDuplicate: false },
       having: { tmdbId: { _count: { gt: 1 } } },
       _count: { tmdbId: true },
     })
@@ -93,6 +95,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
         ...(scanRootPath ? { seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: scanRootPath.endsWith('/') ? scanRootPath : scanRootPath + '/' } } } } } } } } : {}),
         ...(status === 'continuing' || status === 'ended' ? { status } : {}),
+        ...(tmdbIdFilter ? { tmdbId: parseInt(tmdbIdFilter) } : {}),
       },
       select: {
         id: true,
@@ -104,6 +107,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         tmdbId: true,
         posterDownloaded: true,
         backdropDownloaded: true,
+        dismissedAsDuplicate: true,
         status: true,
         ownedEpisodes: true,
         totalEpisodes: true,
@@ -160,6 +164,18 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Representative file per show — first owned episode file, for codec display
+    const repFiles = await Promise.all(
+      filteredIds.map((id) =>
+        prisma.episodeFile.findFirst({
+          where: { episode: { status: 'owned', season: { showId: id } } },
+          select: { videoQualityTier: true, videoCodec: true, audioQualityTier: true, audioChannels: true, audioCodec: true },
+          orderBy: [{ episode: { season: { seasonNumber: 'asc' } } }, { episode: { episodeNumber: 'asc' } }],
+        }),
+      ),
+    )
+    const repFileMap = new Map(filteredIds.map((id, i) => [id, repFiles[i] ?? null]))
+
     const dupSet = new Set(dupTmdbIds)
     const tagged = filtered.map(({ seasons, ...rest }) => ({
       ...rest,
@@ -167,6 +183,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       duplicateCount: rest.tmdbId != null ? (dupCountMap.get(rest.tmdbId) ?? 1) : 1,
       isOrganized: isShowOrganized({ seasons, ...rest }),
       scanRoots: showScanRoots.get(rest.id) ?? [],
+      repFile: repFileMap.get(rest.id) ?? null,
     }))
 
     return reply.send(tagged)
@@ -221,10 +238,18 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       if (hasFiles) showScanRoots.push({ id: root.id, label: root.label })
     }
 
-    // Duplicate detection for this show's tmdbId
+    // Duplicate detection for this show's tmdbId (dismissed shows don't count against others)
     const dupCount = show.tmdbId
-      ? await prisma.tvShow.count({ where: { tmdbId: show.tmdbId } })
+      ? await prisma.tvShow.count({ where: { tmdbId: show.tmdbId, dismissedAsDuplicate: false } })
       : 1
+
+    // Derive the show folder from episode file paths
+    const firstFile = await prisma.episodeFile.findFirst({
+      where: { episode: { season: { showId: show.id } } },
+      select: { path: true },
+      orderBy: [{ episode: { season: { seasonNumber: 'asc' } } }, { episode: { episodeNumber: 'asc' } }],
+    })
+    const showFolder = firstFile ? await deriveShowFolder([firstFile.path]) : null
 
     return reply.send({
       ...show,
@@ -232,8 +257,154 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       scanRoots: showScanRoots,
       isDuplicate: dupCount > 1,
       duplicateCount: dupCount,
-      isOrganized: false, // detail page doesn't use isOrganized; included for type compatibility
+      isOrganized: false,
+      showFolder,
     })
+  })
+
+  // POST /api/shows/:id/consolidate — move sibling's episode files into this show's folder
+  app.post<{ Params: { id: string }; Body: { siblingId: string } }>(
+    '/shows/:id/consolidate',
+    async (req, reply) => {
+      const { siblingId } = req.body
+      if (!siblingId) return reply.code(400).send({ error: 'siblingId is required' })
+
+      const [target, source] = await Promise.all([
+        prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { id: true, title: true, year: true } }),
+        prisma.tvShow.findUnique({ where: { id: siblingId }, select: { id: true } }),
+      ])
+      if (!target) return reply.code(404).send({ error: 'Show not found' })
+      if (!source) return reply.code(404).send({ error: 'Sibling not found' })
+
+      const sourceFiles = await prisma.episodeFile.findMany({
+        where: { episode: { season: { showId: siblingId } } },
+        select: { id: true, path: true },
+      })
+      if (sourceFiles.length === 0) return reply.code(422).send({ error: 'Sibling has no files to consolidate' })
+
+      // Derive target show folder
+      const targetFilePaths = await prisma.episodeFile.findMany({
+        where: { episode: { season: { showId: req.params.id } } },
+        select: { path: true },
+      })
+      let targetFolder = targetFilePaths.length > 0
+        ? await deriveShowFolder(targetFilePaths.map((f) => f.path))
+        : null
+
+      if (!targetFolder) {
+        // Target has no files — use canonical folder name under the source show's scan root
+        const tvRoots = await prisma.scanRoot.findMany({ where: { type: 'tv' }, select: { path: true } })
+        for (const root of tvRoots) {
+          const rootPrefix = root.path.endsWith('/') ? root.path : root.path + '/'
+          if (sourceFiles[0]?.path.startsWith(rootPrefix)) {
+            targetFolder = path.join(root.path, canonicalMovieFolderName(target.title, target.year))
+            break
+          }
+        }
+      }
+      if (!targetFolder) {
+        return reply.code(422).send({ error: 'Cannot determine destination folder' })
+      }
+
+      // Derive source show folder for computing relative paths
+      const sourceFolder = await deriveShowFolder(sourceFiles.map((f) => f.path))
+
+      // Pre-check for conflicts
+      for (const f of sourceFiles) {
+        const rel = sourceFolder ? f.path.slice(sourceFolder.length + 1) : path.basename(f.path)
+        const newPath = path.join(targetFolder, rel)
+        if (newPath === f.path) continue
+        const conflict = await prisma.episodeFile.findUnique({ where: { path: newPath } })
+        if (conflict) {
+          return reply.code(409).send({ error: `File conflict: ${rel} already exists in the target folder` })
+        }
+      }
+
+      // Move files
+      let consolidated = 0
+      for (const f of sourceFiles) {
+        const rel = sourceFolder ? f.path.slice(sourceFolder.length + 1) : path.basename(f.path)
+        const newPath = path.join(targetFolder, rel)
+        if (newPath === f.path) {
+          consolidated++
+          continue
+        }
+        await fs.mkdir(path.dirname(newPath), { recursive: true })
+        await moveFile(f.path, newPath)
+        await prisma.episodeFile.update({ where: { id: f.id }, data: { path: newPath } })
+        consolidated++
+      }
+
+      // Clean up empty sibling season folders, then the show folder
+      if (sourceFolder) {
+        try {
+          const seasonDirs = await fs.readdir(sourceFolder).catch(() => [] as string[])
+          for (const dir of seasonDirs) {
+            const full = path.join(sourceFolder, dir)
+            const rem = await fs.readdir(full).catch(() => ['x'])
+            if (rem.length === 0) await fs.rmdir(full).catch(() => {})
+          }
+          const rem = await fs.readdir(sourceFolder).catch(() => ['x'])
+          if (rem.length === 0) await fs.rmdir(sourceFolder).catch(() => {})
+        } catch { /* skip */ }
+      }
+
+      await prisma.tvShow.delete({ where: { id: siblingId } })
+      triggerLibraryRefresh(app.log).catch(() => {})
+      return reply.send({ consolidated })
+    },
+  )
+
+  // POST /api/shows/:id/dismiss — mark as intentional duplicate
+  app.post<{ Params: { id: string } }>('/shows/:id/dismiss', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+    await prisma.tvShow.update({ where: { id: req.params.id }, data: { dismissedAsDuplicate: true } })
+    return reply.code(204).send()
+  })
+
+  // POST /api/shows/:id/undismiss — restore duplicate warning
+  app.post<{ Params: { id: string } }>('/shows/:id/undismiss', async (req, reply) => {
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+    await prisma.tvShow.update({ where: { id: req.params.id }, data: { dismissedAsDuplicate: false } })
+    return reply.code(204).send()
+  })
+
+  // DELETE /api/shows/:id/with-files — permanently delete all episode files + DB record
+  app.delete<{ Params: { id: string } }>('/shows/:id/with-files', async (req, reply) => {
+    const allFiles = await prisma.episodeFile.findMany({
+      where: { episode: { season: { showId: req.params.id } } },
+      select: { path: true },
+    })
+    if (allFiles.length === 0) {
+      return reply.code(422).send({ error: 'Show has no files — use DELETE /shows/:id to remove the stale record' })
+    }
+
+    const showFolder = await deriveShowFolder(allFiles.map((f) => f.path))
+
+    let deleted = 0
+    for (const f of allFiles) {
+      try { await fs.unlink(f.path); deleted++ } catch { /* skip */ }
+    }
+
+    // Remove empty season folders, then show folder
+    if (showFolder) {
+      try {
+        const seasonDirs = await fs.readdir(showFolder).catch(() => [] as string[])
+        for (const dir of seasonDirs) {
+          const full = path.join(showFolder, dir)
+          const rem = await fs.readdir(full).catch(() => ['x'])
+          if (rem.length === 0) await fs.rmdir(full).catch(() => {})
+        }
+        const rem = await fs.readdir(showFolder).catch(() => ['x'])
+        if (rem.length === 0) await fs.rmdir(showFolder).catch(() => {})
+      } catch { /* skip */ }
+    }
+
+    await prisma.tvShow.delete({ where: { id: req.params.id } })
+    triggerLibraryRefresh(app.log).catch(() => {})
+    return reply.send({ deleted, showFolder: showFolder ?? null })
   })
 
   // GET /api/shows/:id/organize — rename preview + stale file scan for this show
@@ -846,7 +1017,12 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       })
       if (!season) return reply.code(404).send({ error: 'Season not found' })
 
-      return reply.send(season)
+      // Strip stale out-of-bounds episodes that have no file (phantom DB records beyond TVDB count)
+      const episodes = season.episodes.filter(
+        (ep) => ep.episodeNumber <= season.episodeCount || ep.status === 'owned',
+      )
+
+      return reply.send({ ...season, episodes })
     },
   )
 

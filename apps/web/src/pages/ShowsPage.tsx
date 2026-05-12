@@ -8,6 +8,7 @@ import { renameBatchShows } from '../api/files.js'
 import { SkeletonCard, SkeletonRow } from '../components/SkeletonCard.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
+import { TechBadge } from '../components/TechBadge.js'
 
 const QUALITY_TIERS = ['360p', '480p', '576p', '720p', '1080p', '1440p', '4K']
 
@@ -153,6 +154,9 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
   const rowBg = index % 2 === 1 ? 'bg-gray-900/30' : ''
+  const qualityTier = show.repFile?.videoQualityTier
+  const videoCodec = show.repFile?.videoCodec
+  const audioLabel = [show.repFile?.audioCodec, show.repFile?.audioChannels].filter(Boolean).join(' ')
 
   return (
     <div className={`flex items-center group ${rowBg}`}>
@@ -190,6 +194,17 @@ function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle
             {show.year ?? '—'}
             {show.displayLibrary && <span className="ml-2 text-gray-600">{show.displayLibrary.label}</span>}
           </p>
+        </div>
+
+        {/* Codec info */}
+        <div className="flex-shrink-0 w-14">
+          {qualityTier && <TechBadge label={qualityTier} variant="quality" />}
+        </div>
+        <div className="flex-shrink-0 w-12 text-xs text-gray-500 tabular-nums truncate">
+          {videoCodec ?? '—'}
+        </div>
+        <div className="flex-shrink-0 w-24 text-xs text-gray-500 tabular-nums truncate">
+          {audioLabel || '—'}
         </div>
 
         {/* Completeness bar */}

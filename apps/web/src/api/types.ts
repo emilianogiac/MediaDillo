@@ -71,6 +71,7 @@ export interface ShowSummary {
   tmdbId: number | null
   posterDownloaded: boolean
   backdropDownloaded: boolean
+  dismissedAsDuplicate: boolean
   isDuplicate: boolean
   duplicateCount: number
   isOrganized: boolean
@@ -79,6 +80,7 @@ export interface ShowSummary {
   totalEpisodes: number
   createdAt: string
   scanRoots: ShowScanRoot[]
+  repFile: { videoQualityTier: string | null; videoCodec: string | null; audioQualityTier: string | null; audioChannels: string | null; audioCodec: string | null } | null
 }
 
 export interface SeasonSummary {
@@ -127,6 +129,7 @@ export interface ShowDetail extends ShowSummary {
   backdropUrl: string | null
   seasons: SeasonSummary[]
   credits: Credit[]
+  showFolder: string | null
 }
 
 export interface MovieDetail extends Omit<MovieSummary, 'files'> {

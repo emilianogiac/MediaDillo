@@ -824,6 +824,12 @@ export function MovieDetailPage() {
             })()}
           </div>
 
+          {movie.files[0]?.path && (
+            <p className="text-xs text-gray-500 font-mono truncate" title={movie.files[0].path.split('/').slice(0, -1).join('/')}>
+              {movie.files[0].path.split('/').slice(0, -1).join('/')}
+            </p>
+          )}
+
           {movie.genres.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {movie.genres.map((g) => (

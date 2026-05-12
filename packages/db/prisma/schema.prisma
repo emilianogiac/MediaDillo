@@ -165,12 +165,13 @@ model TvShow {
   ownedEpisodes      Int          @default(0)
   posterUrl          String?
   backdropUrl        String?
-  posterDownloaded   Boolean      @default(false)
-  backdropDownloaded Boolean      @default(false)
-  seasons            Season[]
-  credits            Credit[]
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  posterDownloaded      Boolean      @default(false)
+  backdropDownloaded    Boolean      @default(false)
+  dismissedAsDuplicate  Boolean      @default(false)
+  seasons               Season[]
+  credits               Credit[]
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
 
   @@index([title])
 }
