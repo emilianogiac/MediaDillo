@@ -5,8 +5,8 @@ export interface TvdbEpisode {
   id: number
   name: string | null    // episode title (null for unaired)
   aired: string | null   // "YYYY-MM-DD"
-  number: number         // episode number within season
-  seasonNumber: number
+  number: number | null  // null for placeholder/unaired episodes TVDB hasn't assigned yet
+  seasonNumber: number | null
 }
 
 export interface TvdbSeasonType {

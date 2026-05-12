@@ -172,7 +172,9 @@ async function syncSeasonFromTvdb(
   options: { ownedOnly?: boolean; orderType?: string } = {},
 ): Promise<void> {
   const { ownedOnly = false, orderType = 'official' } = options
-  const episodes = await tvdbClient.getEpisodes(tvdbId, orderType, seasonNumber)
+  const allEpisodes = await tvdbClient.getEpisodes(tvdbId, orderType, seasonNumber)
+  // Filter out TVDB placeholder entries with no episode number assigned yet
+  const episodes = allEpisodes.filter((ep): ep is TvdbEpisode & { number: number } => ep.number != null)
 
   // Upsert season
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
@@ -247,9 +249,15 @@ async function syncAllSeasonsFromTvdb(
 ): Promise<void> {
   const episodes = await tvdbClient.getEpisodes(tvdbId, orderType)
 
-  // Group by seasonNumber as reported by TVDB
-  const bySeasonNumber = new Map<number, TvdbEpisode[]>()
-  for (const ep of episodes) {
+  // Skip episodes TVDB hasn't assigned a number to yet (null number would violate
+  // the non-nullable episodeNumber Int column and the unique [seasonId, episodeNumber] constraint).
+  // Also deduplicate within each season by episode number — TVDB occasionally returns
+  // duplicate entries in absolute ordering for specials/OVAs.
+  const validEpisodes = episodes.filter((ep): ep is TvdbEpisode & { number: number } => ep.number != null)
+
+  // Group by seasonNumber as reported by TVDB (null seasonNumber → treat as season 1)
+  const bySeasonNumber = new Map<number, Array<TvdbEpisode & { number: number }>>()
+  for (const ep of validEpisodes) {
     const sn = ep.seasonNumber ?? 1
     const arr = bySeasonNumber.get(sn) ?? []
     arr.push(ep)
@@ -259,19 +267,27 @@ async function syncAllSeasonsFromTvdb(
   const today = new Date()
 
   for (const [seasonNumber, eps] of bySeasonNumber) {
+    // Deduplicate by episode number within the season — keep the first occurrence
+    const seen = new Set<number>()
+    const uniqueEps = eps.filter((ep) => {
+      if (seen.has(ep.number)) return false
+      seen.add(ep.number)
+      return true
+    })
+
     let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
     if (!dbSeason) {
       dbSeason = await prisma.season.create({
-        data: { showId, seasonNumber, episodeCount: eps.length },
+        data: { showId, seasonNumber, episodeCount: uniqueEps.length },
       })
     } else {
       await prisma.season.update({
         where: { id: dbSeason.id },
-        data: { episodeCount: eps.length },
+        data: { episodeCount: uniqueEps.length },
       })
     }
 
-    for (const ep of eps) {
+    for (const ep of uniqueEps) {
       const airDate = ep.aired ? new Date(ep.aired) : null
       const existing = await prisma.episode.findFirst({
         where: { seasonId: dbSeason.id, episodeNumber: ep.number },
