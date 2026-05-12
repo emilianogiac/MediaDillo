@@ -84,27 +84,22 @@ export async function enrichTvShow(
 
     const orderType = dbShow?.tvdbOrder ?? 'official'
 
-    if (tvdbClient && resolvedTvdbId && orderType === 'absolute') {
-      await syncAllSeasonsAbsolute(tvdbClient, showId, resolvedTvdbId)
+    if (resolvedTvdbId) {
+      // TVDB is the authoritative episode source for TV shows.
+      // Use a single bulk fetch so TVDB's own season structure is respected,
+      // not TMDB's potentially divergent season/episode numbering.
+      await syncAllSeasonsFromTvdb(tvdbClient, showId, resolvedTvdbId, orderType)
+
+      // Specials (S00): only hydrate if we already own some — never create missing rows
+      const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
+      if (hasSpecials) {
+        await syncSeasonFromTvdb(tvdbClient, showId, resolvedTvdbId, 0, { ownedOnly: true, orderType })
+      }
       return
     }
-
-    // Fetch all seasons and reconcile episodes
-    for (let s = 1; s <= details.number_of_seasons; s++) {
-      await delay(RATE_LIMIT_MS)
-      await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, s, { orderType })
-    }
-
-    // Season 0 (Specials) — only hydrate if we already own some specials; never create missing rows
-    const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
-    if (hasSpecials) {
-      await delay(RATE_LIMIT_MS)
-      await syncSeasonData(tmdbClient, tvdbClient, resolvedTvdbId, showId, tmdbId, 0, { ownedOnly: true, orderType })
-    }
-    return
   }
 
-  // No tvdbClient — TMDB only
+  // No TVDB available — fall back to TMDB for episode data
   for (let s = 1; s <= details.number_of_seasons; s++) {
     await delay(RATE_LIMIT_MS)
     await syncSeasonData(tmdbClient, null, null, showId, tmdbId, s)
@@ -277,6 +272,8 @@ async function syncAllSeasonsFromTvdb(
 
     let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
     if (!dbSeason) {
+      // Never auto-create a specials season — it must be discovered by the scanner first
+      if (seasonNumber === 0) continue
       dbSeason = await prisma.season.create({
         data: { showId, seasonNumber, episodeCount: uniqueEps.length },
       })

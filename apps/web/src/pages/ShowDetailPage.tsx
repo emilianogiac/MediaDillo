@@ -515,9 +515,15 @@ export function ShowDetailPage() {
                   onChange={async (e) => {
                     if (!id) return
                     const label = tvdbOrders.find((o) => o.type === e.target.value)?.name ?? e.target.value
-                    const updated = await updateShowMetadata(id, { tvdbOrder: e.target.value })
-                    setShow(updated)
-                    toast({ type: 'success', message: `Episode order set to ${label} — re-enriching…` })
+                    await updateShowMetadata(id, { tvdbOrder: e.target.value })
+                    toast({ type: 'success', message: `Switching to ${label} — re-enriching…` })
+                    try {
+                      const enriched = await enrichShow(id)
+                      setShow(enriched)
+                      toast({ type: 'success', message: `Now using ${label}` })
+                    } catch {
+                      toast({ type: 'error', message: 'Re-enrich failed — order saved, refresh manually' })
+                    }
                   }}
                   className="text-xs bg-gray-800 border border-gray-600 rounded px-1.5 py-0.5 text-gray-300"
                   title="TVDB episode ordering"
