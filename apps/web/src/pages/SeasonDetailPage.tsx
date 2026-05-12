@@ -112,6 +112,7 @@ function EpisodeRenameInline({ fileIds, onDone }: EpisodeRenameInlineProps) {
 
 export function SeasonDetailPage() {
   const { id, seasonNumber } = useParams<{ id: string; seasonNumber: string }>()
+  const showsSearch = (() => { try { return sessionStorage.getItem('mediaDillo.showsSearch') ?? '' } catch { return '' } })()
   const [season, setSeason] = useState<SeasonDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -168,7 +169,7 @@ export function SeasonDetailPage() {
     <div className="p-6 space-y-6">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm text-gray-400">
-        <Link to="/shows" className="hover:text-accent transition-colors">TV Shows</Link>
+        <Link to={`/shows${showsSearch}`} className="hover:text-accent transition-colors">TV Shows</Link>
         <span className="text-gray-600">›</span>
         <Link to={`/shows/${season.show.id}`} className="hover:text-accent transition-colors">
           {season.show.title}

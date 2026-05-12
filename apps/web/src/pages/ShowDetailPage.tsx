@@ -36,7 +36,8 @@ export function ShowDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const backToShows = `/shows${(location.state as { from?: string } | null)?.from ?? ''}`
+  const stateFrom = (location.state as { from?: string } | null)?.from
+  const backToShows = `/shows${stateFrom ?? (() => { try { return sessionStorage.getItem('mediaDillo.showsSearch') ?? '' } catch { return '' } })()}`
   const { toast } = useToast()
   const [show, setShow] = useState<ShowDetail | null>(null)
   const [loading, setLoading] = useState(true)

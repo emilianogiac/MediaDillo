@@ -236,7 +236,9 @@ export function ShowsPage() {
   const [listNonce, setListNonce] = useState(() => Date.now())
   const searchRef = useRef<HTMLInputElement>(null)
 
-  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [selected, setSelected] = useState<Set<string>>(() => {
+    try { const s = sessionStorage.getItem('mediaDillo.showsSelected'); return s ? new Set(JSON.parse(s) as string[]) : new Set() } catch { return new Set() }
+  })
   const [lastSelectedIdx, setLastSelectedIdx] = useState<number | null>(null)
   const [selectedOnly, setSelectedOnly] = useState(false)
   const [confirm, setConfirm] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null)
@@ -379,6 +381,16 @@ export function ShowsPage() {
       return next.size === prev.size ? prev : next
     })
   }, [displayShows])
+
+  // Persist selection to sessionStorage
+  useEffect(() => {
+    try { sessionStorage.setItem('mediaDillo.showsSelected', JSON.stringify([...selected])) } catch { /* ignore */ }
+  }, [selected])
+
+  // Persist current search to sessionStorage so ShowDetailPage back-button can restore it
+  useEffect(() => {
+    try { sessionStorage.setItem('mediaDillo.showsSearch', location.search) } catch { /* ignore */ }
+  }, [location.search])
 
   // Auto-clear selectedOnly when selection empties
   useEffect(() => { if (selected.size === 0) setSelectedOnly(false) }, [selected])
