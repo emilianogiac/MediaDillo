@@ -114,13 +114,17 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ movie: { id: movie.id, title: movie.title, year: movie.year }, candidates })
   })
 
-  // GET /api/metadata/shows/:id/candidates
-  app.get<{ Params: { id: string } }>('/metadata/shows/:id/candidates', async (req, reply) => {
+  // GET /api/metadata/shows/:id/candidates?q=
+  // Optional ?q= overrides the stored title for the TMDB search.
+  app.get<{ Params: { id: string }; Querystring: { q?: string } }>('/metadata/shows/:id/candidates', async (req, reply) => {
     const show = await prisma.tvShow.findUnique({ where: { id: req.params.id } })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
     const client = await getTmdbClient()
-    const candidates = await searchTvCandidates(client, show.title, show.year)
+    const customQuery = req.query.q?.trim()
+    const searchTitle = customQuery ?? show.title
+    const searchYear = customQuery ? null : show.year
+    const candidates = await searchTvCandidates(client, searchTitle, searchYear)
     return reply.send({ show: { id: show.id, title: show.title, year: show.year }, candidates })
   })
 

@@ -72,6 +72,17 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
         })
       }
 
+      // Verify root is accessible before walking — skip pruning if it's not.
+      // readDirSafe swallows all errors, so we must check the root explicitly
+      // to avoid pruning the entire library when the NAS is temporarily offline.
+      let rootAccessible = false
+      try {
+        await fs.access(rootConfig.path)
+        rootAccessible = true
+      } catch {
+        console.warn(`[scan] root not accessible, skipping prune: ${rootConfig.path}`)
+      }
+
       // Track video paths seen in this scan for stale detection
       const seenVideoPaths = new Set<string>()
       // Track which folders we've visited for stale detection
@@ -128,8 +139,12 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
         allStaleFiles.push(...stale)
       }
 
-      // Remove DB records for files that no longer exist on disk
-      removed += await pruneOrphanedFiles(scanRoot.id, scanRoot.path, rootConfig.type, seenVideoPaths)
+      // Remove DB records for files that no longer exist on disk.
+      // Skip if the root was inaccessible (seenVideoPaths would be empty/partial,
+      // which would incorrectly prune the entire library).
+      if (rootAccessible && seenVideoPaths.size > 0) {
+        removed += await pruneOrphanedFiles(scanRoot.id, scanRoot.path, rootConfig.type, seenVideoPaths)
+      }
     }
 
     const scanLogId = await writeScanLog(null, rootsScanned, { added, changed, removed }, allStaleFiles)

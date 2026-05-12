@@ -59,8 +59,9 @@ export async function selectShowImage(
   })
 }
 
-export async function fetchShowCandidates(id: string): Promise<{ show: { id: string; title: string; year: number | null }; candidates: MovieCandidate[] }> {
-  return apiFetch(`/metadata/shows/${id}/candidates`)
+export async function fetchShowCandidates(id: string, query?: string): Promise<{ show: { id: string; title: string; year: number | null }; candidates: MovieCandidate[] }> {
+  const qs = query ? `?q=${encodeURIComponent(query)}` : ''
+  return apiFetch(`/metadata/shows/${id}/candidates${qs}`)
 }
 
 export async function matchShow(id: string, tmdbId: number): Promise<void> {

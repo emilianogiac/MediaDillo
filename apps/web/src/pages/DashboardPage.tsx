@@ -35,6 +35,7 @@ function ScanButton() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const scanStartedAtRef = useRef<string | null>(null)
+  const failCountRef = useRef(0)
 
   useEffect(() => {
     apiFetch<ScanRoot[]>('/scan-roots')
@@ -73,6 +74,7 @@ function ScanButton() {
   async function pollProgress() {
     try {
       const p = await apiFetch<ScanProgress>('/scan/progress')
+      failCountRef.current = 0
       setProgress(p)
       if (!p.scanning) {
         stopPolling()
@@ -85,7 +87,12 @@ function ScanButton() {
         }
       }
     } catch {
-      // ignore transient errors
+      failCountRef.current += 1
+      if (failCountRef.current >= 3) {
+        stopPolling()
+        setTriggered(false)
+        setMsg('Server unreachable — scan status unknown')
+      }
     }
   }
 
@@ -93,6 +100,7 @@ function ScanButton() {
     setTriggered(true)
     setMsg(null)
     setProgress(null)
+    failCountRef.current = 0
     const rootIds = selectedIds.size > 0 ? [...selectedIds] : null
     try {
       const scanRes = await apiFetch<{ startedAt: string }>('/scan', {

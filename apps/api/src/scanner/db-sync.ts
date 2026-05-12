@@ -590,9 +590,11 @@ export async function pruneOrphanedFiles(
       }
     }
   } else {
-    // For TV roots, find episode files whose path lives under this scan root and wasn't seen
+    // For TV roots, find episode files whose path lives under this scan root and wasn't seen.
+    // Use scanRootPath + sep to avoid matching a sibling root that shares a path prefix
+    // (e.g. /mnt/nas/tv matching /mnt/nas/tv2).
     const dbFiles = await prisma.episodeFile.findMany({
-      where: { path: { startsWith: scanRootPath } },
+      where: { path: { startsWith: scanRootPath + path.sep } },
       select: { id: true, path: true, episodeId: true },
     })
     const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))

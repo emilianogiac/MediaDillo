@@ -473,9 +473,9 @@ export function ShowDetailPage() {
             )}
             <button
               onClick={() => { void handleRenameAll() }}
-              disabled={renaming}
+              disabled={renaming || !organizeDots?.renames}
               className="text-xs px-2.5 py-1 rounded border border-gray-600 hover:border-accent/60 text-gray-400 hover:text-accent transition-colors disabled:opacity-40 flex items-center gap-1.5"
-              title="Rename all episode files to canonical format"
+              title={organizeDots?.renames ? 'Rename all episode files to canonical format' : 'All files already have canonical names'}
             >
               {renaming && <Spinner />}
               {!renaming && organizeDots?.renames && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
@@ -486,12 +486,14 @@ export function ShowDetailPage() {
               // relies on DB paths matching disk paths. Running cleanup before rename
               // could flag DB-known files as "video not in library" if paths diverge.
               // Also disable while organize data is still loading (organizeDots === null).
-              const cleanupBlocked = organizeDots === null || organizeDots.renames
-              const cleanupTitle = organizeDots === null
+              const cleanupBlocked = !organizeDots || organizeDots.renames || !organizeDots.removals
+              const cleanupTitle = !organizeDots
                 ? 'Loading organize status…'
                 : organizeDots.renames
                   ? 'Rename episode files first before running cleanup'
-                  : 'Auto-trash stale and orphaned files from the show folder'
+                  : !organizeDots.removals
+                    ? 'No stale files or folders to remove'
+                    : 'Auto-trash stale and orphaned files from the show folder'
               return (
                 <button
                   onClick={() => { void handleCleanup() }}
@@ -502,7 +504,7 @@ export function ShowDetailPage() {
                   {cleaning && <Spinner />}
                   {!cleaning && organizeDots?.removals && <span className="w-2 h-2 rounded-full bg-green-500 flex-shrink-0" />}
                   {cleaning ? 'Cleaning…' : 'Cleanup Show'}
-                  {!cleaning && cleanupBlocked && organizeDots !== null && (
+                  {!cleaning && organizeDots?.renames && (
                     <span className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0" title="Rename first" />
                   )}
                 </button>
