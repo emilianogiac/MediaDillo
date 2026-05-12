@@ -119,6 +119,7 @@ export function SeasonDetailPage() {
   const [rescanning, setRescanning] = useState(false)
   const [rescanResult, setRescanResult] = useState<RescanResult | null>(null)
   const [rescanError, setRescanError] = useState<string | null>(null)
+  const [showMissing, setShowMissing] = useState(true)
 
   const load = useCallback(() => {
     if (!id || !seasonNumber) return
@@ -164,6 +165,9 @@ export function SeasonDetailPage() {
   const seasonNum = parseInt(seasonNumber ?? '0', 10)
   const owned = season.episodes.filter((e) => e.status === 'owned').length
   const total = season.episodeCount
+  const visibleEpisodes = showMissing
+    ? season.episodes
+    : season.episodes.filter((e) => e.status === 'owned')
 
   return (
     <div className="p-6 space-y-6">
@@ -181,6 +185,16 @@ export function SeasonDetailPage() {
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</h1>
         <span className="text-sm text-gray-500">{owned}/{total} owned</span>
+        <button
+          onClick={() => setShowMissing((v) => !v)}
+          className={`text-xs px-3 py-1 rounded border transition-colors ${
+            showMissing
+              ? 'border-accent/60 text-accent'
+              : 'border-gray-600 text-gray-500 hover:border-gray-500'
+          }`}
+        >
+          {showMissing ? 'Hide missing' : 'Show missing'}
+        </button>
         <button
           onClick={handleRescan}
           disabled={rescanning}
@@ -240,7 +254,7 @@ export function SeasonDetailPage() {
 
       {/* Episode list */}
       <div className="space-y-2">
-        {season.episodes.map((ep) => {
+        {visibleEpisodes.map((ep) => {
           const outOfBounds = ep.episodeNumber > season.episodeCount
           return (
           <div
@@ -307,7 +321,7 @@ export function SeasonDetailPage() {
           </div>
         )})}
 
-        {season.episodes.length === 0 && (
+        {visibleEpisodes.length === 0 && (
           <p className="text-gray-500 text-sm py-8 text-center">No episodes found for this season.</p>
         )}
       </div>
