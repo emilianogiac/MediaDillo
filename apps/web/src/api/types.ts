@@ -102,6 +102,7 @@ export interface EpisodeFile {
   audioCodec: string | null
   audioChannels: string | null
   audioQualityTier: string | null
+  multiEpisodeEnd: number | null
 }
 
 export interface EpisodeDetail {

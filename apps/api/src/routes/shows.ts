@@ -979,6 +979,138 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  // POST /shows/:id/assign-files — set which file covers which episode(s).
+  // Same fileId on multiple consecutive episodes within a season → multi-episode file (multiEpisodeEnd set).
+  app.post<{
+    Params: { id: string }
+    Body: { assignments: { episodeId: string; fileId: string | null }[] }
+  }>('/shows/:id/assign-files', async (req, reply) => {
+    const { assignments } = req.body
+    if (!Array.isArray(assignments) || assignments.length === 0) {
+      return reply.code(400).send({ error: 'assignments must be a non-empty array' })
+    }
+
+    const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { title: true } })
+    if (!show) return reply.code(404).send({ error: 'Show not found' })
+
+    const episodeIds = [...new Set(assignments.map((a) => a.episodeId))]
+    const fileIds = [...new Set(assignments.flatMap((a) => (a.fileId ? [a.fileId] : [])))]
+
+    const [episodes, files] = await Promise.all([
+      prisma.episode.findMany({
+        where: { id: { in: episodeIds }, season: { showId: req.params.id } },
+        include: { season: { select: { id: true, seasonNumber: true } } },
+      }),
+      fileIds.length > 0 ? prisma.episodeFile.findMany({ where: { id: { in: fileIds } } }) : Promise.resolve([]),
+    ])
+
+    if (episodes.length !== episodeIds.length) {
+      return reply.code(400).send({ error: 'Some episode IDs are invalid or belong to a different show' })
+    }
+    if (files.length !== fileIds.length) {
+      return reply.code(400).send({ error: 'Some file IDs are invalid' })
+    }
+
+    const epMap = new Map(episodes.map((e) => [e.id, e]))
+    const fileMap = new Map(files.map((f) => [f.id, f]))
+
+    // Group: fileId → sorted list of episodes
+    const byFile = new Map<string, Array<typeof episodes[0]>>()
+    for (const { episodeId, fileId } of assignments) {
+      if (!fileId) continue
+      const ep = epMap.get(episodeId)
+      if (!ep) continue
+      const group = byFile.get(fileId) ?? []
+      group.push(ep)
+      byFile.set(fileId, group)
+    }
+    for (const group of byFile.values()) {
+      group.sort((a, b) => a.season.seasonNumber - b.season.seasonNumber || a.episodeNumber - b.episodeNumber)
+    }
+
+    const errors: string[] = []
+    let renamed = 0
+
+    for (const [fileId, eps] of byFile) {
+      const primaryEp = eps[0]!
+      const lastEp = eps[eps.length - 1]!
+      const file = fileMap.get(fileId)!
+
+      // Multi-episode only when all assigned episodes are in the same season
+      const allSameSeason = eps.every((e) => e.season.seasonNumber === primaryEp.season.seasonNumber)
+      const multiEpisodeEnd = allSameSeason && eps.length > 1 ? lastEp.episodeNumber : null
+
+      const ext = path.extname(file.path)
+      const dir = path.dirname(file.path)
+      const newName = canonicalEpisodeFileName(
+        show.title,
+        primaryEp.season.seasonNumber,
+        primaryEp.episodeNumber,
+        primaryEp.title,
+        ext,
+        multiEpisodeEnd,
+        null,
+      )
+      const newPath = path.join(dir, newName)
+      try {
+        if (file.path !== newPath) {
+          await fsRename(file.path, newPath)
+          renamed++
+        }
+        await prisma.episodeFile.update({
+          where: { id: fileId },
+          data: { episodeId: primaryEp.id, path: newPath, multiEpisodeEnd },
+        })
+      } catch (err) {
+        errors.push(`Failed for ${path.basename(file.path)}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+
+    // Full status recalculation for all affected seasons
+    const affectedSeasonIds = [...new Set(episodes.map((e) => e.season.id))]
+    const today = new Date()
+    for (const seasonId of affectedSeasonIds) {
+      // Collect episode numbers covered as secondary via multiEpisodeEnd
+      const primaries = await prisma.episodeFile.findMany({
+        where: { episode: { seasonId } },
+        select: { multiEpisodeEnd: true, episode: { select: { episodeNumber: true } } },
+      })
+      const ownedByMulti = new Set<number>()
+      for (const pf of primaries) {
+        if (pf.multiEpisodeEnd) {
+          for (let n = pf.episode.episodeNumber + 1; n <= pf.multiEpisodeEnd; n++) ownedByMulti.add(n)
+        }
+      }
+
+      const seasonEps = await prisma.episode.findMany({
+        where: { seasonId },
+        include: { files: true },
+      })
+      for (const ep of seasonEps) {
+        let status: EpisodeStatus
+        if (ep.files.length > 0) {
+          status = EpisodeStatus.owned
+        } else if (ownedByMulti.has(ep.episodeNumber)) {
+          status = EpisodeStatus.owned
+        } else if (ep.airDate && new Date(ep.airDate) > today) {
+          status = EpisodeStatus.not_yet_aired
+        } else {
+          status = EpisodeStatus.missing
+        }
+        if (ep.status !== status) {
+          await prisma.episode.update({ where: { id: ep.id }, data: { status } })
+        }
+      }
+    }
+
+    // Recalculate show totals
+    const ownedCount = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
+    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: ownedCount } })
+
+    triggerLibraryRefresh(app.log).catch(() => {})
+    return reply.send({ renamed, errors })
+  })
+
   // GET /api/shows/:id/seasons/:seasonNumber/rename-preview — canonical rename preview scoped to a season
   app.get<{ Params: { id: string; seasonNumber: string } }>(
     '/shows/:id/seasons/:seasonNumber/rename-preview',

@@ -224,6 +224,16 @@ export async function renumberEpisodes(
 }
 
 
+export async function assignFiles(
+  showId: string,
+  assignments: { episodeId: string; fileId: string | null }[],
+): Promise<{ renamed: number; errors: string[] }> {
+  return apiFetch(`/shows/${showId}/assign-files`, {
+    method: 'POST',
+    body: JSON.stringify({ assignments }),
+  })
+}
+
 export async function moveShow(showId: string, targetScanRootId: string): Promise<{ moved: boolean; newFolder: string }> {
   return apiFetch(`/shows/${showId}/move`, {
     method: 'POST',

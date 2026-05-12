@@ -5,6 +5,7 @@ import { fetchSeason, rescanSeason, fetchSeasonRenamePreview, type RescanResult 
 import { fetchEpisodeFileRenamePreview, applyRenames, type RenamePreviewItem } from '../api/files.js'
 import { TechBadge } from '../components/TechBadge.js'
 import { MergePartsPanel } from '../components/MergePartsPanel.js'
+import { AssignFilesPanel } from '../components/AssignFilesPanel.js'
 import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
 import { ReorderEpisodesPanel } from '../components/ReorderEpisodesPanel.js'
 import { useToast } from '../context/ToastContext.js'
@@ -348,6 +349,15 @@ export function SeasonDetailPage() {
         <MergePartsPanel
           showId={id}
           seasonNumber={parseInt(seasonNumber, 10)}
+          episodes={season.episodes}
+          onDone={load}
+        />
+      )}
+
+      {id && (
+        <AssignFilesPanel
+          showId={id}
+          seasonNumber={seasonNum}
           episodes={season.episodes}
           onDone={load}
         />
