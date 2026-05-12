@@ -13,7 +13,10 @@ const KNOWN_ARTWORK = new Set([
   'disc.png', 'discart.png',
 ])
 
-const KNOWN_METADATA = new Set([
+// Canonical NFO filenames created by MediaDillo.
+// Any .nfo whose basename is NOT in this set was created by another tool (TMM, Kodi, etc.)
+// and should be flagged as stale when the corresponding canonical NFO already exists.
+const CANONICAL_NFO = new Set([
   'movie.nfo', 'tvshow.nfo', 'episode.nfo',
 ])
 
@@ -94,11 +97,21 @@ export async function detectStaleFiles(
       continue
     }
 
-    // Known metadata filenames
-    if (KNOWN_METADATA.has(basename)) continue
+    // Canonical MediaDillo NFO filenames — always keep these
+    if (CANONICAL_NFO.has(basename)) continue
 
-    // NFO files (any *.nfo)
-    if (ext === '.nfo') continue
+    // Any other .nfo was created by a foreign tool (TMM, Kodi, etc.) — flag it as stale.
+    // We prefer false negatives over false positives, so we only flag when a canonical
+    // MediaDillo NFO already exists in the same folder (confirming MediaDillo has taken over).
+    if (ext === '.nfo') {
+      const dir = path.dirname(filePath)
+      const hasCanonicalNfo = [...CANONICAL_NFO].some(n => files.has(path.join(dir, n).toLowerCase()))
+      if (hasCanonicalNfo) {
+        stale.push({ path: filePath, reason: 'non-canonical NFO (superseded by MediaDillo NFO)' })
+      }
+      // If no canonical NFO exists yet, preserve the foreign NFO
+      continue
+    }
 
     // Subtitle files
     if (['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx'].includes(ext)) continue

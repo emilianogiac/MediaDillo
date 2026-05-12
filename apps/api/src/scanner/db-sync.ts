@@ -445,12 +445,14 @@ export async function syncEpisodeFile(
 
   const primaryEp = episodes[0]
   if (primaryEp === undefined) throw new Error('No episode number found')
+  const lastEp = episodes[episodes.length - 1]!
+  const multiEpisodeEnd = episodes.length > 1 ? lastEp : null
 
   // NFO title is more accurate than filename parsing; airDate comes only from NFO
   const resolvedTitle = episodeNfo?.title ?? episodeTitle ?? null
   const airDate = episodeNfo?.airDate ? new Date(episodeNfo.airDate) : null
 
-  // Find or create Episode
+  // Find or create primary Episode
   let episode = await prisma.episode.findFirst({
     where: { seasonId: season.id, episodeNumber: primaryEp },
   })
@@ -470,6 +472,17 @@ export async function syncEpisodeFile(
     }
   }
 
+  // Mark all secondary episodes covered by this multi-episode file as owned
+  if (episodes.length > 1) {
+    for (let i = 1; i < episodes.length; i++) {
+      const secEp = episodes[i]!
+      const secondary = await prisma.episode.findFirst({ where: { seasonId: season.id, episodeNumber: secEp } })
+      if (secondary && secondary.status !== 'owned') {
+        await prisma.episode.update({ where: { id: secondary.id }, data: { status: 'owned' } })
+      }
+    }
+  }
+
   const fileThreeD = detect3DFormat(file.path)
   const existing = await prisma.episodeFile.findUnique({ where: { path: file.path } })
 
@@ -479,6 +492,7 @@ export async function syncEpisodeFile(
         episodeId: episode.id,
         path: file.path,
         sizeBytes: file.sizeBytes,
+        multiEpisodeEnd,
         threeD: fileThreeD,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
@@ -494,14 +508,16 @@ export async function syncEpisodeFile(
   }
 
   const wrongEpisode = existing.episodeId !== episode.id
+  const wrongMultiEnd = (existing.multiEpisodeEnd ?? null) !== multiEpisodeEnd
   const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
 
-  if (wrongEpisode || mtimeChanged) {
+  if (wrongEpisode || wrongMultiEnd || mtimeChanged) {
     const oldEpisodeId = existing.episodeId
     await prisma.episodeFile.update({
       where: { path: file.path },
       data: {
-        ...(wrongEpisode ? { episodeId: episode.id, multiEpisodeEnd: null } : {}),
+        ...(wrongEpisode ? { episodeId: episode.id } : {}),
+        multiEpisodeEnd,
         threeD: fileThreeD,
         sizeBytes: file.sizeBytes,
         videoCodec: specs.videoCodec,

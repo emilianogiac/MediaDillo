@@ -1059,9 +1059,14 @@ export function MovieDetailPage() {
         <MovieFilesPanel movieId={movie.id} onDone={() => { load(); setCleanupTrigger((n) => n + 1) }} onHasItems={setMovieRenameCount} />
       )}
 
-      {/* Folder cleanup */}
+      {/* Folder cleanup — blocked until all files are renamed to canonical paths */}
       {movie.files.length > 0 && (
-        <MovieFolderCleanupPanel movieId={movie.id} autoScanTrigger={cleanupTrigger} onHasItems={setMovieCleanupCount} />
+        <MovieFolderCleanupPanel
+          movieId={movie.id}
+          autoScanTrigger={cleanupTrigger}
+          onHasItems={setMovieCleanupCount}
+          blockedByRenames={movieRenameCount === null || movieRenameCount > 0}
+        />
       )}
 
       {/* Duplicate copies */}

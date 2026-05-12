@@ -25,9 +25,11 @@ interface Props {
   movieId: string
   autoScanTrigger?: number
   onHasItems?: (count: number) => void
+  /** When true, the delete action is blocked with a warning (files need renaming first). */
+  blockedByRenames?: boolean
 }
 
-export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems }: Props) {
+export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems, blockedByRenames }: Props) {
   const [scanning, setScanning] = useState(false)
   const [files, setFiles] = useState<FolderFile[] | null>(null)
   const [folderPath, setFolderPath] = useState('')
@@ -68,7 +70,7 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems }
   }
 
   async function handleDelete() {
-    if (selected.size === 0) return
+    if (selected.size === 0 || blockedByRenames) return
     setDeleting(true)
     setError(null)
     try {
@@ -110,6 +112,13 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems }
           <p className="text-xs text-gray-600 font-mono break-all">{folderPath}</p>
         )}
       </div>
+
+      {/* Safety warning: cleanup must not run while files need renaming */}
+      {blockedByRenames && (
+        <p className="text-xs text-yellow-400 bg-yellow-900/20 border border-yellow-700/40 rounded px-3 py-2">
+          Rename files to canonical names first — cleanup relies on DB paths matching disk paths.
+        </p>
+      )}
 
       <div className="space-y-2">
         {scanning && <p className="text-sm text-gray-500">Scanning…</p>}
@@ -153,7 +162,8 @@ export function MovieFolderCleanupPanel({ movieId, autoScanTrigger, onHasItems }
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleDelete}
-                  disabled={selected.size === 0 || deleting}
+                  disabled={selected.size === 0 || deleting || !!blockedByRenames}
+                  title={blockedByRenames ? 'Rename files to canonical names first' : undefined}
                   className="text-xs px-3 py-1.5 rounded bg-red-800/40 border border-red-700/60 text-red-300 hover:bg-red-800/60 disabled:opacity-40 transition-colors"
                 >
                   {deleting ? 'Deleting…' : `Delete ${selected.size} file${selected.size !== 1 ? 's' : ''}`}

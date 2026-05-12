@@ -29,8 +29,9 @@ async function deriveShowFolder(filePaths: string[]): Promise<string | null> {
       return path.join(root.path, showFolderName)
     }
   }
-  // Fallback: only used when no scan root matches (shouldn't happen in normal operation)
-  return path.dirname(path.dirname(firstPath))
+  // No scan root matched — refuse to derive a folder by guessing dirname levels.
+  // Returning null causes callers to abort safely rather than operating on an unknown path.
+  return null
 }
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
@@ -357,6 +358,21 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     if (!showFolder) return reply.send({ trashed: 0, errors: [] })
     const knownPaths = new Set(allFilePaths2)
 
+    // Identical video-file check used by the organize preview to decide whether a
+    // subfolder is orphaned (no videos) vs. a live season folder (has videos).
+    const VIDEO_EXTS_CLEANUP = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.flv', '.ts', '.mpg', '.mpeg', '.m2ts', '.vob', '.iso'])
+    async function dirHasVideoFilesCleanup(dir: string): Promise<boolean> {
+      let entries: string[]
+      try { entries = await readdir(dir) } catch { return false }
+      for (const entry of entries) {
+        if (entry.startsWith('.')) continue
+        const full = path.join(dir, entry)
+        if (VIDEO_EXTS_CLEANUP.has(path.extname(entry).toLowerCase())) return true
+        if (!path.extname(entry) && await dirHasVideoFilesCleanup(full)) return true
+      }
+      return false
+    }
+
     const stalePaths: string[] = []
     async function walkForStale(dir: string) {
       let entries: string[]
@@ -364,9 +380,17 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const staleInDir = await detectStaleFiles(dir, knownPaths)
       stalePaths.push(...staleInDir.map((s) => s.path))
       for (const entry of entries) {
-        if (entry.startsWith('.')) continue
+        if (entry.startsWith('.')) continue  // skip .trash, .DS_Store, hidden dirs
         const full = path.join(dir, entry)
-        if (!path.extname(entry)) await walkForStale(full)
+        if (!path.extname(entry)) {
+          // Only flag a subfolder as orphaned if it contains zero video files on disk.
+          // Subfolders with videos are season/special folders — recurse into them instead.
+          if (!await dirHasVideoFilesCleanup(full)) {
+            stalePaths.push(full)
+          } else {
+            await walkForStale(full)
+          }
+        }
       }
     }
     await walkForStale(showFolder)

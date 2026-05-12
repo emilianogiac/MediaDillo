@@ -5,7 +5,7 @@ import { prisma } from '@mediadillo/db'
 import { runMovieFolderScan, isScanRunning } from '../scanner/index.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/naming.js'
-import { applyMovieRenames } from '../files/rename.js'
+import { applyMovieRenames, deleteToTrash } from '../files/rename.js'
 import { scanMovieFolder } from '../files/cleanup.js'
 import { moveFile } from '../files/move.js'
 
@@ -382,20 +382,41 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
       if (!movie) return reply.code(404).send({ error: 'Not found' })
       if (!movie.files.length) return reply.code(422).send({ error: 'No files' })
 
+      // Derive the movie folder safely: it must be a direct child of the scan root.
+      // If there is no scan root, or the file sits at root level, fall back to fileDir.
       const firstFile = movie.files[0]!
       const fileDir = path.dirname(firstFile.path)
-      const scanRootPath = movie.scanRoot?.path ?? ''
-      const folderPath = scanRootPath && path.dirname(fileDir) !== scanRootPath
-        ? path.dirname(fileDir)
-        : fileDir
-
-      const safe = req.body.paths.filter((p) => p.startsWith(folderPath + '/') || p.startsWith(folderPath + path.sep))
-      let deleted = 0
-      for (const p of safe) {
-        try { await fs.unlink(p); deleted++ } catch { /* skip unreadable */ }
+      const scanRootPath = movie.scanRoot?.path
+      let folderPath: string
+      if (scanRootPath) {
+        const rootPrefix = scanRootPath.endsWith('/') ? scanRootPath : scanRootPath + '/'
+        if (fileDir.startsWith(rootPrefix)) {
+          // folderPath = direct child of scan root containing this file
+          const relative = fileDir.slice(rootPrefix.length)
+          const topLevelDir = relative.split('/')[0]!
+          folderPath = topLevelDir ? path.join(scanRootPath, topLevelDir) : fileDir
+        } else {
+          // File is not under its own scan root — refuse to operate
+          return reply.code(422).send({ error: 'File is not inside its scan root — cannot determine safe folder' })
+        }
+      } else {
+        folderPath = fileDir
       }
 
-      return reply.send({ deleted })
+      // Only trash paths that are strictly inside the derived movie folder
+      const safe = req.body.paths.filter((p) => p.startsWith(folderPath + '/') || p.startsWith(folderPath + path.sep))
+      let deleted = 0
+      const errors: string[] = []
+      for (const p of safe) {
+        try {
+          await deleteToTrash(p)
+          deleted++
+        } catch (err) {
+          errors.push(`${p}: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      return reply.send({ deleted, errors })
     },
   )
 

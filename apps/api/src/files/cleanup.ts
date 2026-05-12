@@ -15,7 +15,22 @@ export const BATCH_SAFE_TO_DELETE: Set<FolderFileCategory> = new Set([
 const VIDEO_EXTS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.iso', '.m2ts', '.wmv'])
 const SUBTITLE_EXTS = new Set(['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx', '.sup', '.mks'])
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
-const CANONICAL_ART = new Set(['poster.jpg', 'backdrop.jpg', 'folder.jpg'])
+
+// All canonical artwork filenames that MediaDillo creates or preserves.
+// Must stay in sync with KNOWN_ARTWORK in stale-detector.ts.
+const CANONICAL_ART = new Set([
+  'poster.jpg', 'poster.jpeg', 'poster.png',
+  'backdrop.jpg', 'backdrop.jpeg', 'backdrop.png',
+  'fanart.jpg', 'fanart.jpeg', 'fanart.png',
+  'thumb.jpg', 'thumb.jpeg', 'thumb.png',
+  'banner.jpg', 'banner.jpeg', 'banner.png',
+  'logo.jpg', 'logo.png',
+  'clearart.png',
+  'disc.png', 'discart.png',
+  // legacy / Kodi alias kept for compatibility
+  'folder.jpg',
+])
+
 const POSTER_SFX = ['-poster', '_poster']
 const BACKDROP_SFX = ['-fanart', '_fanart', '-backdrop', '_backdrop', '-landscape', '_landscape', '-background', '_background']
 
@@ -40,10 +55,26 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
 
   const firstFile = movie.files[0]!
   const fileDir = path.dirname(firstFile.path)
-  const scanRootPath = movie.scanRoot?.path ?? ''
-  const folderPath = (scanRootPath && fileDir !== scanRootPath && path.dirname(fileDir) !== scanRootPath)
-    ? path.dirname(fileDir)
-    : fileDir
+
+  // Derive the movie folder safely: it must be a direct child of the scan root.
+  // Heuristic dirname-walking is avoided to prevent operating on a parent that
+  // contains multiple movies (or worse, the scan root itself).
+  let folderPath: string
+  const scanRootPath = movie.scanRoot?.path
+  if (scanRootPath) {
+    const rootPrefix = scanRootPath.endsWith('/') ? scanRootPath : scanRootPath + '/'
+    if (fileDir.startsWith(rootPrefix)) {
+      const relative = fileDir.slice(rootPrefix.length)
+      const topLevelDir = relative.split('/')[0]!
+      folderPath = topLevelDir ? path.join(scanRootPath, topLevelDir) : fileDir
+    } else {
+      // File is not under its own scan root — cannot determine safe folder
+      return null
+    }
+  } else {
+    // No scan root attached — use the file's immediate parent (best we can do)
+    folderPath = fileDir
+  }
 
   // Include ALL MovieFiles in this folder, not just those of the current movie record,
   // so that other editions/versions sharing the same folder are never flagged for deletion.
