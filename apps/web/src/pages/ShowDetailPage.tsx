@@ -415,7 +415,7 @@ export function ShowDetailPage() {
                   {show.tvdbId ? '✎' : '+ TVDB ID'}
                 </button>
               )}
-              {show.tvdbId && tvdbOrders.length > 1 && (
+              {show.tvdbId && tvdbOrders.length > 0 && (
                 <select
                   value={show.tvdbOrder ?? 'official'}
                   onChange={async (e) => {

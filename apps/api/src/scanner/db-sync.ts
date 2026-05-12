@@ -612,6 +612,23 @@ export async function pruneOrphanedFiles(
       }
     }
 
+    // Delete ghost seasons: scanner-created seasons with episodeCount=0 that now have no owned episodes
+    const affectedSeasons = await prisma.episode.findMany({
+      where: { id: { in: affectedEpisodeIds } },
+      select: { seasonId: true },
+      distinct: ['seasonId'],
+    })
+    for (const { seasonId } of affectedSeasons) {
+      const season = await prisma.season.findUnique({
+        where: { id: seasonId },
+        select: { episodeCount: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+      })
+      if (season && season.episodeCount === 0 && season._count.episodes === 0) {
+        await prisma.episode.deleteMany({ where: { seasonId } })
+        await prisma.season.delete({ where: { id: seasonId } })
+      }
+    }
+
     // Recalculate show counts for affected shows
     const affectedShowIds = await prisma.episode.findMany({
       where: { id: { in: affectedEpisodeIds } },

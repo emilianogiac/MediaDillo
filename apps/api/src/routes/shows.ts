@@ -199,13 +199,15 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
-    // Flatten seasons to include ownedCount
-    const seasons = show.seasons.map((s) => ({
-      id: s.id,
-      seasonNumber: s.seasonNumber,
-      episodeCount: s.episodeCount,
-      ownedCount: s._count.episodes,
-    }))
+    // Flatten seasons to include ownedCount; drop ghost seasons (no target episodes, none owned)
+    const seasons = show.seasons
+      .map((s) => ({
+        id: s.id,
+        seasonNumber: s.seasonNumber,
+        episodeCount: s.episodeCount,
+        ownedCount: s._count.episodes,
+      }))
+      .filter((s) => s.episodeCount > 0 || s.ownedCount > 0)
 
     // Build scanRoots for this show (which scan roots contain its episode files)
     const allScanRoots = await prisma.scanRoot.findMany({ select: { id: true, label: true, path: true } })
