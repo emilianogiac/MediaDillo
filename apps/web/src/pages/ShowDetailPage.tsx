@@ -162,7 +162,7 @@ export function ShowDetailPage() {
 
   function handleDeleteSibling(siblingId: string) {
     const sibling = siblings.find((s) => s.id === siblingId)
-    const label = sibling?.scanRoots[0]?.label ?? 'this copy'
+    const label = sibling?.title ?? 'this copy'
     setConfirm({
       title: 'Delete duplicate copy',
       message: `Permanently delete "${label}" and its episode files from disk? This cannot be undone.`,
@@ -778,11 +778,12 @@ export function ShowDetailPage() {
               <div key={s.id} className="flex items-start justify-between gap-4 px-4 py-3">
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-sm text-gray-200">{s.scanRoots[0]?.label ?? 'Unknown collection'}</span>
-                    {s.scanRoots.length > 1 && (
-                      <span className="text-xs text-gray-600">{s.scanRoots.slice(1).map((r) => r.label).join(', ')}</span>
-                    )}
+                    <span className="text-sm text-gray-200">{s.title}</span>
+                    {s.year && <span className="text-xs text-gray-500">({s.year})</span>}
                   </div>
+                  {s.scanRoots.length > 0 && (
+                    <p className="text-xs text-gray-600">{s.scanRoots.map((r) => r.label).join(', ')}</p>
+                  )}
                   <p className="text-xs text-gray-500">{s.ownedEpisodes}/{s.totalEpisodes} episodes owned</p>
                   {s.repFile && (
                     <div className="flex flex-wrap gap-1 pt-0.5">
@@ -832,7 +833,10 @@ export function ShowDetailPage() {
                 {siblings.filter((s) => s.dismissedAsDuplicate).map((s) => (
                   <div key={s.id} className="flex items-center justify-between gap-4 px-4 py-2">
                     <div className="flex-1 min-w-0">
-                      <span className="text-sm text-gray-500">{s.scanRoots[0]?.label ?? 'Unknown collection'}</span>
+                      <span className="text-sm text-gray-500">{s.title}</span>
+                      {s.scanRoots.length > 0 && (
+                        <span className="text-xs text-gray-600 ml-2">{s.scanRoots.map((r) => r.label).join(', ')}</span>
+                      )}
                     </div>
                     <div className="flex gap-2 shrink-0">
                       <button onClick={() => navigate(`/shows/${s.id}`)} className="text-xs text-gray-500 hover:text-accent transition-colors">Browse →</button>
@@ -860,7 +864,7 @@ export function ShowDetailPage() {
           <div className="bg-surface-raised border border-gray-700 rounded-xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <h2 className="font-semibold text-gray-100">Consolidate into this show?</h2>
             <p className="text-sm text-gray-400">
-              Move all episode files from <strong className="text-gray-200">{consolidateTarget.scanRoots[0]?.label ?? 'the other copy'}</strong> ({consolidateTarget.ownedEpisodes} owned ep{consolidateTarget.ownedEpisodes !== 1 ? 's' : ''}) into this show's folder. The sibling record will be deleted.
+              Move all episode files from <strong className="text-gray-200">{consolidateTarget.title}</strong> ({consolidateTarget.ownedEpisodes} owned ep{consolidateTarget.ownedEpisodes !== 1 ? 's' : ''}) into this show's folder. The sibling record will be deleted.
             </p>
             <div className="flex gap-2 justify-end">
               <button
