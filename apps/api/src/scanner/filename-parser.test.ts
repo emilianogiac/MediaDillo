@@ -123,6 +123,42 @@ describe('parseFilename — TV shows', () => {
     const r = parseFilename('/tv/Show/S1/Show.S01.E07.Title.mpg')
     expect(r).toMatchObject({ type: 'tv', show: 'Show', season: 1, episodes: [7] })
   })
+
+  // 3-digit episode numbers (e.g. long-running anime like "L'uomo tigre" with 105 eps)
+  it('parses 3-digit episode E100 without confusing it with E10', () => {
+    const r = parseFilename("/tv/L'uomo tigre/Season 01/L'uomo tigre - S01E100.mkv")
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [100] })
+  })
+
+  it('parses 3-digit episode E101', () => {
+    const r = parseFilename("/tv/L'uomo tigre/Season 01/L'uomo tigre - S01E101.mkv")
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [101] })
+  })
+
+  it('parses 3-digit episode E105 (last episode of a 105-ep season)', () => {
+    const r = parseFilename("/tv/L'uomo tigre/Season 01/L'uomo tigre - S01E105.mkv")
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [105] })
+  })
+
+  it('still parses 2-digit episode E10 correctly alongside 3-digit support', () => {
+    const r = parseFilename('/tv/Show/Season 01/Show - S01E10.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [10] })
+  })
+
+  it('parses zero-padded 3-digit episode E009', () => {
+    const r = parseFilename('/tv/Show/Season 01/Show - S01E009.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [9] })
+  })
+
+  it('parses multi-episode with 3-digit numbers E100E101', () => {
+    const r = parseFilename('/tv/Show/Season 01/Show - S01E100E101.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [100, 101] })
+  })
+
+  it('parses multi-episode E10E11 without 3-digit contamination', () => {
+    const r = parseFilename('/tv/Show/Season 01/Show - S01E10E11.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [10, 11] })
+  })
 })
 
 describe('detect3DFormat', () => {

@@ -5,8 +5,10 @@ import type { ParsedFilename, ParsedMovie, ParsedEpisode } from './types.js'
 // S01E01 / s01e01 / S01.E01 / S01-E01 / S01_E01 — with optional multi-episode suffix
 // 01x01 / 1x01
 // Season 1 Episode 1 / season 01 episode 01 (case-insensitive, variable spacing)
+// Episode digits are \d{1,3} to support 3-digit episode numbers (e.g. S01E100, S01E105).
+// The match is greedy by default so S01E100 captures all three digits, not just "10".
 const TV_SE_RE =
-  /(?:[Ss](\d{1,2})[._-]?[Ee](\d{1,2})(?:[._-]?[Ee](\d{1,2}))*|(\d{1,2})x(\d{1,2})|[Ss]eason\s+(\d{1,2})\s+[Ee]pisode\s+(\d{1,2}))/
+  /(?:[Ss](\d{1,2})[._-]?[Ee](\d{1,3})(?:[._-]?[Ee](\d{1,3}))*|(\d{1,2})x(\d{1,3})|[Ss]eason\s+(\d{1,2})\s+[Ee]pisode\s+(\d{1,3}))/
 
 // Trailing quality/noise tags to strip before parsing title
 const NOISE_RE =
