@@ -240,6 +240,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
 
     // Walk show folder for stale detection
     const removals: Array<{ path: string; reason: string }> = []
+    function hasKnownFilesUnder(dir: string): boolean {
+      const prefix = dir.endsWith('/') ? dir : dir + '/'
+      for (const p of knownPaths) {
+        if (p.startsWith(prefix)) return true
+      }
+      return false
+    }
     async function walkForStale(dir: string) {
       let entries: string[]
       try { entries = await readdir(dir) } catch { return }
@@ -248,9 +255,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       for (const entry of entries) {
         if (entry.startsWith('.')) continue  // skip .trash, .DS_Store, hidden dirs
         const full = path.join(dir, entry)
-        // Recurse into season subfolders only
         if (!path.extname(entry)) {
-          await walkForStale(full)
+          // Orphaned subfolder: contains no video files tracked in DB → trash whole folder
+          if (!hasKnownFilesUnder(full)) {
+            removals.push({ path: full, reason: 'orphaned folder — no video files' })
+          } else {
+            await walkForStale(full)
+          }
         }
       }
     }
