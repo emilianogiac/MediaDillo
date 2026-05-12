@@ -30,6 +30,10 @@ async function getTvdbClientOrNull(): Promise<TvdbClient | null> {
   return client
 }
 
+function invalidateTvdbCache(): void {
+  _tvdbClientCache = null
+}
+
 export async function metadataRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/metadata/scan — batch auto-match all unmatched items
   app.post('/metadata/scan', async (_req, reply) => {
@@ -281,7 +285,9 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
         await enrichShowFromTvdb(tvdbClient, show.id, show.tvdbId)
       } catch (err) {
         app.log.error(err, `enrichShowFromTvdb failed for show ${show.id}`)
-        return reply.code(500).send({ error: 'Enrichment failed' })
+        const msg = err instanceof Error ? err.message : String(err)
+        if (msg.includes('401')) { invalidateTvdbCache(); return reply.code(422).send({ error: 'TVDB authentication failed — check your TVDB_API_KEY' }) }
+        return reply.code(500).send({ error: `Enrichment failed: ${msg}` })
       }
       const updated = await prisma.tvShow.findUnique({ where: { id: show.id } })
       return reply.send(updated)
@@ -295,7 +301,9 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
       await enrichTvShow(client, show.id, show.tmdbId, tvdbClient)
     } catch (err) {
       app.log.error(err, `enrichTvShow failed for show ${show.id}`)
-      return reply.code(500).send({ error: 'Enrichment failed' })
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('401')) { invalidateTvdbCache(); return reply.code(422).send({ error: 'TVDB authentication failed — check your TVDB_API_KEY' }) }
+      return reply.code(500).send({ error: `Enrichment failed: ${msg}` })
     }
 
     try {
