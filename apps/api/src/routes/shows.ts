@@ -13,6 +13,26 @@ import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 
+// Derive the show folder from a set of known episode file paths, bounded by TV scan roots.
+// Using path.dirname twice assumes showFolder/seasonFolder/file structure and goes too high
+// for flat shows (showFolder/file), landing on the scan root and threatening the whole library.
+// This helper always returns a direct child of a known TV scan root.
+async function deriveShowFolder(filePaths: string[]): Promise<string | null> {
+  if (filePaths.length === 0) return null
+  const tvRoots = await prisma.scanRoot.findMany({ where: { type: 'tv' }, select: { path: true } })
+  const firstPath = ([...filePaths].sort())[0]!
+  for (const root of tvRoots) {
+    const rootPrefix = root.path.endsWith('/') ? root.path : root.path + '/'
+    if (firstPath.startsWith(rootPrefix)) {
+      const showFolderName = firstPath.slice(rootPrefix.length).split('/')[0]
+      if (!showFolderName) continue
+      return path.join(root.path, showFolderName)
+    }
+  }
+  // Fallback: only used when no scan root matches (shouldn't happen in normal operation)
+  return path.dirname(path.dirname(firstPath))
+}
+
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended
   app.get<{
@@ -225,13 +245,9 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
-    // Derive show folder from first episode file (2 levels up)
-    const firstFilePath = show.seasons
-      .flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
-      .sort()[0]
-    if (!firstFilePath) return reply.send({ renames: [], removals: [] })
-
-    const showFolder = path.dirname(path.dirname(firstFilePath))
+    const allFilePaths = show.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
+    const showFolder = await deriveShowFolder(allFilePaths)
+    if (!showFolder) return reply.send({ renames: [], removals: [] })
 
     // Collect all DB-known video paths for this show
     const knownPaths = new Set(
@@ -239,14 +255,19 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     )
 
     // Walk show folder for stale detection
-    const removals: Array<{ path: string; reason: string }> = []
-    function hasKnownFilesUnder(dir: string): boolean {
-      const prefix = dir.endsWith('/') ? dir : dir + '/'
-      for (const p of knownPaths) {
-        if (p.startsWith(prefix)) return true
+    const VIDEO_EXTS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.flv', '.ts', '.mpg', '.mpeg', '.m2ts', '.vob', '.iso'])
+    async function dirHasVideoFiles(dir: string): Promise<boolean> {
+      let entries: string[]
+      try { entries = await readdir(dir) } catch { return false }
+      for (const entry of entries) {
+        if (entry.startsWith('.')) continue
+        const full = path.join(dir, entry)
+        if (VIDEO_EXTS.has(path.extname(entry).toLowerCase())) return true
+        if (!path.extname(entry) && await dirHasVideoFiles(full)) return true
       }
       return false
     }
+    const removals: Array<{ path: string; reason: string }> = []
     async function walkForStale(dir: string) {
       let entries: string[]
       try { entries = await readdir(dir) } catch { return }
@@ -256,8 +277,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         if (entry.startsWith('.')) continue  // skip .trash, .DS_Store, hidden dirs
         const full = path.join(dir, entry)
         if (!path.extname(entry)) {
-          // Orphaned subfolder: contains no video files tracked in DB → trash whole folder
-          if (!hasKnownFilesUnder(full)) {
+          // Only flag a subfolder as orphaned if it contains zero video files on disk.
+          // This is a filesystem check (not DB), so sibling show folders with real
+          // videos are never accidentally flagged even if showFolder is computed wrong.
+          if (!await dirHasVideoFiles(full)) {
             removals.push({ path: full, reason: 'orphaned folder — no video files' })
           } else {
             await walkForStale(full)
@@ -328,15 +351,11 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
 
-    const firstFilePath = show.seasons
-      .flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
-      .sort()[0]
-    if (!firstFilePath) return reply.send({ trashed: 0, errors: [] })
-
-    const showFolder = path.dirname(path.dirname(firstFilePath))
-    const knownPaths = new Set(
-      show.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path))),
-    )
+    const allFilePaths2 = show.seasons.flatMap((s) => s.episodes.flatMap((e) => e.files.map((f) => f.path)))
+    if (allFilePaths2.length === 0) return reply.send({ trashed: 0, errors: [] })
+    const showFolder = await deriveShowFolder(allFilePaths2)
+    if (!showFolder) return reply.send({ trashed: 0, errors: [] })
+    const knownPaths = new Set(allFilePaths2)
 
     const stalePaths: string[] = []
     async function walkForStale(dir: string) {
@@ -816,14 +835,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       if (!targetRoot) return reply.code(404).send({ error: 'Target scan root not found' })
       if (targetRoot.type !== 'tv') return reply.code(422).send({ error: 'Target must be a tv-type scan root' })
 
-      // Derive show folder from any episode file (2 levels up: show/Season XX/episode.mkv)
-      const anyFile = await prisma.episodeFile.findFirst({
+      const allShowFiles = await prisma.episodeFile.findMany({
         where: { episode: { season: { showId: show.id } } },
         select: { path: true },
       })
-      if (!anyFile) return reply.code(422).send({ error: 'Show has no files to move' })
-
-      const showFolder = path.dirname(path.dirname(anyFile.path))
+      if (allShowFiles.length === 0) return reply.code(422).send({ error: 'Show has no files to move' })
+      const showFolder = await deriveShowFolder(allShowFiles.map((f) => f.path))
+      if (!showFolder) return reply.code(422).send({ error: 'Could not determine show folder' })
       const folderName = path.basename(showFolder)
       const newShowFolder = path.join(targetRoot.path, folderName)
 
