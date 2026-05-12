@@ -493,11 +493,15 @@ export async function syncEpisodeFile(
     return 'added'
   }
 
+  const wrongEpisode = existing.episodeId !== episode.id
   const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
-  if (mtimeChanged) {
+
+  if (wrongEpisode || mtimeChanged) {
+    const oldEpisodeId = existing.episodeId
     await prisma.episodeFile.update({
       where: { path: file.path },
       data: {
+        ...(wrongEpisode ? { episodeId: episode.id, multiEpisodeEnd: null } : {}),
         threeD: fileThreeD,
         sizeBytes: file.sizeBytes,
         videoCodec: specs.videoCodec,
@@ -510,6 +514,14 @@ export async function syncEpisodeFile(
         scannedAt: new Date(),
       },
     })
+    // If we re-linked to a different episode, the old one may now have no files → mark missing
+    if (wrongEpisode) {
+      const remaining = await prisma.episodeFile.count({ where: { episodeId: oldEpisodeId } })
+      if (remaining === 0) {
+        await prisma.episode.update({ where: { id: oldEpisodeId }, data: { status: 'missing' } })
+      }
+      await updateShowEpisodeCounts(tvShow.id)
+    }
     return 'changed'
   }
 
