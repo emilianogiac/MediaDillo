@@ -69,6 +69,7 @@ export interface ShowSummary {
   genres: string[]
   rating: number | null
   tmdbId: number | null
+  tvdbId: number | null
   posterDownloaded: boolean
   backdropDownloaded: boolean
   dismissedAsDuplicate: boolean
@@ -124,7 +125,6 @@ export interface SeasonDetail {
 
 export interface ShowDetail extends ShowSummary {
   imdbId: string | null
-  tvdbId: number | null
   tvdbOrder: string | null
   overview: string | null
   backdropUrl: string | null

@@ -106,6 +106,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         genres: true,
         rating: true,
         tmdbId: true,
+        tvdbId: true,
         posterDownloaded: true,
         backdropDownloaded: true,
         dismissedAsDuplicate: true,
