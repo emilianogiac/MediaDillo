@@ -90,7 +90,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(missingArtwork === 'true'
           ? { OR: [{ posterDownloaded: false }, { backdropDownloaded: false }] }
           : {}),
-        ...(unmatched === 'true' ? { tmdbId: null } : {}),
+        ...(unmatched === 'true' ? { tmdbId: null, tvdbId: null } : {}),
         ...(duplicates === 'only' && dupTmdbIds.length > 0 ? { tmdbId: { in: dupTmdbIds } } : {}),
         ...(duplicates === 'hide' && dupTmdbIds.length > 0 ? { NOT: { tmdbId: { in: dupTmdbIds } } } : {}),
         ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),

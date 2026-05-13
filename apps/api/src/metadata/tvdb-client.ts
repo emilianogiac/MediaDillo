@@ -115,24 +115,31 @@ export class TvdbClient {
   }
 
   async getSeries(tvdbId: number): Promise<TvdbSeriesDetail> {
-    const data = await this.get<{
-      data: {
-        id: number
-        name: string
-        overview?: string
-        firstAired?: string
-        image?: string
-        status?: { name: string }
-      }
-    }>(`/series/${tvdbId}`)
+    const [base, translation] = await Promise.all([
+      this.get<{
+        data: {
+          id: number
+          name: string
+          overview?: string
+          firstAired?: string
+          image?: string
+          status?: { name: string }
+        }
+      }>(`/series/${tvdbId}`),
+      this.lang !== 'eng'
+        ? this.get<{ data: { name?: string; overview?: string } | null }>(
+            `/series/${tvdbId}/translations/${this.lang}`,
+          ).catch(() => null)
+        : Promise.resolve(null),
+    ])
 
     return {
-      id: data.data.id,
-      name: data.data.name,
-      overview: data.data.overview ?? null,
-      firstAired: data.data.firstAired ?? null,
-      image: data.data.image ?? null,
-      status: data.data.status?.name ?? null,
+      id: base.data.id,
+      name: translation?.data?.name ?? base.data.name,
+      overview: translation?.data?.overview ?? base.data.overview ?? null,
+      firstAired: base.data.firstAired ?? null,
+      image: base.data.image ?? null,
+      status: base.data.status?.name ?? null,
     }
   }
 

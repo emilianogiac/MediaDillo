@@ -70,7 +70,7 @@ function FilterChip({ label, onRemove }: { label: string; onRemove: () => void }
 type DisplayShow = ShowSummary & { displayLibrary: ShowScanRoot | null; listKey: string }
 
 function ShowCard({ show, nonce, isNew, listSearch }: { show: DisplayShow; nonce: number; isNew: boolean; listSearch: string }) {
-  const unmatched = !show.tmdbId
+  const unmatched = !show.tmdbId && !show.tvdbId
   const missingArt = !show.posterDownloaded || !show.backdropDownloaded
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
@@ -150,7 +150,7 @@ interface ListRowProps {
 }
 
 function ShowListRow({ show, selected, index, nonce, isNew, listSearch, onToggle }: ListRowProps) {
-  const unmatched = !show.tmdbId
+  const unmatched = !show.tmdbId && !show.tvdbId
   const isDuplicate = show.duplicateCount > 1
   const pct = show.totalEpisodes > 0 ? Math.round((show.ownedEpisodes / show.totalEpisodes) * 100) : null
   const rowBg = index % 2 === 1 ? 'bg-gray-900/30' : ''
@@ -418,7 +418,7 @@ export function ShowsPage() {
   // Counts for toggle filters
   const counts = useMemo(() => ({
     missingArtwork: shows.filter((s) => !s.posterDownloaded || !s.backdropDownloaded).length,
-    unmatched: shows.filter((s) => !s.tmdbId).length,
+    unmatched: shows.filter((s) => !s.tmdbId && !s.tvdbId).length,
     needsOrganizing: shows.filter((s) => !s.isOrganized).length,
     duplicates: shows.filter((s) => s.isDuplicate).length,
   }), [shows])
