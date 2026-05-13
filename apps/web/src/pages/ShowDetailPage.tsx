@@ -518,8 +518,8 @@ export function ShowDetailPage() {
                     await updateShowMetadata(id, { tvdbOrder: e.target.value })
                     toast({ type: 'success', message: `Switching to ${label} — re-enriching…` })
                     try {
-                      const enriched = await enrichShow(id)
-                      setShow(enriched)
+                      await enrichShow(id)
+                      load()
                       toast({ type: 'success', message: `Now using ${label}` })
                     } catch {
                       toast({ type: 'error', message: 'Re-enrich failed — order saved, refresh manually' })
