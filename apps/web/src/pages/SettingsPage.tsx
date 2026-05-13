@@ -355,18 +355,18 @@ function DatabaseMaintenanceCard() {
       </div>
       <div className="border-t border-gray-700 pt-3 space-y-1.5">
         <p className="text-sm text-gray-500">
-          Check every file record against the filesystem and remove entries for files that no longer exist on disk. Movies with no remaining files are deleted; episodes revert to "missing". Also runs automatically at the end of every scan.
+          Remove stale records from the database: items whose files no longer exist on disk, and items that belong to a library that is no longer configured. Ghost movies and shows with no remaining files are deleted entirely; episodes with missing files revert to "missing".
         </p>
         <button
           onClick={async () => {
             setIntegrityBusy(true); setIntegrityResult(null); setIntegrityError(null)
             try {
               const r = await verifyIntegrity()
-              setIntegrityResult(
-                r.moviesRemoved === 0 && r.episodesLost === 0
-                  ? 'All file records are healthy — nothing removed.'
-                  : `Removed ${r.moviesRemoved} movie${r.moviesRemoved !== 1 ? 's' : ''} and marked ${r.episodesLost} episode${r.episodesLost !== 1 ? 's' : ''} as missing.`
-              )
+              const parts: string[] = []
+              if (r.moviesRemoved > 0) parts.push(`${r.moviesRemoved} movie${r.moviesRemoved !== 1 ? 's' : ''} removed`)
+              if (r.showsRemoved > 0) parts.push(`${r.showsRemoved} show${r.showsRemoved !== 1 ? 's' : ''} removed`)
+              if (r.episodesLost > 0) parts.push(`${r.episodesLost} episode${r.episodesLost !== 1 ? 's' : ''} marked missing`)
+              setIntegrityResult(parts.length > 0 ? parts.join(', ') + '.' : 'Library is clean — nothing to remove.')
             } catch (e) {
               setIntegrityError(e instanceof Error ? e.message : 'Failed')
             } finally {
@@ -376,7 +376,7 @@ function DatabaseMaintenanceCard() {
           disabled={integrityBusy}
           className="text-sm px-3 py-1.5 rounded bg-surface-overlay hover:bg-gray-600 disabled:opacity-40 transition-colors"
         >
-          {integrityBusy ? 'Checking…' : 'Verify library integrity'}
+          {integrityBusy ? 'Cleaning…' : 'Cleanup Library'}
         </button>
         {integrityError && <p className="text-xs text-red-400">{integrityError}</p>}
         {integrityResult && <p className="text-xs text-green-400">{integrityResult}</p>}
