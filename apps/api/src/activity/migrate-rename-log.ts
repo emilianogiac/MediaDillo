@@ -12,7 +12,7 @@ export async function migrateRenameLogs(): Promise<void> {
     await prisma.activityLog.create({
       data: {
         action: 'rename',
-        movieId: log.movieId ?? undefined,
+        ...(log.movieId ? { movieId: log.movieId } : {}),
         fromPath: log.fromPath,
         toPath: log.toPath,
         createdAt: log.createdAt,

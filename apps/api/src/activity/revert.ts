@@ -46,9 +46,9 @@ export async function revertActivityEntries(
 
       await logActivity({
         action: entry.action,
-        movieId: entry.movieId ?? undefined,
-        showId: entry.showId ?? undefined,
-        episodeId: entry.episodeId ?? undefined,
+        ...(entry.movieId ? { movieId: entry.movieId } : {}),
+        ...(entry.showId ? { showId: entry.showId } : {}),
+        ...(entry.episodeId ? { episodeId: entry.episodeId } : {}),
         fromPath: entry.toPath,
         toPath: entry.fromPath,
         detail: { trigger: 'revert' },
