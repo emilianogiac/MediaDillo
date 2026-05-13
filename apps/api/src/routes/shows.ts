@@ -137,7 +137,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     function isShowOrganized(s: typeof shows[0]): boolean {
-      if (!s.tmdbId) return false
+      if (!s.tmdbId && !s.tvdbId) return false
       const folderName = showFolderName(s)
       return folderName === canonicalMovieFolderName(s.title, s.year)
     }
