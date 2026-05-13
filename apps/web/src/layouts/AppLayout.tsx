@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
+import { AboutModal } from '../components/AboutModal'
 
 interface NavItem {
   to: string
@@ -18,13 +20,19 @@ const NAV_ITEMS: NavItem[] = [
 ]
 
 export function AppLayout() {
+  const [aboutOpen, setAboutOpen] = useState(false)
+
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="w-56 flex-shrink-0 bg-surface-raised border-r border-gray-800 flex flex-col">
-        <div className="p-4 border-b border-gray-800 flex items-center gap-2">
+        <button
+          className="p-4 border-b border-gray-800 flex items-center gap-2 w-full text-left hover:bg-white/5 transition-colors"
+          onClick={() => setAboutOpen(true)}
+          title="About MediaDillo"
+        >
           <img src="/favicon.png" alt="" className="w-6 h-6 flex-shrink-0" />
           <span className="text-xl font-bold text-accent">MediaDillo</span>
-        </div>
+        </button>
         <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => (
             <NavLink
@@ -52,6 +60,7 @@ export function AppLayout() {
       <main className="flex-1 overflow-y-auto bg-surface">
         <Outlet />
       </main>
+      {aboutOpen && <AboutModal onClose={() => setAboutOpen(false)} />}
     </div>
   )
 }
