@@ -17,6 +17,7 @@ import { jellyfinRoutes } from './routes/jellyfin.js'
 import { exportRoutes } from './routes/export.js'
 import { statsRoutes } from './routes/stats.js'
 import { settingsRoutes } from './routes/settings.js'
+import { activityRoutes } from './routes/activity.js'
 import { config } from './config.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -65,6 +66,7 @@ export async function buildApp() {
   await app.register(exportRoutes, { prefix: '/api' })
   await app.register(statsRoutes, { prefix: '/api' })
   await app.register(settingsRoutes, { prefix: '/api' })
+  await app.register(activityRoutes, { prefix: '/api' })
 
   // SPA fallback in production
   if (config.NODE_ENV === 'production') {

@@ -13,6 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/missing', label: 'Missing', icon: '⚠' },
   { to: '/health', label: 'Health', icon: '❤' },
   { to: '/files', label: 'Files', icon: '📁' },
+  { to: '/activity', label: 'Activity', icon: '📋' },
   { to: '/settings', label: 'Settings', icon: '⚙' },
 ]
 

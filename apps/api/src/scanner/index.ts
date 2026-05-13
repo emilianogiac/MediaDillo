@@ -9,6 +9,7 @@ import { detectStaleFiles } from './stale-detector.js'
 import { syncMovieFolder, syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrphanedFiles } from './db-sync.js'
 import type { ScanCounts } from './db-sync.js'
 import type { ScanSummary } from './types.js'
+import { logActivity } from '../activity/log.js'
 
 export interface SeasonScanResult extends ScanCounts {
   filesFound: number
@@ -148,6 +149,17 @@ export async function runScan(scanRoots: ScanRootConfig[]): Promise<ScanSummary>
     }
 
     const scanLogId = await writeScanLog(null, rootsScanned, { added, changed, removed }, allStaleFiles)
+
+    await logActivity({
+      action: 'scan_complete',
+      detail: {
+        filesAdded: added,
+        filesRemoved: removed,
+        filesChanged: changed,
+        rootsScanned,
+        scanLogId,
+      },
+    }).catch(() => {})
 
     return {
       scanLogId,

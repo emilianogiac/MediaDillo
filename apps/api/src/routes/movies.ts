@@ -8,6 +8,7 @@ import { canonicalMovieFolderName, canonicalMovieFileName } from '../files/namin
 import { applyMovieRenames, deleteToTrash } from '../files/rename.js'
 import { scanMovieFolder } from '../files/cleanup.js'
 import { moveFile } from '../files/move.js'
+import { logActivity } from '../activity/log.js'
 
 type QualityTier = 'SD' | '720p' | '1080p' | '4K'
 
@@ -156,7 +157,7 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
 
     const contaminated = await prisma.movie.findMany({
       where: { scanRootId: { in: tvRootIds } },
-      select: { id: true },
+      select: { id: true, title: true },
     })
     const ids = contaminated.map((m) => m.id)
     if (ids.length === 0) return reply.send({ deleted: 0 })
@@ -164,14 +165,19 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     await prisma.movieFile.deleteMany({ where: { movieId: { in: ids } } })
     await prisma.movie.deleteMany({ where: { id: { in: ids } } })
 
+    for (const m of contaminated) {
+      await logActivity({ action: 'item_removed', movieId: m.id, detail: { title: m.title, reason: 'tv_contamination' } })
+    }
+
     return reply.send({ deleted: ids.length })
   })
 
   // DELETE /api/movies/:id — remove a stale record with no files
   app.delete<{ Params: { id: string } }>('/movies/:id', async (req, reply) => {
-    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true } })
+    const movie = await prisma.movie.findUnique({ where: { id: req.params.id }, select: { id: true, title: true } })
     if (!movie) return reply.code(404).send({ error: 'Movie not found' })
     await prisma.movie.delete({ where: { id: req.params.id } })
+    await logActivity({ action: 'item_removed', movieId: movie.id, detail: { title: movie.title } })
     return reply.code(204).send()
   })
 
@@ -328,6 +334,14 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
         prisma.movie.update({ where: { id: movie.id }, data: { scanRootId: targetRoot.id } }),
       ])
 
+      await logActivity({
+        action: 'collection_move',
+        movieId: movie.id,
+        fromPath: currentFolder,
+        toPath: newFolder,
+        detail: { targetScanRootId: req.body.targetScanRootId },
+      })
+
       triggerLibraryRefresh(app.log).catch(() => {})
       return reply.send({ moved: true, newFolder })
     },
@@ -355,7 +369,11 @@ export async function moviesRoutes(app: FastifyInstance): Promise<void> {
     // Delete every file in the folder
     let deleted = 0
     for (const f of scanned.files) {
-      try { await fs.unlink(f.path); deleted++ } catch { /* skip */ }
+      try {
+        await fs.unlink(f.path)
+        await logActivity({ action: 'item_removed', movieId: req.params.id, filePath: f.path })
+        deleted++
+      } catch { /* skip */ }
     }
 
     // Remove the folder itself if it is now empty

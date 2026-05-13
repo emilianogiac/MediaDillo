@@ -19,14 +19,16 @@ async function getTmdbClient(): Promise<TmdbClient> {
 }
 
 // Module-level cache — one TvdbClient instance per process so the JWT token is reused
-let _tvdbClientCache: { apiKey: string; client: TvdbClient } | null = null
+let _tvdbClientCache: { apiKey: string; language: string; client: TvdbClient } | null = null
 
 async function getTvdbClientOrNull(): Promise<TvdbClient | null> {
   const cfg = await getApiConfig()
   if (!cfg.tvdbApiKey) return null
-  if (_tvdbClientCache?.apiKey === cfg.tvdbApiKey) return _tvdbClientCache.client
-  const client = new TvdbClient(cfg.tvdbApiKey)
-  _tvdbClientCache = { apiKey: cfg.tvdbApiKey, client }
+  if (_tvdbClientCache?.apiKey === cfg.tvdbApiKey && _tvdbClientCache.language === cfg.metadataLanguage) {
+    return _tvdbClientCache.client
+  }
+  const client = new TvdbClient(cfg.tvdbApiKey, cfg.metadataLanguage)
+  _tvdbClientCache = { apiKey: cfg.tvdbApiKey, language: cfg.metadataLanguage, client }
   return client
 }
 

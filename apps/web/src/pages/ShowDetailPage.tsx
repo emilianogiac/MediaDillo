@@ -466,7 +466,7 @@ export function ShowDetailPage() {
                   TMDB ↗
                 </a>
               )}
-              {show.tmdbId && jellyfinConfigured && (
+              {(show.tmdbId || show.tvdbId) && jellyfinConfigured && (
                 <button
                   onClick={() => { void handleOpenInJellyfin() }}
                   disabled={openingJellyfin}

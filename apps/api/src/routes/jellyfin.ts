@@ -70,16 +70,16 @@ export async function jellyfinRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { showId: string } }>('/jellyfin/show-url/:showId', async (req, reply) => {
     const show = await prisma.tvShow.findUnique({
       where: { id: req.params.showId },
-      select: { tmdbId: true },
+      select: { tmdbId: true, tvdbId: true },
     })
     if (!show) return reply.code(404).send({ error: 'Show not found' })
-    if (!show.tmdbId) return reply.code(422).send({ error: 'Show not matched to TMDB' })
+    if (!show.tmdbId && !show.tvdbId) return reply.code(422).send({ error: 'Show not matched to any provider' })
 
     const client = await getClient()
     if (!client) return reply.code(503).send({ error: 'Jellyfin not configured' })
 
     try {
-      const url = await client.getTvShowDeepLink(show.tmdbId)
+      const url = await client.getTvShowDeepLink(show.tmdbId, show.tvdbId)
       return reply.send({ url })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

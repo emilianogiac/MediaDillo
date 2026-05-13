@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { prisma } from '@mediadillo/db'
 import { canonicalMovieFileName, canonicalMovieFolderName } from './naming.js'
 import { deleteToTrash } from './rename.js'
+import { logActivity } from '../activity/log.js'
 
 const PART_PATTERN = /[- _.](cd|part|disk|disc|p)[12]$/i
 
@@ -92,6 +93,13 @@ export async function mergeMovieParts(
         sizeBytes: await getFileSize(outputPath),
       },
     })
+
+    await logActivity({
+      action: 'episode_merge',
+      movieId,
+      filePath: outputPath,
+      detail: { mergedParts: [f1.path, f2.path] },
+    }).catch(() => {})
 
     return { outputPath }
   } catch (err) {

@@ -7,6 +7,7 @@ import { detectLocalArtwork } from './artwork-detector.js'
 import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
 import { parseMovieFolderName, parseFilename, detect3DFormat } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
+import { logActivity } from '../activity/log.js'
 
 export interface ScanCounts {
   added: number
@@ -153,6 +154,7 @@ export async function syncMovieFile(
         audioQualityTier: specs.audioQualityTier,
       },
     })
+    await logActivity({ action: 'item_added', movieId: movie.id, filePath: file.path }).catch(() => {})
     return 'added'
   }
 
@@ -301,6 +303,7 @@ export async function syncMovieFolder(
           audioQualityTier: specs.audioQualityTier,
         },
       })
+      await logActivity({ action: 'item_added', movieId: movie.id, filePath: walkedFile.path }).catch(() => {})
       added++
     } else {
       const needsReparent = existing.movieId !== movie.id
@@ -503,6 +506,7 @@ export async function syncEpisodeFile(
         audioQualityTier: specs.audioQualityTier,
       },
     })
+    await logActivity({ action: 'item_added', showId: tvShow.id, episodeId: episode.id, filePath: file.path }).catch(() => {})
     await updateShowEpisodeCounts(tvShow.id)
     return 'added'
   }
@@ -577,6 +581,10 @@ export async function pruneOrphanedFiles(
     const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
     if (orphaned.length === 0) return 0
 
+    for (const f of orphaned) {
+      await logActivity({ action: 'item_removed', movieId: f.movieId, filePath: f.path }).catch(() => {})
+    }
+
     const orphanedIds = orphaned.map((f) => f.id)
     await prisma.movieFile.deleteMany({ where: { id: { in: orphanedIds } } })
 
@@ -599,6 +607,10 @@ export async function pruneOrphanedFiles(
     })
     const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
     if (orphaned.length === 0) return 0
+
+    for (const f of orphaned) {
+      await logActivity({ action: 'item_removed', episodeId: f.episodeId, filePath: f.path }).catch(() => {})
+    }
 
     const orphanedIds = orphaned.map((f) => f.id)
     await prisma.episodeFile.deleteMany({ where: { id: { in: orphanedIds } } })

@@ -4,6 +4,7 @@ import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma, EpisodeStatus } from '@mediadillo/db'
 import { previewEpisodeRenames, previewEpisodeFileRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
+import { logActivity } from '../activity/log.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
 import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
@@ -504,6 +505,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     for (const filePath of remappedTrash) {
       try {
         await deleteToTrash(filePath)
+        await logActivity({ action: 'cleanup', showId: req.params.id, filePath })
         trashed++
       } catch (err) {
         errors.push(`Trash failed for ${filePath}: ${err instanceof Error ? err.message : String(err)}`)
@@ -573,6 +575,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     for (const p of stalePaths) {
       try {
         await deleteToTrash(p)
+        await logActivity({ action: 'cleanup', showId: req.params.id, filePath: p })
         trashed++
       } catch (err) {
         errors.push(`${p}: ${err instanceof Error ? err.message : String(err)}`)
@@ -737,7 +740,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         const cfg = await getApiConfig()
         if (cfg.tmdbApiKey) {
           const tmdbClient = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
-          const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey) : null
+          const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey, cfg.metadataLanguage) : null
           await syncSeasonTitles(tmdbClient, req.params.id, show.tmdbId, seasonNumber, tvdbClient)
         }
       } catch { /* non-fatal — titles will be correct after next rematch */ }
@@ -851,6 +854,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       try {
         await fsRename(tmpPath, finalPath)
         await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+        await logActivity({
+          action: 'episode_assign',
+          showId: req.params.id,
+          episodeId: target.id,
+          filePath: finalPath,
+          detail: { reason: 'reorder' },
+        })
         renamed++
       } catch (err) {
         errors.push(`final rename failed for ${path.basename(tmpPath)}: ${err instanceof Error ? err.message : String(err)}`)
@@ -948,6 +958,13 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         try {
           await fsRename(tmpPath, finalPath)
           await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+          await logActivity({
+            action: 'episode_assign',
+            showId: req.params.id,
+            episodeId: target.id,
+            filePath: finalPath,
+            detail: { reason: 'cross_reassign' },
+          })
           renamed++
         } catch (err) {
           errors.push(`final rename failed for ${path.basename(tmpPath)}: ${err instanceof Error ? err.message : String(err)}`)
@@ -1200,6 +1217,14 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
           }),
         ),
       )
+
+      await logActivity({
+        action: 'collection_move',
+        showId: show.id,
+        fromPath: showFolder,
+        toPath: newShowFolder,
+        detail: { targetScanRootId: req.body.targetScanRootId },
+      })
 
       return reply.send({ moved: true, newFolder: newShowFolder })
     },

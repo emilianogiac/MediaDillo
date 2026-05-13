@@ -12,6 +12,7 @@ import { MissingPage } from './pages/MissingPage'
 import { HealthPage } from './pages/HealthPage'
 import { FilesPage } from './pages/FilesPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { ActivityPage } from './pages/ActivityPage'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="health" element={<HealthPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="activity" element={<ActivityPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

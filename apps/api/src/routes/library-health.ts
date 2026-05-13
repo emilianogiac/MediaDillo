@@ -295,7 +295,7 @@ export async function libraryHealthRoutes(app: FastifyInstance): Promise<void> {
 
     const job = createJob(movies.length + shows.length)
     const client = new TmdbClient(cfg.tmdbApiKey, cfg.metadataLanguage)
-    const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey) : null
+    const tvdbClient = cfg.tvdbApiKey ? new TvdbClient(cfg.tvdbApiKey, cfg.metadataLanguage) : null
     const autoCleanup = await getAutoCleanupSetting()
 
     const run = async () => {

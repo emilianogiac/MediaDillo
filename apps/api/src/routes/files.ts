@@ -13,6 +13,7 @@ import {
 import { detectMultiPartMovies, mergeMovieParts } from '../files/merge.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { createJob, tickJob, failJob, finishJob } from '../health/job-tracker.js'
+import { logActivity } from '../activity/log.js'
 
 export async function filesRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/files/rename-preview?type=movies|episodes|episode-files&ids=id1,id2,...
@@ -280,6 +281,9 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
       })
     }
 
+    // Load current file path before updating (for activity log)
+    const currentFileForLog = await prisma.episodeFile.findUnique({ where: { id: fileId }, select: { path: true } })
+
     // Update the file
     const updated = await prisma.episodeFile.update({
       where: { id: fileId },
@@ -288,6 +292,14 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
         multiEpisodeEnd: episodeEnd ?? null,
       },
       include: { episode: { include: { season: { include: { show: true } } } } },
+    })
+
+    await logActivity({
+      action: 'episode_assign',
+      showId: updated.episode.season.show.id,
+      episodeId: episode.id,
+      ...(currentFileForLog ? { filePath: currentFileForLog.path } : {}),
+      detail: { reason: 'remap' },
     })
 
     // Mark all covered episodes as owned when episodeEnd is set
@@ -355,6 +367,7 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       await deleteToTrash(stale.path)
+      await logActivity({ action: 'cleanup', filePath: stale.path })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       app.log.warn(`Could not delete stale file ${stale.path}: ${msg}`)
@@ -390,6 +403,7 @@ export async function filesRoutes(app: FastifyInstance): Promise<void> {
     for (const stale of staleFiles) {
       try {
         await deleteToTrash(stale.path)
+        await logActivity({ action: 'cleanup', filePath: stale.path })
         deleted++
       } catch (err) {
         errors.push(`${stale.path}: ${err instanceof Error ? err.message : String(err)}`)

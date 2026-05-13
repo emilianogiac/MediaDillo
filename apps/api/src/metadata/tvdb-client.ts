@@ -1,6 +1,19 @@
 const TVDB_BASE = 'https://api4.thetvdb.com/v4'
 const TOKEN_TTL_MS = 29 * 24 * 60 * 60 * 1000 // 29 days (tokens valid 30)
 
+// TVDB v4 uses ISO 639-2 3-letter codes; TMDB uses locale strings like "en-US"
+const LANG_MAP: Record<string, string> = {
+  en: 'eng', it: 'ita', fr: 'fra', de: 'deu', es: 'spa',
+  pt: 'por', nl: 'nld', pl: 'pol', ru: 'rus', ja: 'jpn',
+  zh: 'zho', ko: 'kor', sv: 'swe', da: 'dan', fi: 'fin',
+  no: 'nor', cs: 'ces', tr: 'tur', hu: 'hun', ar: 'ara',
+}
+
+function toTvdbLang(tmdbLang: string): string {
+  const code = (tmdbLang.split('-')[0] ?? tmdbLang).toLowerCase()
+  return LANG_MAP[code] ?? code
+}
+
 export interface TvdbEpisode {
   id: number
   name: string | null    // episode title (null for unaired)
@@ -35,8 +48,11 @@ export interface TvdbSeriesDetail {
 
 export class TvdbClient {
   private tokenCache: { token: string; expiresAt: number } | null = null
+  private readonly lang: string
 
-  constructor(private readonly apiKey: string) {}
+  constructor(private readonly apiKey: string, language = 'en-US') {
+    this.lang = toTvdbLang(language)
+  }
 
   isConfigured(): boolean { return true }
 
@@ -85,7 +101,7 @@ export class TvdbClient {
         year?: string
         primary_network?: { name: string }
       }>
-    }>(`/search?query=${encodeURIComponent(query)}&type=series`)
+    }>(`/search?query=${encodeURIComponent(query)}&type=series&language=${this.lang}`)
 
     return (data.data ?? []).map((r) => ({
       tvdbId: parseInt(r.tvdb_id, 10),
@@ -140,7 +156,7 @@ export class TvdbClient {
       const data = await this.get<{
         data: { episodes: TvdbEpisode[] } | null
         links: { next: string | null }
-      }>(`/series/${tvdbId}/episodes/${orderType}?${seasonParam}page=${page}`)
+      }>(`/series/${tvdbId}/episodes/${orderType}/${this.lang}?${seasonParam}page=${page}`)
 
       const batch = data.data?.episodes ?? []
       episodes.push(...batch)

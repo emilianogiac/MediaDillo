@@ -1,23 +1,12 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma, RenameTrigger } from '@mediadillo/db'
+import { logActivity } from '../activity/log.js'
 
 const RENAME_LOG_TTL_DAYS = 180
 
 async function pruneExpiredRenameLogs(): Promise<void> {
   await prisma.renameLog.deleteMany({ where: { expiresAt: { lt: new Date() } } })
-}
-
-async function logRename(opts: {
-  movieId: string | null
-  fileId: string | null
-  fromPath: string
-  toPath: string
-  trigger: RenameTrigger
-}): Promise<void> {
-  const expiresAt = new Date()
-  expiresAt.setDate(expiresAt.getDate() + RENAME_LOG_TTL_DAYS)
-  await prisma.renameLog.create({ data: { ...opts, expiresAt } })
 }
 import {
   canonicalMovieFolderName,
@@ -145,7 +134,13 @@ export async function applyMovieRenames(
       await fs.mkdir(newFolder, { recursive: true })
       await fs.rename(file.path, proposedPath)
       await prisma.movieFile.update({ where: { id: file.id }, data: { path: proposedPath } })
-      await logRename({ movieId: movie.id, fileId: file.id, fromPath: file.path, toPath: proposedPath, trigger })
+      await logActivity({
+        action: 'rename',
+        movieId: movie.id,
+        fromPath: file.path,
+        toPath: proposedPath,
+        detail: { trigger },
+      })
       renamed++
 
       // Migrate sidecars when the folder actually changed
@@ -313,6 +308,22 @@ export async function applyEpisodeRenames(
       try {
         await fs.rename(item.currentPath, item.proposedPath)
         showFolderMap.set(item.currentPath, item.proposedPath)
+
+        // Resolve showId for activity logging — derive from any episode file under this folder
+        const anyFileForShow = await prisma.episodeFile.findFirst({
+          where: { path: { startsWith: item.currentPath + '/' } },
+          select: { episode: { select: { season: { select: { showId: true } } } } },
+        })
+        const showIdForLog = anyFileForShow?.episode.season.showId
+
+        await logActivity({
+          action: 'rename',
+          ...(showIdForLog ? { showId: showIdForLog } : {}),
+          fromPath: item.currentPath,
+          toPath: item.proposedPath,
+          detail: { type: 'folder' },
+        })
+
         renamed++
 
         // Migrate show-level sidecars (poster, backdrop, tvshow.nfo) — already moved by folder rename
@@ -388,6 +399,14 @@ export async function applyEpisodeRenames(
       await fs.mkdir(seasonPath, { recursive: true })
       await fs.rename(currentPath, proposedPath)
       await prisma.episodeFile.update({ where: { id: file.id }, data: { path: proposedPath } })
+      await logActivity({
+        action: 'rename',
+        showId: show.id,
+        episodeId: episode.id,
+        fromPath: currentPath,
+        toPath: proposedPath,
+        detail: { trigger: 'manual' },
+      })
       renamed++
     } catch (err) {
       errors.push(`${currentPath}: ${err instanceof Error ? err.message : String(err)}`)

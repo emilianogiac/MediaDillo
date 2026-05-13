@@ -123,6 +123,51 @@ enum RenameTrigger {
   match
 }
 
+// ---------------------------------------------------------------------------
+// Activity log
+// ---------------------------------------------------------------------------
+
+model ActivityLog {
+  id          String         @id @default(cuid())
+  createdAt   DateTime       @default(now())
+  expiresAt   DateTime
+  action      ActivityAction
+
+  // Entity context
+  movieId     String?
+  showId      String?
+  episodeId   String?
+
+  // File paths
+  fromPath    String?        // rename/move: source
+  toPath      String?        // rename/move: destination
+  filePath    String?        // add/remove/cleanup: affected path
+
+  // Structured extra data (trigger, count, label, etc.)
+  detail      Json?
+
+  // Revert tracking
+  revertedAt  DateTime?
+  revertOfId  String?        // set when this entry was created by a revert
+
+  @@index([action])
+  @@index([createdAt])
+  @@index([expiresAt])
+  @@index([movieId])
+  @@index([showId])
+}
+
+enum ActivityAction {
+  rename
+  cleanup
+  scan_complete
+  item_added
+  item_removed
+  collection_move
+  episode_merge
+  episode_assign
+}
+
 model MovieFile {
   id               String   @id @default(cuid())
   movieId          String
