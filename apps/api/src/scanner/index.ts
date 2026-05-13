@@ -268,7 +268,15 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
     return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
   }
 
-  const scanRootPath = path.dirname(path.dirname(seasonFolderPath))
+  // Derive the scan root by finding which TV scan root contains seasonFolderPath.
+  // path.dirname(path.dirname(seasonFolderPath)) is wrong for flat shows (no
+  // season subfolder) — it lands at the NAS parent instead of the scan root.
+  const tvRoots = await prisma.scanRoot.findMany({ where: { type: 'tv' }, select: { path: true } })
+  const matchingTvRoot = tvRoots.find((r) => {
+    const rootPrefix = r.path.endsWith('/') ? r.path : r.path + '/'
+    return seasonFolderPath.startsWith(rootPrefix) || seasonFolderPath === r.path
+  })
+  const scanRootPath = matchingTvRoot?.path ?? path.dirname(path.dirname(seasonFolderPath))
   console.log(`[season-scan] show=${showId} season=${seasonNumber} folder=${seasonFolderPath} scanRoot=${scanRootPath}`)
 
   let added = 0

@@ -354,19 +354,19 @@ export async function syncEpisodeFile(
   const { show, year, season: seasonNum, episodes, episodeTitle } = file.parsed
   const specs = file.techSpecs
 
-  // Derive show folder. The standard structure is:
-  //   <scanRoot>/<ShowFolder>/Season N/<episode.mkv>   → 2 levels up from file
+  // Derive show folder. Standard structure:
+  //   <scanRoot>/<ShowFolder>/Season N/<episode.mkv>   → 2 levels up
+  // Flat shows (no season subfolder):
+  //   <scanRoot>/<ShowFolder>/<episode.mkv>            → 1 level up
   //
-  // But some shows place episodes directly in the show folder with no season
-  // subfolder:
-  //   <scanRoot>/<ShowFolder>/<episode.mkv>            → 1 level up from file
-  //
-  // Detect that case: if going 2 levels up lands at (or above) the scan root,
-  // the episode must be directly inside the show folder, so go only 1 level up.
+  // Detect the flat case: if twoUp equals the scan root, the episode is
+  // directly inside the show folder so go only 1 level up.
+  // The old second condition (!startsWith) was removed — it misfired when
+  // scanRootPath had a trailing slash (double-slash never matches real paths).
   const fileDir = path.dirname(file.path)
   const twoUp = path.dirname(fileDir)
   const showFolder =
-    scanRootPath && (twoUp === scanRootPath || !fileDir.startsWith(scanRootPath + path.sep))
+    scanRootPath && twoUp === scanRootPath
       ? fileDir
       : twoUp
 
