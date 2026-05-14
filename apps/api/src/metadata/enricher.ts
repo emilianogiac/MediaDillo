@@ -90,6 +90,15 @@ export async function enrichTvShow(
       // not TMDB's potentially divergent season/episode numbering.
       await syncAllSeasonsFromTvdb(tvdbClient, showId, resolvedTvdbId, orderType)
 
+      // Prune any zombie Season 0 episodes created by a previous enricher bug that wrote
+      // missing/not_yet_aired rows for specials the user doesn't own.
+      const s0 = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
+      if (s0) {
+        await prisma.episode.deleteMany({
+          where: { seasonId: s0.id, status: { in: ['missing', 'not_yet_aired'] }, files: { none: {} } },
+        })
+      }
+
       // Specials (S00): only hydrate if we already own some — never create missing rows
       const hasSpecials = await prisma.season.findFirst({ where: { showId, seasonNumber: 0 } })
       if (hasSpecials) {
@@ -273,6 +282,10 @@ async function syncAllSeasonsFromTvdb(
   const today = new Date()
 
   for (const [seasonNumber, eps] of bySeasonNumber) {
+    // Season 0 is scanner-created only; episodes are managed by syncSeasonFromTvdb(ownedOnly:true).
+    // Never write missing/not_yet_aired rows for Specials here.
+    if (seasonNumber === 0) continue
+
     // Deduplicate by episode number within the season — keep the first occurrence
     const seen = new Set<number>()
     const uniqueEps = eps.filter((ep) => {
@@ -283,15 +296,10 @@ async function syncAllSeasonsFromTvdb(
 
     let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
     if (!dbSeason) {
-      // Never auto-create a specials season — it must be discovered by the scanner first
-      if (seasonNumber === 0) continue
       dbSeason = await prisma.season.create({
         data: { showId, seasonNumber, episodeCount: uniqueEps.length },
       })
-    } else if (seasonNumber !== 0) {
-      // Never update episodeCount on an existing Season 0 — it is scanner-created only and
-      // TVDB may return Season 1 episodes under ?season=0 for shows with no actual specials,
-      // which would corrupt the count. Season 0 episodeCount stays at 0 (scanner default).
+    } else {
       await prisma.season.update({
         where: { id: dbSeason.id },
         data: { episodeCount: uniqueEps.length },

@@ -177,18 +177,16 @@ export class TvdbClient {
     const needsFallback = primary.some((e) => !e.name)
     if (!needsFallback) return primary
 
-    // Fetch eng and TVDB default (original language) in parallel
-    const [engEps, defaultEps] = await Promise.all([
-      this.lang !== 'eng' ? fetchAll('/eng') : Promise.resolve([] as TvdbEpisode[]),
-      fetchAll(''),
-    ])
-
+    // Fallback chain: primary lang → eng → null
+    // We deliberately avoid the bare (no-lang) TVDB endpoint: it returns whichever language
+    // the last editor used, which is unpredictable and can produce French, German, etc. for
+    // shows that have no primary-lang or English translation.
+    const engEps = this.lang !== 'eng' ? await fetchAll('/eng') : []
     const engById = new Map(engEps.map((e) => [e.id, e]))
-    const defaultById = new Map(defaultEps.map((e) => [e.id, e]))
 
     return primary.map((ep) => ({
       ...ep,
-      name: ep.name ?? engById.get(ep.id)?.name ?? defaultById.get(ep.id)?.name ?? null,
+      name: ep.name ?? engById.get(ep.id)?.name ?? null,
     }))
   }
 }

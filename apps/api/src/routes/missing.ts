@@ -9,7 +9,12 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/missing/shows', async (_req, reply) => {
     const shows = await prisma.tvShow.findMany({
       where: {
-        seasons: { some: { episodes: { some: { status: 'missing' } } } },
+        seasons: {
+          some: {
+            seasonNumber: { not: 0 },
+            episodes: { some: { status: 'missing' } },
+          },
+        },
       },
       select: {
         id: true,
@@ -20,6 +25,7 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
         totalEpisodes: true,
         status: true,
         seasons: {
+          where: { seasonNumber: { not: 0 } },
           select: {
             seasonNumber: true,
             _count: { select: { episodes: { where: { status: 'missing' } } } },
