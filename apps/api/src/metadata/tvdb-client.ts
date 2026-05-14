@@ -155,23 +155,40 @@ export class TvdbClient {
     orderType: string,
     seasonNumber?: number,
   ): Promise<TvdbEpisode[]> {
-    const episodes: TvdbEpisode[] = []
-    let page = 0
-
-    while (true) {
-      const seasonParam = seasonNumber !== undefined ? `season=${seasonNumber}&` : ''
-      const data = await this.get<{
-        data: { episodes: TvdbEpisode[] } | null
-        links: { next: string | null }
-      }>(`/series/${tvdbId}/episodes/${orderType}/${this.lang}?${seasonParam}page=${page}`)
-
-      const batch = data.data?.episodes ?? []
-      episodes.push(...batch)
-
-      if (!data.links.next) break
-      page++
+    const fetchAll = async (langSuffix: string): Promise<TvdbEpisode[]> => {
+      const episodes: TvdbEpisode[] = []
+      let page = 0
+      while (true) {
+        const seasonParam = seasonNumber !== undefined ? `season=${seasonNumber}&` : ''
+        const data = await this.get<{
+          data: { episodes: TvdbEpisode[] } | null
+          links: { next: string | null }
+        }>(`/series/${tvdbId}/episodes/${orderType}${langSuffix}?${seasonParam}page=${page}`)
+        episodes.push(...(data.data?.episodes ?? []))
+        if (!data.links.next) break
+        page++
+      }
+      return episodes
     }
 
-    return episodes
+    const primary = await fetchAll(`/${this.lang}`)
+
+    // Only pay for fallback fetches when some episodes are missing titles
+    const needsFallback = primary.some((e) => !e.name)
+    if (!needsFallback) return primary
+
+    // Fetch eng and TVDB default (original language) in parallel
+    const [engEps, defaultEps] = await Promise.all([
+      this.lang !== 'eng' ? fetchAll('/eng') : Promise.resolve([] as TvdbEpisode[]),
+      fetchAll(''),
+    ])
+
+    const engById = new Map(engEps.map((e) => [e.id, e]))
+    const defaultById = new Map(defaultEps.map((e) => [e.id, e]))
+
+    return primary.map((ep) => ({
+      ...ep,
+      name: ep.name ?? engById.get(ep.id)?.name ?? defaultById.get(ep.id)?.name ?? null,
+    }))
   }
 }
