@@ -114,12 +114,17 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ownedEpisodes: true,
         totalEpisodes: true,
         createdAt: true,
-        // First episode file path — used to derive show folder name for isOrganized
+        // First episode file path — used to derive show folder name for isOrganized.
+        // Filter to seasons/episodes that actually have files so a fileless Season 0
+        // (Specials not yet owned) doesn't shadow a correctly-organised Season 1+.
         seasons: {
           take: 1,
+          where: { episodes: { some: { files: { some: {} } } } },
+          orderBy: { seasonNumber: 'asc' },
           select: {
             episodes: {
               take: 1,
+              where: { files: { some: {} } },
               select: {
                 files: { take: 1, select: { path: true } },
               },
