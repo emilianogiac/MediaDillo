@@ -606,54 +606,75 @@ export async function pruneOrphanedFiles(
       select: { id: true, path: true, episodeId: true },
     })
     const orphaned = dbFiles.filter((f) => !seenPaths.has(f.path))
-    if (orphaned.length === 0) return 0
 
-    for (const f of orphaned) {
-      await logActivity({ action: 'item_removed', episodeId: f.episodeId, filePath: f.path }).catch(() => {})
-    }
+    // Collect shows affected by orphaned files BEFORE any deletions (episode rows may be
+    // removed by ghost-season cleanup below, making them unfindable afterwards).
+    // We need the full set of show IDs so counts can be recalculated at the end.
+    const affectedShowIds = new Set<string>()
 
-    const orphanedIds = orphaned.map((f) => f.id)
-    await prisma.episodeFile.deleteMany({ where: { id: { in: orphanedIds } } })
-
-    // Set episodes with no files back to 'missing'
-    const affectedEpisodeIds = [...new Set(orphaned.map((f) => f.episodeId))]
-    for (const episodeId of affectedEpisodeIds) {
-      const remaining = await prisma.episodeFile.count({ where: { episodeId } })
-      if (remaining === 0) {
-        await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+    if (orphaned.length > 0) {
+      for (const f of orphaned) {
+        await logActivity({ action: 'item_removed', episodeId: f.episodeId, filePath: f.path }).catch(() => {})
       }
-    }
 
-    // Delete ghost seasons: scanner-created seasons with no owned episodes and no TVDB metadata
-    // (episodeCount === 0 means the season was created by the scanner only and TVDB didn't populate it).
-    // Also handles the case where episodeCount was corrupted (e.g. season 0 that got Season 1's count
-    // from a bad TVDB per-season API call) — treat any season where episodeCount > 0 but was set via
-    // the ownedOnly path as a ghost once all owned episodes are gone.
-    const affectedSeasons = await prisma.episode.findMany({
-      where: { id: { in: affectedEpisodeIds } },
-      select: { seasonId: true },
-      distinct: ['seasonId'],
-    })
-    for (const { seasonId } of affectedSeasons) {
-      const season = await prisma.season.findUnique({
-        where: { id: seasonId },
-        select: { episodeCount: true, seasonNumber: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+      const orphanedIds = orphaned.map((f) => f.id)
+      await prisma.episodeFile.deleteMany({ where: { id: { in: orphanedIds } } })
+
+      // Set episodes with no files back to 'missing'
+      const affectedEpisodeIds = [...new Set(orphaned.map((f) => f.episodeId))]
+      for (const episodeId of affectedEpisodeIds) {
+        const remaining = await prisma.episodeFile.count({ where: { episodeId } })
+        if (remaining === 0) {
+          await prisma.episode.update({ where: { id: episodeId }, data: { status: 'missing' } })
+        }
+      }
+
+      // Collect show IDs now, while the episode rows still exist.
+      const episodeShowRows = await prisma.episode.findMany({
+        where: { id: { in: affectedEpisodeIds } },
+        select: { season: { select: { showId: true } } },
       })
-      // Delete if: no owned episodes remain AND either (a) episodeCount=0 (pure scanner season with no
-      // TVDB metadata) OR (b) it is a Specials season (season 0) which is never created by TVDB sync
-      // — meaning all its episodes were locally-scanned files with no metadata target.
-      if (season && season._count.episodes === 0 && (season.episodeCount === 0 || season.seasonNumber === 0)) {
-        await prisma.episode.deleteMany({ where: { seasonId } })
-        await prisma.season.delete({ where: { id: seasonId } })
+      for (const ep of episodeShowRows) affectedShowIds.add(ep.season.showId)
+    }
+
+    // --- Ghost Season 0 cleanup ---
+    // Run unconditionally (not gated on orphaned.length) because Season 0 EpisodeFiles may
+    // have been deleted in a prior scan while the Season row itself survived. Subsequent scans
+    // would see orphaned.length === 0 and skip cleanup, leaving the ghost row indefinitely.
+    //
+    // For every Season 0 under this scan root: delete it when no owned episodes remain.
+    // Season 0 is always scanner-created (TVDB sync never auto-creates it), so once its
+    // files are gone it has no purpose. episodeCount on Season 0 is intentionally unreliable
+    // (TVDB bulk-sync may have written Season 1's count there) — we ignore it for Season 0.
+    const showsUnderRoot = await prisma.tvShow.findMany({
+      where: {
+        seasons: {
+          some: {
+            episodes: {
+              some: {
+                files: { some: { path: { startsWith: scanRootPath + path.sep } } },
+              },
+            },
+          },
+        },
+      },
+      select: { id: true },
+    })
+    const showIdsUnderRoot = showsUnderRoot.map((s) => s.id)
+
+    for (const showId of showIdsUnderRoot) {
+      const season0 = await prisma.season.findFirst({
+        where: { showId, seasonNumber: 0 },
+        select: { id: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+      })
+      if (season0 && season0._count.episodes === 0) {
+        affectedShowIds.add(showId)
+        await prisma.episode.deleteMany({ where: { seasonId: season0.id } })
+        await prisma.season.delete({ where: { id: season0.id } })
       }
     }
 
-    // Recalculate show counts for affected shows
-    const affectedShowIds = await prisma.episode.findMany({
-      where: { id: { in: affectedEpisodeIds } },
-      select: { season: { select: { showId: true } } },
-    }).then((eps) => [...new Set(eps.map((e) => e.season.showId))])
-
+    // Recalculate show counts for all affected shows (orphaned-file shows + ghost-season shows).
     for (const showId of affectedShowIds) {
       const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
       // totalEpisodes = sum of episodeCount across remaining seasons (metadata-source targets only).

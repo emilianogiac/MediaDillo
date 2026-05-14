@@ -265,6 +265,23 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
   }
 
   if (!seasonFolderPath) {
+    // Folder not found on disk — but if this is Season 0 we must still run ghost cleanup.
+    // EpisodeFiles may already be gone from a prior scan while the Season row survived.
+    // Without the folder we can't walk for new files, but we can still prune the stale row.
+    if (seasonNumber === 0) {
+      const season0 = await prisma.season.findFirst({
+        where: { showId, seasonNumber: 0 },
+        select: { id: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+      })
+      if (season0 && season0._count.episodes === 0) {
+        await prisma.episode.deleteMany({ where: { seasonId: season0.id } })
+        await prisma.season.delete({ where: { id: season0.id } })
+        const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+        const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
+        const total = seasonAgg._sum.episodeCount ?? 0
+        await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+      }
+    }
     return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
   }
 
@@ -323,32 +340,30 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
         removed++
       }
     }
-
-    // Delete ghost Specials season (season 0) if all its owned episodes are gone.
-    // Season 0 is always scanner-created; TVDB sync never auto-creates it. Once the files
-    // are gone it should vanish so it doesn't inflate counts or confuse the UI.
-    const affectedSeasons = await prisma.episode.findMany({
-      where: { id: { in: affectedEpisodeIds } },
-      select: { seasonId: true },
-      distinct: ['seasonId'],
-    })
-    for (const { seasonId } of affectedSeasons) {
-      const season = await prisma.season.findUnique({
-        where: { id: seasonId },
-        select: { episodeCount: true, seasonNumber: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
-      })
-      if (season && season._count.episodes === 0 && (season.episodeCount === 0 || season.seasonNumber === 0)) {
-        await prisma.episode.deleteMany({ where: { seasonId } })
-        await prisma.season.delete({ where: { id: seasonId } })
-      }
-    }
-
-    const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-    // Recalculate totalEpisodes too — deleting a ghost season must update the header count.
-    const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
-    const total = seasonAgg._sum.episodeCount ?? 0
-    await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
   }
+
+  // Ghost Season 0 cleanup — runs unconditionally, not gated on orphaned.length.
+  // When scanning a specific season (e.g. season 0), EpisodeFiles may already be gone from a
+  // prior scan while the Season row survived. We must catch that case here too.
+  // Only applies when this is a Season 0 scan — other seasons have TVDB-backed episodeCounts
+  // and should not be deleted just because their files are missing.
+  if (seasonNumber === 0) {
+    const season0 = await prisma.season.findFirst({
+      where: { showId, seasonNumber: 0 },
+      select: { id: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+    })
+    if (season0 && season0._count.episodes === 0) {
+      await prisma.episode.deleteMany({ where: { seasonId: season0.id } })
+      await prisma.season.delete({ where: { id: season0.id } })
+    }
+  }
+
+  // Always recalculate show counts so the header reflects the current state.
+  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+  // Recalculate totalEpisodes too — deleting a ghost season must update the header count.
+  const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
+  const total = seasonAgg._sum.episodeCount ?? 0
+  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
 
   console.log(`[season-scan] done: found=${filesFound} added=${added} changed=${changed} removed=${removed} skipped=${filesSkipped.length}`)
   return { added, changed, removed, filesFound, filesSkipped, folderFound: true, _debug: { seasonFolderPath, scanRootPath } }
@@ -415,32 +430,28 @@ export async function runShowScan(showId: string): Promise<SeasonScanResult> {
         removed++
       }
     }
-
-    // Delete ghost Specials season (season 0) if all owned episodes are gone.
-    // Season 0 is always scanner-created; TVDB sync never auto-creates it. Once the files
-    // are gone it should vanish so it doesn't inflate counts or confuse the UI.
-    const affectedSeasons = await prisma.episode.findMany({
-      where: { id: { in: affectedEpisodeIds } },
-      select: { seasonId: true },
-      distinct: ['seasonId'],
-    })
-    for (const { seasonId } of affectedSeasons) {
-      const season = await prisma.season.findUnique({
-        where: { id: seasonId },
-        select: { episodeCount: true, seasonNumber: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
-      })
-      if (season && season._count.episodes === 0 && (season.episodeCount === 0 || season.seasonNumber === 0)) {
-        await prisma.episode.deleteMany({ where: { seasonId } })
-        await prisma.season.delete({ where: { id: seasonId } })
-      }
-    }
-
-    const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-    // Recalculate totalEpisodes too — deleting a ghost season must update the header count.
-    const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
-    const total = seasonAgg._sum.episodeCount ?? 0
-    await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
   }
+
+  // Ghost Season 0 cleanup — runs unconditionally, not gated on orphaned.length.
+  // Season 0 EpisodeFiles may have been deleted in a prior scan while the Season row survived.
+  // Subsequent show-level rescans must still catch and remove those stale rows.
+  // Season 0 is always scanner-created (TVDB never auto-creates it), so once all owned
+  // episodes are gone the row has no purpose and should be removed.
+  const season0 = await prisma.season.findFirst({
+    where: { showId, seasonNumber: 0 },
+    select: { id: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+  })
+  if (season0 && season0._count.episodes === 0) {
+    await prisma.episode.deleteMany({ where: { seasonId: season0.id } })
+    await prisma.season.delete({ where: { id: season0.id } })
+  }
+
+  // Always recalculate show counts so the header reflects the current state after any
+  // file pruning or ghost-season removal above.
+  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+  const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
+  const total = seasonAgg._sum.episodeCount ?? 0
+  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
 
   return { added, changed, removed, filesFound, filesSkipped, folderFound: true }
 }

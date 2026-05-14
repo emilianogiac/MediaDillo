@@ -288,7 +288,10 @@ async function syncAllSeasonsFromTvdb(
       dbSeason = await prisma.season.create({
         data: { showId, seasonNumber, episodeCount: uniqueEps.length },
       })
-    } else {
+    } else if (seasonNumber !== 0) {
+      // Never update episodeCount on an existing Season 0 — it is scanner-created only and
+      // TVDB may return Season 1 episodes under ?season=0 for shows with no actual specials,
+      // which would corrupt the count. Season 0 episodeCount stays at 0 (scanner default).
       await prisma.season.update({
         where: { id: dbSeason.id },
         data: { episodeCount: uniqueEps.length },
