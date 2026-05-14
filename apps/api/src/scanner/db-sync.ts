@@ -624,7 +624,11 @@ export async function pruneOrphanedFiles(
       }
     }
 
-    // Delete ghost seasons: scanner-created seasons with episodeCount=0 that now have no owned episodes
+    // Delete ghost seasons: scanner-created seasons with no owned episodes and no TVDB metadata
+    // (episodeCount === 0 means the season was created by the scanner only and TVDB didn't populate it).
+    // Also handles the case where episodeCount was corrupted (e.g. season 0 that got Season 1's count
+    // from a bad TVDB per-season API call) — treat any season where episodeCount > 0 but was set via
+    // the ownedOnly path as a ghost once all owned episodes are gone.
     const affectedSeasons = await prisma.episode.findMany({
       where: { id: { in: affectedEpisodeIds } },
       select: { seasonId: true },
@@ -633,9 +637,12 @@ export async function pruneOrphanedFiles(
     for (const { seasonId } of affectedSeasons) {
       const season = await prisma.season.findUnique({
         where: { id: seasonId },
-        select: { episodeCount: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
+        select: { episodeCount: true, seasonNumber: true, _count: { select: { episodes: { where: { status: 'owned' } } } } },
       })
-      if (season && season.episodeCount === 0 && season._count.episodes === 0) {
+      // Delete if: no owned episodes remain AND either (a) episodeCount=0 (pure scanner season with no
+      // TVDB metadata) OR (b) it is a Specials season (season 0) which is never created by TVDB sync
+      // — meaning all its episodes were locally-scanned files with no metadata target.
+      if (season && season._count.episodes === 0 && (season.episodeCount === 0 || season.seasonNumber === 0)) {
         await prisma.episode.deleteMany({ where: { seasonId } })
         await prisma.season.delete({ where: { id: seasonId } })
       }
@@ -649,7 +656,14 @@ export async function pruneOrphanedFiles(
 
     for (const showId of affectedShowIds) {
       const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-      await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+      // totalEpisodes = sum of episodeCount across remaining seasons (metadata-source targets only).
+      // Recalculate here so that deleting a ghost Specials season removes its count from the total.
+      const seasonAgg = await prisma.season.aggregate({
+        where: { showId },
+        _sum: { episodeCount: true },
+      })
+      const total = seasonAgg._sum.episodeCount ?? 0
+      await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
       removed++
     }
   }
