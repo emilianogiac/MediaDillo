@@ -23,7 +23,11 @@ export function BatchRenameModal({ movie, remaining, onApplied, onSkip, onCancel
     setLoading(true)
     setError(null)
     fetchRenamePreview('movies', [movie.id])
-      .then((all) => setItems(all.filter((i) => i.needsRename)))
+      .then((all) => {
+        const needs = all.filter((i) => i.needsRename)
+        setItems(needs)
+        if (needs.length === 0) onSkip()
+      })
       .catch(() => setError('Failed to load rename preview'))
       .finally(() => setLoading(false))
   }, [movie.id])
