@@ -22,10 +22,24 @@ describe('sanitizeForFilename', () => {
   })
 
   it('removes all invalid chars', () => {
-    const chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    const chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|', '@', '!']
     for (const c of chars) {
       expect(sanitizeForFilename(`a${c}b`)).toBe('ab')
     }
+  })
+
+  it('strips accented letters to plain ASCII', () => {
+    expect(sanitizeForFilename('Adèle')).toBe('Adele')
+    expect(sanitizeForFilename('caffè')).toBe('caffe')
+    expect(sanitizeForFilename('città')).toBe('citta')
+  })
+
+  it('normalizes typographic characters to ASCII', () => {
+    expect(sanitizeForFilename("C’era una volta a… Hollywood")).toBe("C'era una volta a... Hollywood")
+    expect(sanitizeForFilename('Jurassic World – Il regno distrutto')).toBe('Jurassic World - Il regno distrutto')
+    expect(sanitizeForFilename('8½')).toBe('8')
+    expect(sanitizeForFilename('Shazam!')).toBe('Shazam')
+    expect(sanitizeForFilename("C’è post@ per te")).toBe("C'e post per te")
   })
 })
 

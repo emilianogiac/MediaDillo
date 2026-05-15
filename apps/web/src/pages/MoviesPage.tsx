@@ -453,9 +453,10 @@ export function MoviesPage() {
   }
 
   async function handleBatchRenameAll() {
-    if (selected.size === 0) return
+    const allIds = movies.map((m) => m.id)
+    if (allIds.length === 0) return
     try {
-      const { jobId, total, message } = await renameBatch([...selected])
+      const { jobId, total, message } = await renameBatch(allIds)
       if (!jobId) {
         toast({ type: 'success', message: message ?? 'Nothing to rename' })
         return

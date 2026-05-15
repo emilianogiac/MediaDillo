@@ -1,9 +1,27 @@
-const INVALID_CHARS = /[/\\:*?"<>|]/g
+const INVALID_CHARS = /[/\\:*?"<>|@!]/g
 const MULTI_SPACE = /\s{2,}/g
 const LEADING_DOTS = /^\.+\s*/
 
+// Map typographic/Unicode chars to plain ASCII equivalents before stripping.
+// This avoids backup-tool failures on ellipsis, smart quotes, dashes, etc.
+const TYPOGRAPHIC_MAP: [RegExp, string][] = [
+  [/…/g, '...'],      // … ellipsis
+  [/[–—]/g, '-'], // – en dash, — em dash
+  [/[‘’ʼ]/g, "'"], // ' ' ʼ curly/modifier apostrophes
+  [/[“”]/g, '"'], // " " curly double quotes
+  [/½/g, ''],          // ½ fraction (8½ → 8)
+  [/ª/g, 'a'],         // ª feminine ordinal
+  [/º/g, 'o'],         // º masculine ordinal
+]
+
 export function sanitizeForFilename(str: string): string {
-  return str.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').replace(LEADING_DOTS, '').trim()
+  // NFD decomposes accented letters into base + combining mark (e.g. è → e + ̀),
+  // then we strip all combining marks, giving plain ASCII letters for free.
+  let s = str.normalize('NFD').replace(/\p{Mn}/gu, '')
+  for (const [pattern, replacement] of TYPOGRAPHIC_MAP) {
+    s = s.replace(pattern, replacement)
+  }
+  return s.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').replace(LEADING_DOTS, '').trim()
 }
 
 export function canonicalMovieFolderName(title: string, year: number | null): string {
