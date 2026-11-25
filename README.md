@@ -200,6 +200,7 @@ Use **Merge Multi-Part Episodes** on the season detail page to convert two separ
 - Year is always the 4-digit release year in parentheses; bare year in TV filenames (e.g. `Show.Name.2005.S01E01`) is also recognised
 - Multi-episode single-file: `S01E01E02` (one file covering two episodes)
 - Both `S01E01` and `01x01` episode naming conventions are recognised during scanning
+- **Year-numbered seasons** — TheTVDB numbers some anthology and shorts series by release year rather than 1..N (e.g. *Pixar Short Films* uses seasons `1984`–`2024`, *Looney Tunes* uses `1949`–`1994`). Four-digit seasons are recognised in all three forms — `2003x05`, `S2003E05`, `Season 2003 Episode 5` — and the canonical renamer emits `Season 2003/Show - S2003E05 - Title.mkv` for them. A season above 99 is only accepted when it reads as a year (1900–2099) **and** the episode number is ≤ 99, so a `WxH` resolution token in a filename (`1920x1080`, `1280x720`, `1920x540`) is never mistaken for an episode code
 - Optional quality suffix: `Show Name - S01E01 - Episode Title [1080p].mkv`
 - All renames are **preview-only** until you explicitly apply them — no files are moved or renamed without your confirmation
 - **Batch Rename All** (Movies page toolbar) renames the entire library in one background job — canonical movies are silently skipped

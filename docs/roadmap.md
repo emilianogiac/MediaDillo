@@ -60,6 +60,14 @@ Track epics and their GitHub issues here. Update status as work progresses.
 
 ---
 
+## Fix Batch (2026-11-25)
+
+| # | Fix | Status | Notes |
+|---|-----|--------|-------|
+| H1 | **4-digit year seasons** | `[x]` | Parser capped seasons at 2 digits and was unanchored, so `2003x05` matched the substring `03x05` → season 3. TheTVDB numbers several shorts/anthology series by year; 94 episode files across I corti Pixar (1984–2015), Looney Tunes (1949–1994) and Tom & Jerry (1960) were mis-filed, with `2000x01` collapsing into Season 0. Season widened to 4 digits in all three branches, `NxN` fenced with digit boundaries, plus a year+episode-cap plausibility check so `WxH` resolution tokens cannot parse as episode codes (latent bug: `1920x1080` → S20E108). Issue #67, PR #68 |
+
+---
+
 ## Working Agreement
 - Autonomous mode: minimal approval interruptions
 - Every code change backed by a GitHub issue
