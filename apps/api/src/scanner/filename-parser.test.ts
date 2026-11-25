@@ -202,3 +202,69 @@ describe('detect3DFormat', () => {
     expect(detect3DFormat('/movies/Avatar (2009) [hsbs].mkv')).toBe('sbs')
   })
 })
+
+describe('parseFilename — year-numbered seasons (TVDB anthology/shorts convention)', () => {
+  it('parses a 4-digit year season in NxN form', () => {
+    const r = parseFilename(
+      '/tv/I_corti_Pixar_(1979)/s2003/I_corti_Pixar_-_2003x05_-_A_Story_h264_1080p_AC3_2ch.mkv',
+    )
+    expect(r).toMatchObject({ type: 'tv', season: 2003, episodes: [5] })
+  })
+
+  it('keeps a 20th-century year season intact rather than truncating to two digits', () => {
+    const r = parseFilename(
+      '/tv/I_corti_Pixar_(1979)/s1984/I_corti_Pixar_-_1984x01_-_Le_avventure_di_Andre_e_Wally_B..mkv',
+    )
+    expect(r).toMatchObject({ type: 'tv', season: 1984, episodes: [1] })
+  })
+
+  it('does not collapse a year season ending in 00 into the specials season', () => {
+    const r = parseFilename('/tv/I_corti_Pixar_(1979)/s2000/I_corti_Pixar_-_2000x01_-_Pennuti_spennati.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 2000, episodes: [1] })
+  })
+
+  it('parses a 4-digit season in SxxExx form, as the canonical renamer emits it', () => {
+    const r = parseFilename('/tv/I corti Pixar/Season 2003/I corti Pixar - S2003E05 - A Story.mkv')
+    expect(r).toMatchObject({ type: 'tv', show: 'I corti Pixar', season: 2003, episodes: [5] })
+  })
+
+  it('parses a 4-digit season in the long Season N Episode N form', () => {
+    const r = parseFilename('/tv/Looney Tunes/Looney Tunes Season 1949 Episode 24.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1949, episodes: [24] })
+  })
+
+  it('parses the Looney Tunes year-season convention', () => {
+    const r = parseFilename(
+      '/tv/Looney_Tunes_(1929)/s1949/Looney_Tunes_-_1949x24_-_Fast_and_Furry-ous_h265_240p_AC3_2ch.mkv',
+    )
+    expect(r).toMatchObject({ type: 'tv', season: 1949, episodes: [24] })
+  })
+})
+
+describe('parseFilename — resolution tokens must not parse as episode codes', () => {
+  it('does not read 1920x1080 as a season/episode pair', () => {
+    const r = parseFilename('/movies/Movie (2018)/Movie_(2018)_h264_1920x1080_AC3_6ch.mkv')
+    expect(r.type).toBe('movie')
+  })
+
+  it('does not read 1280x720 as a season/episode pair', () => {
+    const r = parseFilename('/movies/Movie (2018)/Movie_(2018)_h264_1280x720_AC3_6ch.mkv')
+    expect(r.type).toBe('movie')
+  })
+
+  it('rejects a year-range resolution whose episode number is implausible', () => {
+    // 1920 falls inside the year window, so only the episode cap rules this out.
+    const r = parseFilename('/movies/Movie 3D (2016)/Movie_3D_(2016)_1920x540_half-ou.mkv')
+    expect(r.type).toBe('movie')
+  })
+
+  it('skips a resolution token and still finds a real episode code later in the name', () => {
+    const r = parseFilename('/tv/Show/Show_1920x1080_S01E02.mkv')
+    expect(r).toMatchObject({ type: 'tv', season: 1, episodes: [2] })
+  })
+
+  it('does not match a season/episode pair embedded in a longer number', () => {
+    const r = parseFilename('/movies/Movie (2018)/Movie 123456x789.mkv')
+    expect(r.type).toBe('movie')
+  })
+})

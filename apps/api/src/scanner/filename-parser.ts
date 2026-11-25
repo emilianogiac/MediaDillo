@@ -7,8 +7,49 @@ import type { ParsedFilename, ParsedMovie, ParsedEpisode } from './types.js'
 // Season 1 Episode 1 / season 01 episode 01 (case-insensitive, variable spacing)
 // Episode digits are \d{1,3} to support 3-digit episode numbers (e.g. S01E100, S01E105).
 // The match is greedy by default so S01E100 captures all three digits, not just "10".
+//
+// Seasons accept up to 4 digits because TheTVDB numbers several anthology and shorts
+// series by release year (e.g. "Pixar Short Films" uses seasons 1984..2024), and our
+// files follow that convention: "I corti Pixar - 2003x05 - A Story.mkv".
+//
+// The NxN branch is fenced with digit boundaries so it cannot match inside a longer
+// number. Without them, a WxH resolution token parses as an episode code: "1920x1080"
+// would match the substring "20x108". Plausibility is enforced separately by
+// isPlausibleSeasonEpisode, which the scanning loop in findTvEpisodeCode applies.
 const TV_SE_RE =
-  /(?:[Ss](\d{1,2})[._-]?[Ee](\d{1,3})(?:[._-]?[Ee](\d{1,3}))*|(\d{1,2})x(\d{1,3})|[Ss]eason\s+(\d{1,2})\s+[Ee]pisode\s+(\d{1,3}))/
+  /(?:[Ss](\d{1,4})[._-]?[Ee](\d{1,3})(?:[._-]?[Ee](\d{1,3}))*|(?<!\d)(\d{1,4})x(\d{1,3})(?!\d)|[Ss]eason\s+(\d{1,4})\s+[Ee]pisode\s+(\d{1,3}))/g
+
+// Ordinary seasons are 0..99. A larger number is only credible as a year-numbered
+// season, and year-numbered seasons carry small episode numbers — so a pair like
+// 1920x540 (a 3D half-OU resolution) is rejected rather than read as S1920E540.
+const MIN_YEAR_SEASON = 1900
+const MAX_YEAR_SEASON = 2099
+const MAX_YEAR_SEASON_EPISODE = 99
+
+function isPlausibleSeasonEpisode(season: number, episode: number): boolean {
+  if (season <= 99) return true
+  return (
+    season >= MIN_YEAR_SEASON && season <= MAX_YEAR_SEASON && episode <= MAX_YEAR_SEASON_EPISODE
+  )
+}
+
+/**
+ * Finds the first episode code in `base` that is plausible as a season/episode pair.
+ *
+ * Scanning past implausible matches matters for names that carry both a resolution
+ * token and a real code, e.g. "Show_1920x1080_S01E02": the resolution is skipped and
+ * the genuine code is returned.
+ */
+function findTvEpisodeCode(base: string): RegExpExecArray | null {
+  TV_SE_RE.lastIndex = 0
+  let match: RegExpExecArray | null
+  while ((match = TV_SE_RE.exec(base)) !== null) {
+    const season = parseInt((match[1] ?? match[4] ?? match[6]) as string, 10)
+    const episode = parseInt((match[2] ?? match[5] ?? match[7]) as string, 10)
+    if (isPlausibleSeasonEpisode(season, episode)) return match
+  }
+  return null
+}
 
 // Trailing quality/noise tags to strip before parsing title
 const NOISE_RE =
@@ -24,7 +65,7 @@ export function parseFilename(filePath: string): ParsedFilename {
   const base = path.basename(filePath, path.extname(filePath))
   // Match on the raw base before normalization: dots used as separators in episode
   // codes like "Show.S01.E01" would otherwise become spaces and break the regex.
-  const tvMatch = TV_SE_RE.exec(base)
+  const tvMatch = findTvEpisodeCode(base)
   if (tvMatch) {
     const beforeSE = normalizeDelimiters(base.slice(0, tvMatch.index))
     const afterSE = normalizeDelimiters(base.slice(tvMatch.index + tvMatch[0].length))
