@@ -9,9 +9,42 @@ const KNOWN_ARTWORK = new Set([
   'thumb.jpg', 'thumb.jpeg', 'thumb.png',
   'banner.jpg', 'banner.jpeg', 'banner.png',
   'logo.jpg', 'logo.png',
-  'clearart.png',
+  'clearart.png', 'clearart.jpg',
+  'clearlogo.png', 'clearlogo.jpg',
+  'characterart.png', 'characterart.jpg',
+  'keyart.jpg', 'keyart.png',
+  'landscape.jpg', 'landscape.jpeg', 'landscape.png',
   'disc.png', 'discart.png',
+  // Kodi/Jellyfin alias for the poster — present on most folders in a TMM-era library
+  'folder.jpg', 'folder.jpeg', 'folder.png',
 ])
+
+// Season artwork lives beside the episodes: season01.jpg, season01-poster.jpg,
+// season-specials-thumb.jpg, season-all-fanart.jpg, …
+const SEASON_ARTWORK_RE =
+  /^season(?:\d+|-all|-specials)?(?:-(?:poster|banner|thumb|fanart|landscape))?\.(?:jpg|jpeg|png)$/i
+
+// Extra backdrops numbered by the scraper: fanart1.jpg, fanart2.jpg, …
+const NUMBERED_FANART_RE = /^fanart\d+\.(?:jpg|jpeg|png)$/i
+
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
+
+/**
+ * True when `basename` is the artwork for a video sitting in the same folder.
+ *
+ * Kodi and TMM write the episode thumbnail as `<video basename>.jpg`, Jellyfin as
+ * `<video basename>-thumb.jpg`. Neither carries a marker that identifies it in
+ * isolation, so without comparing against the folder's videos both look like junk —
+ * which is how 9,611 episode thumbnails came to be flagged for deletion (issue #92).
+ */
+function isEpisodeArtwork(basename: string, videoBasenames: Set<string>): boolean {
+  const dot = basename.lastIndexOf('.')
+  if (dot <= 0) return false
+  if (!IMAGE_EXTENSIONS.has(basename.slice(dot).toLowerCase())) return false
+  const stem = basename.slice(0, dot)
+  if (videoBasenames.has(stem)) return true
+  return stem.endsWith('-thumb') && videoBasenames.has(stem.slice(0, -'-thumb'.length))
+}
 
 // Canonical NFO filenames created by MediaDillo.
 // Any .nfo whose basename is NOT in this set was created by another tool (TMM, Kodi, etc.)
@@ -52,6 +85,14 @@ export async function detectStaleFiles(
   const files = new Set(fileList.map((f) => f.toLowerCase()))
   const stale: StaleFileEntry[] = []
 
+  // Basenames of every video in this folder, used to recognise episode artwork.
+  const videoBasenames = new Set(
+    fileList
+      .filter((f) => KNOWN_EXTENSIONS.has(path.extname(f).toLowerCase()))
+      .filter((f) => !SUBTITLE_EXTENSIONS.has(path.extname(f).toLowerCase()))
+      .map((f) => path.basename(f, path.extname(f)).toLowerCase()),
+  )
+
   for (const filePath of fileList) {
     const basename = path.basename(filePath).toLowerCase()
     const ext = path.extname(filePath).toLowerCase()
@@ -61,6 +102,9 @@ export async function detectStaleFiles(
 
     // Known artwork filenames (bare canonical names are always kept)
     if (KNOWN_ARTWORK.has(basename)) continue
+    if (SEASON_ARTWORK_RE.test(basename)) continue
+    if (NUMBERED_FANART_RE.test(basename)) continue
+    if (isEpisodeArtwork(basename, videoBasenames)) continue
 
     // TMM-style suffixed artwork (show-poster.jpg, show-fanart.jpg, etc.) — stale when a
     // canonical counterpart (poster.jpg / backdrop.jpg) already exists in the same folder.
