@@ -4,6 +4,7 @@ import { readdir, rename as fsRename } from 'node:fs/promises'
 import type { FastifyInstance } from 'fastify'
 import { prisma, EpisodeStatus } from '@mediadillo/db'
 import { previewEpisodeRenames, previewEpisodeFileRenames, applyEpisodeRenames, deleteToTrash, type RenamePreviewItem } from '../files/rename.js'
+import { migrateEpisodeSidecars } from '../files/sidecars.js'
 import { logActivity } from '../activity/log.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
@@ -653,8 +654,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const newName = canonicalEpisodeFileName(show.title, seasonNumber, primaryEpisode, epA.title, ext, null, 1)
       const newPath = path.join(dir, newName)
       try {
+        const oldBase = path.basename(file.path, ext)
         await fsRename(file.path, newPath)
         await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath } })
+        await migrateEpisodeSidecars(dir, dir, oldBase, path.basename(newPath, ext))
         renamed++
       } catch (err) {
         errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
@@ -668,8 +671,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const newName = canonicalEpisodeFileName(show.title, seasonNumber, primaryEpisode, epA.title, ext, null, 2)
       const newPath = path.join(dir, newName)
       try {
+        const oldBase = path.basename(file.path, ext)
         await fsRename(file.path, newPath)
         await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath, episodeId: epA.id } })
+        await migrateEpisodeSidecars(dir, dir, oldBase, path.basename(newPath, ext))
         renamed++
       } catch (err) {
         errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
@@ -725,8 +730,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         const newPath = path.join(dir, newName)
         if (newPath === file.path) continue
         try {
+          const oldBase = path.basename(file.path, ext)
           await fsRename(file.path, newPath)
           await prisma.episodeFile.update({ where: { id: file.id }, data: { path: newPath } })
+          await migrateEpisodeSidecars(dir, dir, oldBase, path.basename(newPath, ext))
           renamed++
         } catch (err) {
           errors.push(`Rename failed for ${file.path}: ${err instanceof Error ? err.message : String(err)}`)
@@ -860,6 +867,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       try {
         await fsRename(tmpPath, finalPath)
         await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+        // file.path is the pre-phase-1 path, so this is the basename the sidecars carry.
+        await migrateEpisodeSidecars(dir, dir, path.basename(file.path, ext), path.basename(finalPath, ext))
         await logActivity({
           action: 'episode_assign',
           showId: req.params.id,
@@ -964,6 +973,10 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         try {
           await fsRename(tmpPath, finalPath)
           await prisma.episodeFile.update({ where: { id: file.id }, data: { path: finalPath } })
+          await migrateEpisodeSidecars(
+            path.dirname(file.path), path.dirname(finalPath),
+            path.basename(file.path, ext), path.basename(finalPath, ext),
+          )
           await logActivity({
             action: 'episode_assign',
             showId: req.params.id,
@@ -1057,7 +1070,9 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     for (const [fileId, eps] of byFile) {
       const primaryEp = eps[0]!
       const lastEp = eps[eps.length - 1]!
-      const file = fileMap.get(fileId)!
+      // Annotated because the Prisma client types do not currently resolve in this
+      // package, so `files` widens to {} and every field access errors.
+      const file = fileMap.get(fileId)! as { id: string; path: string; multiEpisodeEnd: number | null }
 
       // Multi-episode only when all assigned episodes are in the same season
       const allSameSeason = eps.every((e) => e.season.seasonNumber === primaryEp.season.seasonNumber)
@@ -1077,7 +1092,9 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       const newPath = path.join(dir, newName)
       try {
         if (file.path !== newPath) {
+          const oldBase = path.basename(file.path, ext)
           await fsRename(file.path, newPath)
+          await migrateEpisodeSidecars(dir, dir, oldBase, path.basename(newPath, ext))
           renamed++
         }
         await prisma.episodeFile.update({
