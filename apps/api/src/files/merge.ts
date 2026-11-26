@@ -5,6 +5,12 @@ import { prisma } from '@mediadillo/db'
 import { canonicalMovieFileName, canonicalMovieFolderName } from './naming.js'
 import { deleteToTrash } from './rename.js'
 import { logActivity } from '../activity/log.js'
+import {
+  assessMerge,
+  verifyMergedOutput,
+  type MediaProfile,
+  type MergeAssessment,
+} from './merge-compat.js'
 
 const PART_PATTERN = /[- _.](cd|part|disk|disc|p)[12]$/i
 
@@ -14,6 +20,69 @@ export interface MultiPartCandidate {
   year: number | null
   part1: { id: string; path: string; sizeBytes: bigint | null }
   part2: { id: string; path: string; sizeBytes: bigint | null }
+  /** Probe-based verdict. Only `mergeable` candidates may be merged (issue #77). */
+  assessment: MergeAssessment
+}
+
+/**
+ * Reads a media profile with ffprobe.
+ *
+ * Duration comes from the last video packet, not the container header: headers lie.
+ * Ronin's part2 reports 176.8 min in its header for 56.9 min of actual video, which
+ * would wreck any duration-based reasoning built on the header value.
+ */
+export async function probeMedia(filePath: string): Promise<MediaProfile | null> {
+  const json = await runFfprobe([
+    '-v', 'error',
+    '-show_entries', 'stream=codec_type,codec_name,width,height,channels',
+    '-of', 'json',
+    filePath,
+  ])
+  if (!json) return null
+  let parsed: { streams?: Array<Record<string, unknown>> }
+  try {
+    parsed = JSON.parse(json) as { streams?: Array<Record<string, unknown>> }
+  } catch {
+    return null
+  }
+  const streams = parsed.streams ?? []
+  const video = streams.find((st) => st['codec_type'] === 'video')
+  const audio = streams.find((st) => st['codec_type'] === 'audio')
+
+  const pts = await runFfprobe([
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'packet=pts_time',
+    '-of', 'csv=p=0',
+    '-read_intervals', '99999%+#1',
+    filePath,
+  ])
+  const lastPts = (pts ?? '')
+    .trim()
+    .split('\n')
+    .filter((l) => l.trim().length > 0)
+    .pop()
+
+  return {
+    container: path.extname(filePath).toLowerCase(),
+    videoCodec: (video?.['codec_name'] as string | undefined) ?? null,
+    width: (video?.['width'] as number | undefined) ?? null,
+    height: (video?.['height'] as number | undefined) ?? null,
+    audioCodec: (audio?.['codec_name'] as string | undefined) ?? null,
+    audioChannels: (audio?.['channels'] as number | undefined) ?? null,
+    streamCount: streams.length,
+    durationS: lastPts ? Number.parseFloat(lastPts) || 0 : 0,
+  }
+}
+
+function runFfprobe(args: string[]): Promise<string | null> {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', args)
+    const out: string[] = []
+    proc.stdout.on('data', (c: Buffer) => out.push(c.toString()))
+    proc.on('close', (code) => resolve(code === 0 ? out.join('') : null))
+    proc.on('error', () => resolve(null))
+  })
 }
 
 export async function detectMultiPartMovies(): Promise<MultiPartCandidate[]> {
@@ -35,12 +104,22 @@ export async function detectMultiPartMovies(): Promise<MultiPartCandidate[]> {
 
     if (!PART_PATTERN.test(base1) || !PART_PATTERN.test(base2)) continue
 
+    // The filename shape alone proves nothing: a 4K and a 1080p copy of the same film
+    // were named part1/part2, and samples/trailers were relabelled as parts by an
+    // earlier rename. Probe before offering the merge (issue #77).
+    const [p1, p2] = await Promise.all([probeMedia(f1.path), probeMedia(f2.path)])
+    const assessment: MergeAssessment =
+      p1 && p2
+        ? assessMerge(p1, p2, movie.runtime ?? null)
+        : { verdict: 'unknown', mergeable: false, reasons: ['could not probe both parts'] }
+
     candidates.push({
       movieId: movie.id,
       title: movie.title,
       year: movie.year,
       part1: { id: f1.id, path: f1.path, sizeBytes: f1.sizeBytes },
       part2: { id: f2.id, path: f2.path, sizeBytes: f2.sizeBytes },
+      assessment,
     })
   }
 
@@ -61,6 +140,15 @@ export async function mergeMovieParts(
 
   const [f1, f2] = movie.files as [typeof movie.files[0], typeof movie.files[0]]
 
+  // Re-assess here rather than trusting the caller: this function trashes both
+  // originals, so the gate has to sit next to the destructive step (issue #77).
+  const [prof1, prof2] = await Promise.all([probeMedia(f1.path), probeMedia(f2.path)])
+  if (!prof1 || !prof2) return { error: 'Could not probe both parts' }
+  const assessment = assessMerge(prof1, prof2, movie.runtime ?? null)
+  if (!assessment.mergeable) {
+    return { error: `Not mergeable (${assessment.verdict}): ${assessment.reasons.join('; ')}` }
+  }
+
   // Use the extension of the first file for the output
   const ext = path.extname(f1.path)
   const folderName = canonicalMovieFolderName(movie.title, movie.year)
@@ -80,7 +168,20 @@ export async function mergeMovieParts(
 
     await runFfmpegConcat(concatFile, outputPath)
 
-    // Trash originals
+    // ffmpeg routinely exits 0 on a bad -c copy concat, so a zero exit code is not
+    // evidence the output is whole. Check it before anything is thrown away.
+    const merged = await probeMedia(outputPath)
+    if (!merged) {
+      await fs.unlink(outputPath).catch(() => {})
+      return { error: 'Merged file could not be probed; originals left untouched' }
+    }
+    const check = verifyMergedOutput(merged, prof1, prof2)
+    if (!check.ok) {
+      await fs.unlink(outputPath).catch(() => {})
+      return { error: `Merge verification failed: ${check.error}; originals left untouched` }
+    }
+
+    // Only now is it safe to retire the originals.
     await deleteToTrash(f1.path)
     await deleteToTrash(f2.path)
 

@@ -93,12 +93,21 @@ export async function bulkDeleteStaleFiles(ids: string[]): Promise<{ deleted: nu
   })
 }
 
+export type MergeVerdict = 'parts' | 'versions' | 'junk' | 'unknown'
+
+export interface MergeAssessment {
+  verdict: MergeVerdict
+  mergeable: boolean
+  reasons: string[]
+}
+
 export interface MultiPartCandidate {
   movieId: string
   title: string
   year: number | null
   part1: { id: string; path: string; sizeBytes: string | null }
   part2: { id: string; path: string; sizeBytes: string | null }
+  assessment: MergeAssessment
 }
 
 export async function fetchMultiPartMovies(): Promise<MultiPartCandidate[]> {
