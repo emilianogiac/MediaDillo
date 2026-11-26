@@ -78,3 +78,73 @@ describe('detectStaleFiles — subtitle formats (issue #71)', () => {
     expect(stale[0]?.path).toContain('mystery.bin')
   })
 })
+
+describe('detectStaleFiles — artwork recognition (issue #92)', () => {
+  const folder = '/mnt/nas/serie_tv/Show (2001)/Season 01'
+  const video = `${folder}/Show - S01E01 - Pilot.mkv`
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('never flags an episode thumbnail, in either convention', () => {
+    // Kodi/TMM write "<basename>.jpg", Jellyfin "<basename>-thumb.jpg". Neither can be
+    // identified in isolation, so both looked like junk: 9,611 of them were queued for
+    // deletion on the Milan library.
+    mockList([
+      video,
+      `${folder}/Show - S01E01 - Pilot.jpg`,
+      `${folder}/Show - S01E01 - Pilot-thumb.jpg`,
+    ])
+    const stale = await_detect(folder, new Set([video]))
+    return stale.then((s) => expect(s.map((x) => x.path)).toEqual([]))
+  })
+
+  it('never flags season artwork', () => {
+    mockList([
+      video,
+      `${folder}/season01.jpg`,
+      `${folder}/season01-poster.jpg`,
+      `${folder}/season01-banner.jpg`,
+      `${folder}/season-specials-thumb.jpg`,
+      `${folder}/season-all-fanart.jpg`,
+      `${folder}/folder.jpg`,
+    ])
+    return await_detect(folder, new Set([video])).then((s) =>
+      expect(s.map((x) => x.path)).toEqual([]),
+    )
+  })
+
+  it('never flags the bare artwork names a TMM library carries', () => {
+    mockList([
+      video,
+      `${folder}/landscape.jpg`,
+      `${folder}/clearlogo.png`,
+      `${folder}/characterart.png`,
+      `${folder}/keyart.jpg`,
+      `${folder}/fanart1.jpg`,
+      `${folder}/fanart5.jpg`,
+    ])
+    return await_detect(folder, new Set([video])).then((s) =>
+      expect(s.map((x) => x.path)).toEqual([]),
+    )
+  })
+
+  it('still flags an image unrelated to any video in the folder', () => {
+    // The fix must not blind the detector: a stray image with no matching video is junk.
+    mockList([video, `${folder}/random-screenshot.jpg`])
+    return await_detect(folder, new Set([video])).then((s) => {
+      expect(s).toHaveLength(1)
+      expect(s[0]?.path).toContain('random-screenshot.jpg')
+    })
+  })
+
+  it('still flags genuinely stale types', () => {
+    mockList([video, `${folder}/old.tbn`, `${folder}/notes.txt`])
+    return await_detect(folder, new Set([video])).then((s) =>
+      expect(s.map((x) => x.path.split('/').pop()).sort()).toEqual(['notes.txt', 'old.tbn']),
+    )
+  })
+})
+
+function await_detect(folder: string, known: Set<string>) {
+  return detectStaleFiles(folder, known)
+}
