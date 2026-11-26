@@ -3,6 +3,7 @@ import { prisma, MediaType, CreditRole } from '@mediadillo/db'
 import type { ScannedFile, VideoTechSpecs } from './types.js'
 import type { WalkedFile } from './walker.js'
 import type { StaleFileEntry } from './stale-detector.js'
+import { reconcileStaleFiles } from './stale-reconcile.js'
 import { detectLocalArtwork } from './artwork-detector.js'
 import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
 import { parseMovieFolderName, parseFilename, detect3DFormat } from './filename-parser.js'
@@ -705,12 +706,55 @@ export async function writeScanLog(
       filesAdded: counts.added,
       filesChanged: counts.changed,
       filesRemoved: counts.removed,
+      // Total stale right now, not just the newly recorded ones, so the headline
+      // figure keeps its meaning even though rows are now reused across scans.
       staleFilesFound: staleFiles.length,
       finishedAt: new Date(),
-      staleFiles: {
-        create: staleFiles.map((s) => ({ path: s.path, reason: s.reason })),
-      },
     },
   })
+
+  await reconcileStaleFileRows(log.id, rootsScanned, staleFiles)
   return log.id
+}
+
+/**
+ * Brings the StaleFile table in line with what this scan actually found.
+ *
+ * Previously every scan appended a row per stale path, so the table grew without
+ * bound (42% duplicates on the Milan library) and nothing ever cleared a row whose
+ * file had been deleted or had stopped being stale (48% phantom). See issue #73.
+ */
+async function reconcileStaleFileRows(
+  scanLogId: string,
+  rootsScanned: string[],
+  staleFiles: StaleFileEntry[]
+): Promise<void> {
+  if (rootsScanned.length === 0) return
+
+  // Only unresolved rows matter; a resolved row is already settled, and reopening it
+  // would undo an explicit user decision to dismiss the file.
+  const existing = await prisma.staleFile.findMany({
+    where: {
+      resolved: false,
+      OR: rootsScanned.map((root) => ({
+        path: { startsWith: root.endsWith('/') ? root : root + '/' },
+      })),
+    },
+    select: { id: true, path: true },
+  })
+
+  const { resolveIds, create } = reconcileStaleFiles(existing, staleFiles, rootsScanned)
+
+  if (resolveIds.length > 0) {
+    await prisma.staleFile.updateMany({
+      where: { id: { in: resolveIds } },
+      data: { resolved: true },
+    })
+  }
+
+  if (create.length > 0) {
+    await prisma.staleFile.createMany({
+      data: create.map((s) => ({ scanLogId, path: s.path, reason: s.reason })),
+    })
+  }
 }
