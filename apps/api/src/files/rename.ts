@@ -6,6 +6,7 @@ import {
   isSidecarFile,
   migrateSidecars,
   migrateEpisodeSidecars,
+  migrateSeasonFolderLeftovers,
   removeIfEmpty,
   VIDEO_EXTENSIONS,
 } from './sidecars.js'
@@ -420,8 +421,12 @@ export async function applyEpisodeRenames(
         path.basename(currentPath, ext),
         path.basename(proposedPath, ext)
       )
-      // Retire the old season folder once the last episode has left it.
-      if (currentSeasonDir !== seasonPath) await removeIfEmpty(currentSeasonDir)
+      // Retire the old season folder once the last episode has left it, carrying the
+      // season-level artwork (folder.jpg, season.nfo, season01-*.jpg) with it.
+      if (currentSeasonDir !== seasonPath) {
+        await migrateSeasonFolderLeftovers(currentSeasonDir, seasonPath)
+        await removeIfEmpty(currentSeasonDir)
+      }
       await logActivity({
         action: 'rename',
         showId: show.id,

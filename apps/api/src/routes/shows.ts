@@ -37,6 +37,38 @@ async function deriveShowFolder(filePaths: string[]): Promise<string | null> {
   return null
 }
 
+/**
+ * Prefix for the intermediate files written during a two-phase remap.
+ *
+ * Deliberately NOT dot-prefixed. On an SMB/CIFS share Samba sets the DOS HIDDEN
+ * attribute on any dot-file, and that attribute SURVIVES the rename back to a normal
+ * name — so every reordered episode became invisible in Finder while remaining
+ * perfectly visible to `ls` and to stat calls (issue #89). A dot prefix is also skipped
+ * outright by the scanner's walker, so a crash mid-remap would leave orphans
+ * MediaDillo could never see.
+ */
+export const REMAP_TMP_PREFIX = 'mediadillo-tmp-'
+
+/**
+ * Recomputes `status` for episodes whose files changed hands, and the show's owned
+ * count.
+ *
+ * Reassigning a file used to leave the target episode `missing`. That is not cosmetic:
+ * previewEpisodeRenames filters to `owned`, so a reassigned file became invisible to
+ * the rename and was stranded under its old name in the old season folder (issue #88).
+ */
+async function refreshEpisodeOwnership(showId: string, episodeIds: string[]): Promise<void> {
+  for (const id of [...new Set(episodeIds)]) {
+    const count = await prisma.episodeFile.count({ where: { episodeId: id } })
+    await prisma.episode.update({
+      where: { id },
+      data: { status: count > 0 ? EpisodeStatus.owned : EpisodeStatus.missing },
+    })
+  }
+  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
+  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+}
+
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/shows?search=&qualityTier=&missingArtwork=&unmatched=&duplicates=only|hide&organized=false&scanRootId=&status=continuing|ended&tmdbId=
   app.get<{
@@ -824,7 +856,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     for (const { file } of fileJobs) {
       const ext = path.extname(file.path)
       const dir = path.dirname(file.path)
-      const tmpPath = path.join(dir, `.tmp-${file.id}${ext}`)
+      const tmpPath = path.join(dir, `${REMAP_TMP_PREFIX}${file.id}${ext}`)
       try {
         await fsRename(file.path, tmpPath)
         tmpPaths.set(file.id, tmpPath)
@@ -882,6 +914,15 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // A reassigned file left its target episode still flagged `missing`, and
+    // previewEpisodeRenames filters to `owned` — so the file became invisible to the
+    // rename and was stranded in the old season folder (issue #88). cross-reassign
+    // already does this; reorder did not.
+    await refreshEpisodeOwnership(
+      req.params.id,
+      [...toMove.map((e) => e.id), ...fileJobs.map((j) => j.target.id)],
+    )
+
     triggerLibraryRefresh(app.log).catch(() => {})
     return reply.send({ renamed, errors })
   })
@@ -931,7 +972,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       for (const { file } of fileJobs) {
         const ext = path.extname(file.path)
         const dir = path.dirname(file.path)
-        const tmpPath = path.join(dir, `.tmp-${file.id}${ext}`)
+        const tmpPath = path.join(dir, `${REMAP_TMP_PREFIX}${file.id}${ext}`)
         try {
           await fsRename(file.path, tmpPath)
           tmpPaths.set(file.id, tmpPath)
