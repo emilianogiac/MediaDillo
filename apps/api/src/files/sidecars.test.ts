@@ -290,3 +290,36 @@ describe('removeIfEmpty (issue #82)', () => {
     await fs.rm(d, { recursive: true, force: true })
   })
 })
+
+describe('migrateEpisodeSidecars — bare episode thumbnails (issue #86)', () => {
+  const tmpRoot = path.join(process.cwd(), 'tmp', 'sidecars-test')
+  const OLD = 'A-Team_-_01x06_-_Giornata_infernale_h265_480p_AC3_2ch'
+  const NEW = 'A-Team - S01E05 - Giornata infernale a Bad Rock'
+  let caseDir: string, dir: string
+
+  beforeEach(async () => {
+    caseDir = await fs.mkdtemp(path.join(tmpRoot, path.sep))
+    dir = path.join(caseDir, 's01')
+    await fs.mkdir(dir, { recursive: true })
+  })
+  afterEach(async () => { await fs.rm(caseDir, { recursive: true, force: true }) })
+
+  it('moves a bare <basename>.jpg thumbnail', async () => {
+    // Kodi/TMM write the episode thumb as "<episode basename>.jpg" with no -thumb
+    // suffix, so isSidecarFile cannot recognise it on its own. The prefix match does.
+    await fs.writeFile(path.join(dir, `${OLD}.jpg`), 'x')
+    await fs.writeFile(path.join(dir, `${OLD}.srt`), 'x')
+    const n = await migrateEpisodeSidecars(dir, dir, OLD, NEW)
+    expect(n).toBe(2)
+    expect((await fs.readdir(dir)).sort()).toEqual([`${NEW}.jpg`, `${NEW}.srt`])
+  })
+
+  it('still refuses an unrelated image that does not share the basename', async () => {
+    // Show-level artwork must survive: it does not carry the episode basename.
+    await fs.writeFile(path.join(dir, 'poster.jpg'), 'x')
+    await fs.writeFile(path.join(dir, 'banner.jpg'), 'x')
+    const n = await migrateEpisodeSidecars(dir, dir, OLD, NEW)
+    expect(n).toBe(0)
+    expect((await fs.readdir(dir)).sort()).toEqual(['banner.jpg', 'poster.jpg'])
+  })
+})
