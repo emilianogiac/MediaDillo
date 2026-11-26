@@ -10,7 +10,7 @@ import { writeMovieNfo } from '../nfo/writer.js'
 import { downloadMovieArtwork, downloadShowArtwork } from '../artwork/downloader.js'
 import { getAutoCleanupSetting } from './settings.js'
 import { scanMovieFolder, BATCH_SAFE_TO_DELETE } from '../files/cleanup.js'
-import fs from 'node:fs/promises'
+import { deleteToTrash } from '../files/rename.js'
 
 async function getTmdbClient(): Promise<TmdbClient> {
   const cfg = await getApiConfig()
@@ -225,7 +225,9 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
           const scan = await scanMovieFolder(movie.id)
           if (scan) {
             const toDelete = scan.files.filter((f) => BATCH_SAFE_TO_DELETE.has(f.category))
-            await Promise.all(toDelete.map((f) => fs.unlink(f.path).catch(() => {})))
+            // deleteToTrash, not fs.unlink: this runs unattended as a side effect of a
+            // metadata match, so a wrong call must stay recoverable (issue #75).
+            await Promise.all(toDelete.map((f) => deleteToTrash(f.path).catch(() => {})))
           }
         }
       } catch (err) {
