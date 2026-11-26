@@ -125,7 +125,15 @@ export async function moveMovie(movieId: string, targetScanRootId: string): Prom
   })
 }
 
-export type FolderFileCategory = 'video' | 'artwork' | 'subtitle' | 'nfo' | 'extra-art' | 'extra-nfo' | 'unknown'
+export type FolderFileCategory =
+  | 'video'
+  | 'artwork'
+  | 'subtitle'
+  | 'nfo'
+  | 'extra-art'
+  | 'extra-nfo'
+  | 'unknown-video'
+  | 'unknown'
 
 export interface FolderFile {
   name: string

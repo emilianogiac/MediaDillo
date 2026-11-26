@@ -2,37 +2,14 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from '@mediadillo/db'
 import { canonicalMovieFolderName } from './naming.js'
+import {
+  categorizeFolderFile,
+  BATCH_SAFE_TO_DELETE,
+  type FolderFileCategory,
+} from './cleanup-categories.js'
 
-export type FolderFileCategory = 'video' | 'artwork' | 'subtitle' | 'nfo' | 'extra-art' | 'extra-nfo' | 'unknown'
-
-export const BATCH_SAFE_TO_DELETE: Set<FolderFileCategory> = new Set([
-  'extra-art',
-  'extra-nfo',
-  'subtitle',
-  'unknown',
-])
-
-const VIDEO_EXTS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.ts', '.iso', '.m2ts', '.wmv'])
-const SUBTITLE_EXTS = new Set(['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx', '.sup', '.mks'])
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp'])
-
-// All canonical artwork filenames that MediaDillo creates or preserves.
-// Must stay in sync with KNOWN_ARTWORK in stale-detector.ts.
-const CANONICAL_ART = new Set([
-  'poster.jpg', 'poster.jpeg', 'poster.png',
-  'backdrop.jpg', 'backdrop.jpeg', 'backdrop.png',
-  'fanart.jpg', 'fanart.jpeg', 'fanart.png',
-  'thumb.jpg', 'thumb.jpeg', 'thumb.png',
-  'banner.jpg', 'banner.jpeg', 'banner.png',
-  'logo.jpg', 'logo.png',
-  'clearart.png',
-  'disc.png', 'discart.png',
-  // legacy / Kodi alias kept for compatibility
-  'folder.jpg',
-])
-
-const POSTER_SFX = ['-poster', '_poster']
-const BACKDROP_SFX = ['-fanart', '_fanart', '-backdrop', '_backdrop', '-landscape', '_landscape', '-background', '_background']
+export { BATCH_SAFE_TO_DELETE }
+export type { FolderFileCategory }
 
 export interface ScannedFolderFile {
   name: string
@@ -94,8 +71,6 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
 
   const items = await Promise.all(entries.map(async (name): Promise<ScannedFolderFile | null> => {
     const fullPath = path.join(folderPath, name)
-    const ext = path.extname(name).toLowerCase()
-    const base = path.basename(name, ext).toLowerCase()
     let size = 0
     try {
       const s = await fs.stat(fullPath)
@@ -103,23 +78,7 @@ export async function scanMovieFolder(movieId: string): Promise<ScannedFolder | 
       size = s.size
     } catch { return null }
 
-    let category: FolderFileCategory
-    if (knownPaths.has(fullPath)) {
-      category = 'video'
-    } else if (VIDEO_EXTS.has(ext)) {
-      category = 'unknown'
-    } else if (CANONICAL_ART.has(name.toLowerCase())) {
-      category = 'artwork'
-    } else if (IMAGE_EXTS.has(ext)) {
-      category = (POSTER_SFX.some((s) => base.endsWith(s)) || BACKDROP_SFX.some((s) => base.endsWith(s)))
-        ? 'extra-art' : 'unknown'
-    } else if (SUBTITLE_EXTS.has(ext)) {
-      category = 'subtitle'
-    } else if (ext === '.nfo') {
-      category = (name === 'movie.nfo' || name === canonicalNfoName) ? 'nfo' : 'extra-nfo'
-    } else {
-      category = 'unknown'
-    }
+    const category = categorizeFolderFile(name, knownPaths.has(fullPath), canonicalNfoName)
 
     return { name, path: fullPath, size, category }
   }))

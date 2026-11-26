@@ -15,11 +15,15 @@ const CATEGORY_LABEL: Record<string, { label: string; color: string }> = {
   nfo: { label: 'NFO', color: 'text-gray-400' },
   'extra-art': { label: 'Old artwork', color: 'text-yellow-400' },
   'extra-nfo': { label: 'Old NFO', color: 'text-yellow-400' },
+  'unknown-video': { label: 'Unrecognised video', color: 'text-blue-400' },
   unknown: { label: 'Unknown', color: 'text-orange-400' },
 }
 
-// Pre-select everything except what MediaDillo creates/needs: video, canonical artwork, canonical nfo
-const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo', 'subtitle', 'unknown'])
+// Categories pre-ticked for deletion. Deliberately excludes 'subtitle' and
+// 'unknown-video': both are content, and pre-ticking them meant one click removed
+// subtitles or a video the scanner had not recorded yet (issue #75). They are still
+// listed and can be selected by hand.
+const SAFE_TO_DELETE: Set<string> = new Set(['extra-art', 'extra-nfo', 'unknown'])
 
 interface Props {
   movieId: string
