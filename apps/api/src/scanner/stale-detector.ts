@@ -20,9 +20,15 @@ const CANONICAL_NFO = new Set([
   'movie.nfo', 'tvshow.nfo', 'episode.nfo',
 ])
 
+// Subtitle sidecars. Single source of truth: a format missing here falls all the way
+// through detectStaleFiles to "unrecognized file" and gets flagged for deletion.
+// .idx/.sub are a VobSub pair, .sup is PGS, .mks is a Matroska subtitle container.
+const SUBTITLE_EXTENSIONS = new Set([
+  '.srt', '.sub', '.idx', '.sup', '.ass', '.ssa', '.vtt', '.mks',
+])
+
 const KNOWN_EXTENSIONS = new Set([
-  // subtitles
-  '.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx',
+  ...SUBTITLE_EXTENSIONS,
   // video — handled separately as the main file
   '.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.flv',
   '.ts', '.mpg', '.mpeg', '.m2ts', '.vob', '.iso',
@@ -114,7 +120,7 @@ export async function detectStaleFiles(
     }
 
     // Subtitle files
-    if (['.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx'].includes(ext)) continue
+    if (SUBTITLE_EXTENSIONS.has(ext)) continue
 
     // Trailer files (*-trailer.*)
     if (basename.includes('-trailer.') || basename.includes('.trailer.')) continue

@@ -52,3 +52,29 @@ describe('detectStaleFiles', () => {
     expect(stale[0]?.reason).toContain('not in library')
   })
 })
+
+describe('detectStaleFiles — subtitle formats (issue #71)', () => {
+  const folder = '/mnt/nas/film/Movie (2020)'
+  const video = `${folder}/Movie (2020).mkv`
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('never flags a subtitle sidecar as stale, in any format', async () => {
+    // A format missing from SUBTITLE_EXTENSIONS falls through every branch to
+    // "unrecognized file", so MediaDillo would offer to delete a real subtitle.
+    // .sup is the one that bit us: four PGS tracks had to be rescued by hand.
+    const exts = ['.srt', '.sub', '.idx', '.sup', '.ass', '.ssa', '.vtt', '.mks']
+    mockList([video, ...exts.map((e) => `${folder}/Movie (2020).eng${e}`)])
+    const stale = await detectStaleFiles(folder, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('flags a genuinely unrecognised file even alongside subtitles', async () => {
+    // Guard against the fix being over-broad: widening the subtitle set must not
+    // make the detector blind.
+    mockList([video, `${folder}/Movie (2020).eng.sup`, `${folder}/mystery.bin`])
+    const stale = await detectStaleFiles(folder, new Set([video]))
+    expect(stale).toHaveLength(1)
+    expect(stale[0]?.path).toContain('mystery.bin')
+  })
+})

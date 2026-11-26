@@ -2,6 +2,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { prisma, RenameTrigger } from '@mediadillo/db'
 import { logActivity } from '../activity/log.js'
+import {
+  isSidecarFile,
+  migrateSidecars,
+  VIDEO_EXTENSIONS,
+} from './sidecars.js'
 
 const RENAME_LOG_TTL_DAYS = 180
 
@@ -145,8 +150,12 @@ export async function applyMovieRenames(
 
       // Migrate sidecars when the folder actually changed
       if (oldFolder !== newFolder) {
-        await migrateSidecars(oldFolder, newFolder)
-        // Remove old folder if now empty
+        const oldBase = path.basename(file.path, path.extname(file.path))
+        const newBase = path.basename(proposedPath, path.extname(proposedPath))
+        await migrateSidecars(oldFolder, newFolder, oldBase, newBase)
+        // Remove old folder if now empty. This only succeeds once every sidecar is
+        // recognised by isSidecarFile — an unrecognised artwork file keeps the
+        // directory non-empty and orphans it (see issue #71).
         try { await fs.rmdir(oldFolder) } catch { /* non-empty or already gone */ }
       }
     } catch (err) {
@@ -420,56 +429,6 @@ export async function applyEpisodeRenames(
 // Stale file cleanup + sidecar patterns
 // ---------------------------------------------------------------------------
 
-const KNOWN_FILENAMES = new Set([
-  'poster.jpg',
-  'backdrop.jpg',
-  'fanart.jpg',
-  'thumb.jpg',
-  'folder.jpg',
-  'movie.nfo',
-  'tvshow.nfo',
-])
-
-const KNOWN_EXTENSIONS = new Set(['.nfo', '.srt', '.sub', '.ass', '.ssa'])
-
-const VIDEO_EXTENSIONS = new Set(['.mkv', '.mp4', '.avi', '.m4v', '.mov', '.wmv', '.ts', '.mpg', '.mpeg'])
-
-// TMM artwork suffix patterns
-const ARTWORK_SUFFIXES = [
-  '-poster', '_poster', '-fanart', '_fanart', '-landscape', '_landscape',
-  '-backdrop', '_backdrop', '-background', '_background', '-clearart', '_clearart',
-  '-discart', '_discart', '-logo', '_logo', '-banner', '_banner', '-thumb', '_thumb',
-]
-
-function isSidecarFile(filename: string): boolean {
-  const lower = filename.toLowerCase()
-  if (KNOWN_FILENAMES.has(lower)) return true
-  const ext = path.extname(lower)
-  if (KNOWN_EXTENSIONS.has(ext)) return true
-  const base = lower.slice(0, lower.length - ext.length)
-  if (ARTWORK_SUFFIXES.some((s) => base.endsWith(s))) return true
-  return false
-}
-
-async function migrateSidecars(oldFolder: string, newFolder: string): Promise<void> {
-  let entries: string[]
-  try {
-    entries = await fs.readdir(oldFolder)
-  } catch {
-    return
-  }
-  for (const entry of entries) {
-    if (!isSidecarFile(entry)) continue
-    const src = path.join(oldFolder, entry)
-    const dst = path.join(newFolder, entry)
-    try {
-      await fs.rename(src, dst)
-    } catch {
-      // non-fatal per-file failure
-    }
-  }
-}
-
 export async function revertRenameLog(logId: string): Promise<{ ok: boolean; error?: string }> {
   const entry = await prisma.renameLog.findUnique({ where: { id: logId } })
   if (!entry) return { ok: false, error: 'Log entry not found' }
@@ -527,11 +486,14 @@ export async function detectStaleFilesForMovie(movieId: string): Promise<string[
   const stale: string[] = []
 
   for (const entry of entries) {
-    if (KNOWN_FILENAMES.has(entry.toLowerCase())) continue
+    // Use the same predicate the rename flow uses, so a file can never be both
+    // migrated as a sidecar and proposed for deletion as stale. Previously this
+    // checked KNOWN_FILENAMES/KNOWN_EXTENSIONS but not ARTWORK_SUFFIXES, so a
+    // "<title>-logo.png" was migrated on rename and then flagged stale afterwards.
+    if (isSidecarFile(entry)) continue
     if (ownedPaths.has(entry)) continue
     const ext = path.extname(entry).toLowerCase()
     if (VIDEO_EXTENSIONS.has(ext)) continue
-    if (KNOWN_EXTENSIONS.has(ext)) continue
     stale.push(path.join(folderPath, entry))
   }
 
