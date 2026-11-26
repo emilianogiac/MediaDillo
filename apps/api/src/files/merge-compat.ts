@@ -151,6 +151,17 @@ export function verifyMergedOutput(
   part2: MediaProfile
 ): { ok: boolean; error?: string } {
   if (!output.videoCodec) return { ok: false, error: 'merged file has no video stream' }
+  // Duration alone cannot catch a track-stripped concat: the film runs end to end, it
+  // just lost tracks. assessMerge has already proven the parts' stream counts equal, so
+  // the output must carry the same number (issue #80).
+  if (output.streamCount < part1.streamCount) {
+    return {
+      ok: false,
+      error:
+        `merged file has ${output.streamCount} streams but the parts had ` +
+        `${part1.streamCount} — tracks were dropped`,
+    }
+  }
   const expected = part1.durationS + part2.durationS
   if (expected <= 0) return { ok: false, error: 'could not determine expected duration' }
   const drift = Math.abs(output.durationS - expected) / expected
