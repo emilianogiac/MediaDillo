@@ -216,6 +216,11 @@ function runFfmpegConcat(concatFile: string, outputPath: string): Promise<void> 
       '-f', 'concat',
       '-safe', '0',
       '-i', concatFile,
+      // -map 0 is required: without it ffmpeg applies default stream selection and
+      // keeps only one video, one audio and one subtitle track, silently discarding
+      // everything else while still exiting 0 (issue #80). On the Milan library that
+      // cost the Dolby Vision layer and three audio tracks on the 4K titles.
+      '-map', '0',
       '-c', 'copy',
       '-y',
       outputPath,

@@ -142,3 +142,34 @@ describe('verifyMergedOutput (issue #77)', () => {
     expect(verifyMergedOutput(profile({ durationS: 7080 * 1.005 }), a, b).ok).toBe(true)
   })
 })
+
+describe('verifyMergedOutput — track preservation (issue #80)', () => {
+  const a = profile({ durationS: 3600, streamCount: 7 })
+  const b = profile({ durationS: 3480, streamCount: 7 })
+
+  it('rejects an output that lost tracks even when the duration is exact', () => {
+    // The real bug: ffmpeg without -map 0 keeps one stream per type, exits 0, and the
+    // film plays end to end — so a duration-only check passes. On the Milan library
+    // this silently discarded the Dolby Vision layer and 3 audio tracks from the 4K
+    // LOTR titles.
+    const merged = profile({ durationS: 7080, streamCount: 3 })
+    const r = verifyMergedOutput(merged, a, b)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('tracks were dropped')
+  })
+
+  it('accepts an output that preserves every track', () => {
+    expect(verifyMergedOutput(profile({ durationS: 7080, streamCount: 7 }), a, b).ok).toBe(true)
+  })
+
+  it('does not object when the muxer adds a stream', () => {
+    // Some muxers add a cover/attachment stream; only losses matter.
+    expect(verifyMergedOutput(profile({ durationS: 7080, streamCount: 8 }), a, b).ok).toBe(true)
+  })
+
+  it('still catches truncation when the track count is right', () => {
+    const r = verifyMergedOutput(profile({ durationS: 3600, streamCount: 7 }), a, b)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('differs from the expected')
+  })
+})
