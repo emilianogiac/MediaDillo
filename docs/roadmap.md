@@ -65,6 +65,7 @@ Track epics and their GitHub issues here. Update status as work progresses.
 | # | Fix | Status | Notes |
 |---|-----|--------|-------|
 | H1 | **4-digit year seasons** | `[x]` | Parser capped seasons at 2 digits and was unanchored, so `2003x05` matched the substring `03x05` → season 3. TheTVDB numbers several shorts/anthology series by year; 94 episode files across I corti Pixar (1984–2015), Looney Tunes (1949–1994) and Tom & Jerry (1960) were mis-filed, with `2000x01` collapsing into Season 0. Season widened to 4 digits in all three branches, `NxN` fenced with digit boundaries, plus a year+episode-cap plausibility check so `WxH` resolution tokens cannot parse as episode codes (latent bug: `1920x1080` → S20E108). Issue #67, PR #68 |
+| H2 | **Non-ASCII symbols leak into filenames** | `[x]` | `sanitizeForFilename` was documented as ASCII-safe but only handled an enumerated list of typographic characters; `NFD` + `\p{Mn}` stripping only removes combining marks, so a standalone symbol passed straight through. MediaDillo renamed `WALL-E (2008)` → `WALL•E (2008)` on the Milan library, writing U+2022 into a path synced to the UNAS; a DB sweep found `°` affected too (`Il 13° guerriero`). Added the bullet/middot family and `°` to the map, plus a catch-all dropping any remaining non-ASCII `\p{S}`/`\p{P}`. Non-Latin letters preserved on purpose — stripping them would empty the filename. Issue #69 |
 
 ---
 
