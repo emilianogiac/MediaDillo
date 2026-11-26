@@ -5,6 +5,8 @@ import { logActivity } from '../activity/log.js'
 import {
   isSidecarFile,
   migrateSidecars,
+  migrateEpisodeSidecars,
+  removeIfEmpty,
   VIDEO_EXTENSIONS,
 } from './sidecars.js'
 
@@ -408,6 +410,18 @@ export async function applyEpisodeRenames(
       await fs.mkdir(seasonPath, { recursive: true })
       await fs.rename(currentPath, proposedPath)
       await prisma.episodeFile.update({ where: { id: file.id }, data: { path: proposedPath } })
+
+      // Carry this episode's sidecars across. The rename changes both the directory
+      // (s01 -> Season 01) and the basename, so a .nfo/-thumb.jpg/.srt left behind is
+      // orphaned and, for subtitles, silently stops pairing with the video (issue #82).
+      await migrateEpisodeSidecars(
+        currentSeasonDir,
+        seasonPath,
+        path.basename(currentPath, ext),
+        path.basename(proposedPath, ext)
+      )
+      // Retire the old season folder once the last episode has left it.
+      if (currentSeasonDir !== seasonPath) await removeIfEmpty(currentSeasonDir)
       await logActivity({
         action: 'rename',
         showId: show.id,

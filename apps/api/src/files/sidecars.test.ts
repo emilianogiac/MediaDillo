@@ -1,7 +1,13 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from 'vitest'
-import { isSidecarFile, retargetSidecarName, migrateSidecars } from './sidecars.js'
+import {
+  isSidecarFile,
+  retargetSidecarName,
+  migrateSidecars,
+  migrateEpisodeSidecars,
+  removeIfEmpty,
+} from './sidecars.js'
 
 beforeAll(async () => {
   await fs.mkdir(path.join(process.cwd(), 'tmp', 'sidecars-test'), { recursive: true })
@@ -203,5 +209,84 @@ describe('migrateSidecars — end-to-end on a real directory (issue #71)', () =>
     await expect(
       migrateSidecars(oldFolder, newFolder, 'Old Title (1999)', 'New Title (1999)')
     ).resolves.toBeUndefined()
+  })
+})
+
+describe('migrateEpisodeSidecars (issue #82)', () => {
+  const tmpRoot = path.join(process.cwd(), 'tmp', 'sidecars-test')
+  let caseDir: string, oldDir: string, newDir: string
+  const OLD = 'Suits_-_01x01_-_Avvocato_per_caso_h264_720p_DTS_2ch'
+  const NEW = 'Suits - S01E01 - Avvocato per caso'
+
+  beforeEach(async () => {
+    caseDir = await fs.mkdtemp(path.join(tmpRoot, path.sep))
+    oldDir = path.join(caseDir, 's01')
+    newDir = path.join(caseDir, 'Season 01')
+    await fs.mkdir(oldDir, { recursive: true })
+    await fs.mkdir(newDir, { recursive: true })
+  })
+  afterEach(async () => { await fs.rm(caseDir, { recursive: true, force: true }) })
+
+  const write = (d: string, n: string, b = 'x') => fs.writeFile(path.join(d, n), b)
+  const ls = async (d: string) => (await fs.readdir(d)).sort()
+
+  it('moves and re-targets this episode’s sidecars', async () => {
+    await write(oldDir, `${OLD}.nfo`)
+    await write(oldDir, `${OLD}-thumb.jpg`)
+    await write(oldDir, `${OLD}.eng.srt`, 'subs')
+
+    const n = await migrateEpisodeSidecars(oldDir, newDir, OLD, NEW)
+
+    expect(n).toBe(3)
+    expect(await ls(newDir)).toEqual([`${NEW}-thumb.jpg`, `${NEW}.eng.srt`, `${NEW}.nfo`])
+    expect(await fs.readFile(path.join(newDir, `${NEW}.eng.srt`), 'utf8')).toBe('subs')
+  })
+
+  it('leaves other episodes in the season alone', async () => {
+    // The season directory is shared, so only files named after THIS video may move.
+    const OTHER = 'Suits_-_01x02_-_Codice_etico_h264_720p_DTS_2ch'
+    await write(oldDir, `${OLD}.nfo`)
+    await write(oldDir, `${OTHER}.nfo`)
+    await write(oldDir, `${OTHER}.mkv`)
+
+    await migrateEpisodeSidecars(oldDir, newDir, OLD, NEW)
+
+    expect(await ls(newDir)).toEqual([`${NEW}.nfo`])
+    expect(await ls(oldDir)).toEqual([`${OTHER}.mkv`, `${OTHER}.nfo`])
+  })
+
+  it('does not move non-sidecar files that merely share the prefix', async () => {
+    await write(oldDir, `${OLD}.notes.txt`)
+    const n = await migrateEpisodeSidecars(oldDir, newDir, OLD, NEW)
+    expect(n).toBe(0)
+    expect(await ls(oldDir)).toEqual([`${OLD}.notes.txt`])
+  })
+
+  it('never overwrites an existing destination', async () => {
+    await write(oldDir, `${OLD}.nfo`, 'stale')
+    await write(newDir, `${NEW}.nfo`, 'current')
+    await migrateEpisodeSidecars(oldDir, newDir, OLD, NEW)
+    expect(await fs.readFile(path.join(newDir, `${NEW}.nfo`), 'utf8')).toBe('current')
+    expect(await ls(oldDir)).toEqual([`${OLD}.nfo`])
+  })
+
+  it('is a no-op with an empty basename or missing directory', async () => {
+    expect(await migrateEpisodeSidecars(oldDir, newDir, '', NEW)).toBe(0)
+    expect(await migrateEpisodeSidecars(path.join(caseDir, 'nope'), newDir, OLD, NEW)).toBe(0)
+  })
+})
+
+describe('removeIfEmpty (issue #82)', () => {
+  const tmpRoot = path.join(process.cwd(), 'tmp', 'sidecars-test')
+  it('removes an empty directory and keeps a non-empty one', async () => {
+    const d = await fs.mkdtemp(path.join(tmpRoot, path.sep))
+    const empty = path.join(d, 'empty')
+    const full = path.join(d, 'full')
+    await fs.mkdir(empty); await fs.mkdir(full)
+    await fs.writeFile(path.join(full, 'x.mkv'), 'x')
+
+    expect(await removeIfEmpty(empty)).toBe(true)
+    expect(await removeIfEmpty(full)).toBe(false)
+    await fs.rm(d, { recursive: true, force: true })
   })
 })

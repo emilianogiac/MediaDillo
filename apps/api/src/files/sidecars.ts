@@ -161,3 +161,57 @@ export async function migrateSidecars(
     }
   }
 }
+
+/**
+ * Moves the sidecars belonging to one renamed video file.
+ *
+ * Differs from migrateSidecars, which moves a whole movie folder's sidecars: an episode
+ * shares its directory with every other episode of the season, so only files named
+ * after *this* video may move, and the basename changes too (issue #82).
+ *
+ * Returns the number of sidecars moved.
+ */
+export async function migrateEpisodeSidecars(
+  oldDir: string,
+  newDir: string,
+  oldBase: string,
+  newBase: string
+): Promise<number> {
+  if (!oldBase) return 0
+  let entries: string[]
+  try {
+    entries = await fs.readdir(oldDir)
+  } catch {
+    return 0
+  }
+  let moved = 0
+  for (const entry of entries) {
+    // Only this episode's sidecars — the directory holds the whole season.
+    if (!entry.startsWith(oldBase)) continue
+    if (entry === oldBase) continue
+    if (!isSidecarFile(entry)) continue
+    const src = path.join(oldDir, entry)
+    const dst = path.join(newDir, retargetSidecarName(entry, oldBase, newBase))
+    if (src === dst) continue
+    try {
+      if (await exists(dst)) continue
+      await fs.rename(src, dst)
+      moved++
+    } catch {
+      // Non-fatal: the sidecar stays put rather than the rename failing.
+    }
+  }
+  return moved
+}
+
+/** Removes a directory when it has become empty. Used to retire old season folders. */
+export async function removeIfEmpty(dir: string): Promise<boolean> {
+  try {
+    const left = await fs.readdir(dir)
+    if (left.length > 0) return false
+    await fs.rmdir(dir)
+    return true
+  } catch {
+    return false
+  }
+}
