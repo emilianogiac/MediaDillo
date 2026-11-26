@@ -236,3 +236,45 @@ export async function removeIfEmpty(dir: string): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * Moves whatever remains in an emptied season directory to its replacement.
+ *
+ * Season-level artwork (`folder.jpg`, `season.nfo`, `season01-banner.jpg`, …) belongs
+ * to the season rather than to any episode, so it matches no episode basename and
+ * migrateEpisodeSidecars cannot claim it. Without this the old `s01/` directory
+ * survives a conversion to `Season 01/` holding orphaned artwork (issue #88).
+ *
+ * Refuses to act while any video remains, so a partially-converted season is never
+ * stripped of its artwork.
+ */
+export async function migrateSeasonFolderLeftovers(
+  oldDir: string,
+  newDir: string
+): Promise<number> {
+  if (oldDir === newDir) return 0
+  let entries: string[]
+  try {
+    entries = await fs.readdir(oldDir)
+  } catch {
+    return 0
+  }
+  const hasVideo = entries.some((e) => VIDEO_EXTENSIONS.has(path.extname(e).toLowerCase()))
+  if (hasVideo) return 0
+
+  let moved = 0
+  for (const entry of entries) {
+    const src = path.join(oldDir, entry)
+    const dst = path.join(newDir, entry)
+    try {
+      const st = await fs.stat(src)
+      if (!st.isFile()) continue
+      if (await exists(dst)) continue
+      await fs.rename(src, dst)
+      moved++
+    } catch {
+      // leave it; the directory simply will not be removed
+    }
+  }
+  return moved
+}
