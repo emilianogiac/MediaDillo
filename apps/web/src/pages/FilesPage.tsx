@@ -467,6 +467,14 @@ function StaleTab() {
 // Multi-part tab
 // ---------------------------------------------------------------------------
 
+// Why a pair cannot be merged, in the user's terms rather than the API's.
+const VERDICT_LABEL: Record<string, string> = {
+  versions: 'Two complete copies, not parts',
+  junk: 'One side is a sample or trailer',
+  unknown: 'Cannot be verified as two halves',
+  parts: 'Incompatible streams',
+}
+
 function MultiPartTab() {
   const [items, setItems] = useState<MultiPartCandidate[]>([])
   const [loading, setLoading] = useState(true)
@@ -511,7 +519,9 @@ function MultiPartTab() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-gray-500">
-        Movies detected as split across two part files (-cd1/-cd2, -part1/-part2, etc.). ffmpeg concat will produce one file.
+        Movies detected as split across two part files (-cd1/-cd2, -part1/-part2, etc.). Each pair is
+        probed before being offered: only true halves of one film with identical streams can be merged,
+        and the merged file is verified against the combined duration before the originals are trashed.
       </p>
 
       {Object.entries(results).map(([id, res]) => (
@@ -538,8 +548,9 @@ function MultiPartTab() {
                       void merge(item.movieId)
                     }
                   }}
-                  disabled={merging === item.movieId}
-                  className="flex-shrink-0 px-3 py-1.5 text-sm rounded bg-accent hover:bg-accent-hover text-white disabled:opacity-40 transition-colors"
+                  disabled={merging === item.movieId || !item.assessment.mergeable}
+                  title={item.assessment.mergeable ? undefined : item.assessment.reasons.join('; ')}
+                  className="flex-shrink-0 px-3 py-1.5 text-sm rounded bg-accent hover:bg-accent-hover text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
                   {merging === item.movieId ? 'Merging…' : 'Merge'}
                 </button>
@@ -552,6 +563,14 @@ function MultiPartTab() {
                   Part 2: {item.part2.path.split('/').pop()} ({formatSize(item.part2.sizeBytes)})
                 </p>
               </div>
+              {!item.assessment.mergeable && (
+                <div className="text-xs rounded px-2 py-1.5 bg-yellow-900/30 text-yellow-300">
+                  <span className="font-medium">{VERDICT_LABEL[item.assessment.verdict]}</span>
+                  {item.assessment.reasons.length > 0 && (
+                    <span> — {item.assessment.reasons.join('; ')}</span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
