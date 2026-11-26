@@ -12,7 +12,20 @@ const TYPOGRAPHIC_MAP: [RegExp, string][] = [
   [/½/g, ''],          // ½ fraction (8½ → 8)
   [/ª/g, 'a'],         // ª feminine ordinal
   [/º/g, 'o'],         // º masculine ordinal
+  [/[•·∙‧]/g, '-'],    // • bullet & middot family — TMDB titles use it (WALL•E)
+  [/°/g, ''],          // ° degree sign (Il 13° guerriero → Il 13 guerriero)
 ]
+
+// Final guard: the enumerated map above can only cover characters we have already
+// met. Any other non-ASCII symbol (\p{S}) or punctuation (\p{P}) is dropped so the
+// documented ASCII-safety invariant holds for titles we have not seen yet.
+//
+// Letters (\p{L}) and digits are deliberately left alone: stripping them would
+// reduce a CJK or Cyrillic title to an empty filename, which is far worse than a
+// non-ASCII letter. The bug class this guards against is symbols and punctuation.
+// The lookahead fences the class to characters outside printable ASCII, so ASCII
+// punctuation that is legitimate in a filename (- ' ( ) . , & !) is never touched.
+const NON_ASCII_SYMBOL_OR_PUNCT = /(?=[^\x20-\x7E])[\p{S}\p{P}]/gu
 
 export function sanitizeForFilename(str: string): string {
   // NFD decomposes accented letters into base + combining mark (e.g. è → e + ̀),
@@ -21,7 +34,12 @@ export function sanitizeForFilename(str: string): string {
   for (const [pattern, replacement] of TYPOGRAPHIC_MAP) {
     s = s.replace(pattern, replacement)
   }
-  return s.replace(INVALID_CHARS, '').replace(MULTI_SPACE, ' ').replace(LEADING_DOTS, '').trim()
+  return s
+    .replace(INVALID_CHARS, '')
+    .replace(NON_ASCII_SYMBOL_OR_PUNCT, '')
+    .replace(MULTI_SPACE, ' ')
+    .replace(LEADING_DOTS, '')
+    .trim()
 }
 
 export function canonicalMovieFolderName(title: string, year: number | null): string {

@@ -141,3 +141,71 @@ describe('canonicalEpisodeFileName', () => {
     )
   })
 })
+
+describe('sanitizeForFilename — non-ASCII symbols and punctuation (issue #69)', () => {
+  it('maps the bullet used in TMDB titles to a hyphen', () => {
+    // MediaDillo itself renamed "WALL-E (2008)" to "WALL•E (2008)" on the Milan
+    // library, taking the bullet straight from the TMDB title.
+    expect(sanitizeForFilename('WALL•E')).toBe('WALL-E')
+    expect(canonicalMovieFolderName('WALL•E', 2008)).toBe('WALL-E (2008)')
+  })
+
+  it('maps the middot family to a hyphen', () => {
+    expect(sanitizeForFilename('A·B')).toBe('A-B')
+    expect(sanitizeForFilename('A∙B')).toBe('A-B')
+    expect(sanitizeForFilename('A‧B')).toBe('A-B')
+  })
+
+  it('drops the degree sign', () => {
+    expect(sanitizeForFilename('Il 13° guerriero')).toBe('Il 13 guerriero')
+  })
+
+  it('drops unenumerated non-ASCII symbols and punctuation', () => {
+    expect(sanitizeForFilename('Trade™ Mark')).toBe('Trade Mark')
+    expect(sanitizeForFilename('Copy© Right')).toBe('Copy Right')
+    expect(sanitizeForFilename('Price €50')).toBe('Price 50')
+    expect(sanitizeForFilename('Café « Paris »')).toBe('Cafe Paris')
+  })
+
+  it('preserves non-Latin letters rather than emptying the name', () => {
+    // Stripping all non-ASCII would reduce these to '', which is worse than a
+    // non-ASCII letter: the file would lose its name entirely.
+    expect(sanitizeForFilename('七人の侍')).toBe('七人の侍')
+    expect(sanitizeForFilename('Сталкер')).toBe(
+      'Сталкер'
+    )
+  })
+
+  it('keeps the previously mapped characters working', () => {
+    expect(sanitizeForFilename('And Just Like That…')).toBe('And Just Like That...')
+    expect(sanitizeForFilename('Jurassic World – Il regno distrutto')).toBe(
+      'Jurassic World - Il regno distrutto'
+    )
+    expect(sanitizeForFilename('L’avventura')).toBe("L'avventura")
+    expect(sanitizeForFilename('8½')).toBe('8')
+    expect(sanitizeForFilename('La 25ª ora')).toBe('La 25a ora')
+  })
+
+  it('leaves no non-ASCII symbol or punctuation in any real library title', () => {
+    // Generic invariant so the fix cannot regress one character at a time.
+    const titles = [
+      'WALL•E',
+      'Il 13° guerriero',
+      'And Just Like That…',
+      'C’era una volta a… Hollywood',
+      'Jurassic World – Il regno distrutto',
+      'Scooby-Doo! – 13 Casi da Brivido In Giro Per Il Mondo',
+      'Riverdance - L’avventura animata',
+      '8½',
+      'La 25ª ora',
+      'Il miracolo della 34ª strada',
+      'Adèle e l’enigma del faraone',
+      'Easy Rider - Libertà e paura',
+    ]
+    for (const title of titles) {
+      const out = sanitizeForFilename(title)
+      const leaked = [...out].filter((ch) => ch.charCodeAt(0) > 127)
+      expect(leaked, `leaked from ${JSON.stringify(title)}: ${JSON.stringify(leaked)}`).toEqual([])
+    }
+  })
+})

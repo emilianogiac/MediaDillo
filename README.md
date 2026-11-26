@@ -196,7 +196,7 @@ Use **Merge Multi-Part Episodes** on the season detail page to convert two separ
 
 ### Rules
 
-- **ASCII-only filenames** — accented letters are stripped to their base form (è→e, à→a, ù→u); typographic characters are normalised (…→`...`, en/em dash→`-`, curly quotes→straight); `!` and `@` are removed; ensures lossless sync with FreeFileSync and Linux-based NAS backup systems (Unifi UNAS, Synology, etc.)
+- **ASCII-only filenames** — accented letters are stripped to their base form (è→e, à→a, ù→u); typographic characters are normalised (…→`...`, en/em dash→`-`, curly quotes→straight, bullet/middot→`-`, `°` removed); `!` and `@` are removed; any remaining non-ASCII **symbol or punctuation** is dropped by a catch-all guard, so a title we have not seen before cannot leak a non-ASCII character into a filename. Non-Latin **letters** (CJK, Cyrillic) are deliberately preserved — stripping them would leave the file with no name at all. Ensures lossless sync with FreeFileSync and Linux-based NAS backup systems (Unifi UNAS, Synology, etc.)
 - Year is always the 4-digit release year in parentheses; bare year in TV filenames (e.g. `Show.Name.2005.S01E01`) is also recognised
 - Multi-episode single-file: `S01E01E02` (one file covering two episodes)
 - Both `S01E01` and `01x01` episode naming conventions are recognised during scanning
