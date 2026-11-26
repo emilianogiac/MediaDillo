@@ -163,6 +163,27 @@ export async function migrateSidecars(
 }
 
 /**
+ * Extensions that count as a sidecar once the name already matches a video's basename.
+ *
+ * Wider than isSidecarFile on purpose. That predicate has to judge a filename in
+ * isolation, so it only accepts artwork it can recognise by name ("poster.jpg") or by
+ * suffix ("<title>-thumb.jpg"). Here the prefix match against the video's basename is
+ * itself the proof of association, so the common Kodi/TMM episode thumbnail
+ * "<episode basename>.jpg" — which carries neither marker — must also qualify
+ * (issue #86).
+ */
+const EPISODE_SIDECAR_EXTENSIONS = new Set([
+  '.jpg', '.jpeg', '.png', '.webp', '.tbn',
+])
+
+function belongsToEpisode(entry: string): boolean {
+  if (isSidecarFile(entry)) return true
+  const dot = entry.lastIndexOf('.')
+  if (dot <= 0) return false
+  return EPISODE_SIDECAR_EXTENSIONS.has(entry.slice(dot).toLowerCase())
+}
+
+/**
  * Moves the sidecars belonging to one renamed video file.
  *
  * Differs from migrateSidecars, which moves a whole movie folder's sidecars: an episode
@@ -189,7 +210,7 @@ export async function migrateEpisodeSidecars(
     // Only this episode's sidecars — the directory holds the whole season.
     if (!entry.startsWith(oldBase)) continue
     if (entry === oldBase) continue
-    if (!isSidecarFile(entry)) continue
+    if (!belongsToEpisode(entry)) continue
     const src = path.join(oldDir, entry)
     const dst = path.join(newDir, retargetSidecarName(entry, oldBase, newBase))
     if (src === dst) continue
