@@ -177,8 +177,14 @@ async function syncSeasonFromTvdb(
 ): Promise<void> {
   const { ownedOnly = false, orderType = 'official' } = options
   const allEpisodes = await tvdbClient.getEpisodes(tvdbId, orderType, seasonNumber)
-  // Filter out TVDB placeholder entries with no episode number assigned yet
-  const episodes = allEpisodes.filter((ep): ep is TvdbEpisode & { number: number } => ep.number != null)
+  // Belt and braces: getEpisodes now scopes by season client-side, but this writes
+  // rows keyed only on `number`, so an episode from another season arriving here would
+  // silently overwrite this season's titles (issue #90). Filter again rather than
+  // trust the caller.
+  const episodes = allEpisodes.filter(
+    (ep): ep is TvdbEpisode & { number: number } =>
+      ep.number != null && ep.seasonNumber === seasonNumber
+  )
 
   // Upsert season
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })

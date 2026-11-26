@@ -159,16 +159,21 @@ export class TvdbClient {
       const episodes: TvdbEpisode[] = []
       let page = 0
       while (true) {
-        const seasonParam = seasonNumber !== undefined ? `season=${seasonNumber}&` : ''
+        // NOTE: this endpoint has no server-side season filter. A `season=` query
+        // parameter is accepted and silently ignored — asking for season 2 of
+        // A-Team returns all 95 episodes across seasons 0-5. Scoping therefore has
+        // to happen here, on the client (issue #90).
         const data = await this.get<{
           data: { episodes: TvdbEpisode[] } | null
           links: { next: string | null }
-        }>(`/series/${tvdbId}/episodes/${orderType}${langSuffix}?${seasonParam}page=${page}`)
+        }>(`/series/${tvdbId}/episodes/${orderType}${langSuffix}?page=${page}`)
         episodes.push(...(data.data?.episodes ?? []))
         if (!data.links.next) break
         page++
       }
-      return episodes
+      return seasonNumber === undefined
+        ? episodes
+        : episodes.filter((e) => e.seasonNumber === seasonNumber)
     }
 
     const primary = await fetchAll(`/${this.lang}`)
