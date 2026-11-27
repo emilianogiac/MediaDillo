@@ -166,6 +166,9 @@ export function SeasonDetailPage() {
   const seasonNum = parseInt(seasonNumber ?? '0', 10)
   const owned = season.episodes.filter((e) => e.status === 'owned').length
   const total = season.episodeCount
+  // Specials (and any season the provider has no structure for) carry
+  // episodeCount 0 — there is no denominator to show against (#95).
+  const ownedLabel = total > 0 ? `${owned}/${total} owned` : `${owned} owned`
   const visibleEpisodes = showMissing
     ? season.episodes
     : season.episodes.filter((e) => e.status === 'owned')
@@ -185,7 +188,7 @@ export function SeasonDetailPage() {
 
       <div className="flex items-center gap-3 flex-wrap">
         <h1 className="text-2xl font-bold">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</h1>
-        <span className="text-sm text-gray-500">{owned}/{total} owned</span>
+        <span className="text-sm text-gray-500">{ownedLabel}</span>
         <button
           onClick={() => setShowMissing((v) => !v)}
           className={`text-xs px-3 py-1 rounded border transition-colors ${
@@ -256,7 +259,10 @@ export function SeasonDetailPage() {
       {/* Episode list */}
       <div className="space-y-2">
         {visibleEpisodes.map((ep) => {
-          const outOfBounds = ep.episodeNumber > season.episodeCount
+          // episodeCount is 0 for specials (and for any season the provider has
+          // no structure for), which would otherwise flag every episode as
+          // out-of-bounds. With no known bound there is nothing to exceed (#95).
+          const outOfBounds = season.episodeCount > 0 && ep.episodeNumber > season.episodeCount
           return (
           <div
             key={ep.id}
