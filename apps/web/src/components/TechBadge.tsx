@@ -1,6 +1,7 @@
 interface Props {
   label: string
-  variant?: 'default' | 'hdr' | 'quality' | 'edition'
+  variant?: 'default' | 'hdr' | 'quality' | 'edition' | 'warning'
+  title?: string
 }
 
 const QUALITY_COLORS: Record<string, string> = {
@@ -10,7 +11,7 @@ const QUALITY_COLORS: Record<string, string> = {
   SD: 'bg-gray-600/80 text-gray-200',
 }
 
-export function TechBadge({ label, variant = 'default' }: Props) {
+export function TechBadge({ label, variant = 'default', title }: Props) {
   const cls =
     variant === 'quality'
       ? (QUALITY_COLORS[label] ?? 'bg-gray-600/80 text-gray-200')
@@ -18,10 +19,15 @@ export function TechBadge({ label, variant = 'default' }: Props) {
         ? 'bg-yellow-500/80 text-yellow-900 font-bold'
         : variant === 'edition'
           ? 'bg-teal-700/80 text-teal-100'
-          : 'bg-gray-700 text-gray-300'
+          : variant === 'warning'
+            ? 'bg-amber-700/80 text-amber-100'
+            : 'bg-gray-700 text-gray-300'
 
   return (
-    <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}>
+    <span
+      className={`inline-block rounded px-1.5 py-0.5 text-xs font-medium ${cls}`}
+      {...(title ? { title } : {})}
+    >
       {label}
     </span>
   )

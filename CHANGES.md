@@ -1,3 +1,53 @@
+## 2026-11-27 — file duration is finally recorded
+
+**Issue #108.** `durationS` was NULL on all 10,700 `EpisodeFile` and 1,649
+`MovieFile` rows while `videoCodec` and `videoResolution` were set on
+essentially every one of them. The scanner's probe was not failing to store the
+duration — it never asked for it. `extractTechSpecs` ran `ffprobe -show_streams`
+with no `-show_format`, and `VideoTechSpecs` had no duration field at all.
+
+That mattered more than a missing column usually does. Duration is the only
+signal available that can contradict a filename: everything else is either the
+thing under test or the provider the name came from, so a wrong title and a
+wrong episode number agree with each other happily. A 44-minute file in a
+22-minute season is a two-parter and a 90-second file is an opening sequence,
+and until now there was no way to see either.
+
+`parseFfprobeOutput` now reads the runtime from the first of three sources that
+has it: `format.duration`, the video stream's own `duration`, and the
+Matroska `DURATION` tag, which is a timecode rather than a number and is the
+only one present on much of the TV library. Zero and `N/A` are treated as
+absent rather than stored as 0. All six `EpisodeFile`/`MovieFile` write sites in
+`db-sync.ts` persist it, and `needsDurationBackfill` makes a rescan rewrite a row
+whose duration is still NULL — without it the existing change triggers (mtime,
+codec, edition) are all unchanged for a correctly scanned file, so nothing would
+ever heal the old rows.
+
+For the 12,349 rows already in the database, `apps/api/src/scripts/backfill-durations.ts`
+probes only the NULL ones, through a small worker pool, and is therefore safe to
+interrupt and rerun:
+
+```
+docker compose exec app sh -c "cd apps/api && pnpm backfill:durations"
+```
+
+`--dry-run`, `--limit N` and `--concurrency N` are available. It is a script and
+not a startup migration because 12k probes against the NAS must not block API
+boot, and not a route because no request would survive it.
+
+The season view now shows each file's runtime as a badge, and flags in amber any
+file 1.5x away from the median runtime of the season's own files — the season's
+files rather than a provider's declared runtime, which is often absent and
+sometimes wrong. The median needs at least three known runtimes: with two, a
+double-length file and its normal neighbour are equally "the median" and the
+flag would fire on whichever sorted lower.
+
+Tests: `apps/api/src/scanner/ffprobe.test.ts` (duration sources and fallbacks),
+`apps/api/src/scanner/db-sync.test.ts` (persistence and the rescan heal),
+`apps/api/src/scripts/backfill-durations.test.ts`,
+`apps/web/src/pages/episodeRuntime.test.ts`,
+`apps/web/src/pages/SeasonDetailPage.test.tsx`.
+
 ## 2026-11-27 — one definition of "organized"
 
 **Issue #109.** A show could read "✓ Organized" on its own page and still sit in

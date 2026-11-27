@@ -9,7 +9,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "backfill:durations": "tsx src/scripts/backfill-durations.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",

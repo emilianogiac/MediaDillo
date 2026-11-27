@@ -11,10 +11,17 @@ interface FfprobeStream {
   color_space?: string
   channels?: number
   channel_layout?: string
+  duration?: string
+  tags?: Record<string, string>
+}
+
+interface FfprobeFormat {
+  duration?: string
 }
 
 interface FfprobeOutput {
   streams?: FfprobeStream[]
+  format?: FfprobeFormat
 }
 
 export async function extractTechSpecs(filePath: string): Promise<VideoTechSpecs> {
@@ -32,6 +39,7 @@ async function runFfprobe(filePath: string): Promise<FfprobeOutput> {
       '-v', 'quiet',
       '-print_format', 'json',
       '-show_streams',
+      '-show_format',
       filePath,
     ])
 
@@ -73,7 +81,40 @@ export function parseFfprobeOutput(data: FfprobeOutput): VideoTechSpecs {
   const audioChannels = resolveChannelLayout(audio)
   const audioQualityTier = resolveAudioQualityTier(audioCodec)
 
-  return { videoCodec, videoResolution, videoQualityTier, hdr, audioCodec, audioChannels, audioQualityTier }
+  return { durationS: resolveDurationS(data, video), videoCodec, videoResolution, videoQualityTier, hdr, audioCodec, audioChannels, audioQualityTier }
+}
+
+/**
+ * Container duration in whole seconds, from the cheapest source that has it.
+ *
+ * `format.duration` is absent on some AVI/MPEG rips and never set on the Matroska
+ * video stream, which carries the figure in a `DURATION` tag instead — hence three
+ * sources rather than one. This is the header value: cheap, and good enough to tell a
+ * 22-minute slot from a 70-minute one. Merge verification needs more precision than a
+ * header can promise and reads the last video packet itself (see `probeMedia`).
+ */
+function resolveDurationS(data: FfprobeOutput, video: FfprobeStream | undefined): number | null {
+  const candidates = [
+    parseSeconds(data.format?.duration),
+    parseSeconds(video?.duration),
+    parseTimecode(video?.tags?.['DURATION'] ?? video?.tags?.['duration']),
+  ]
+  const seconds = candidates.find((c) => c !== null && c > 0)
+  return seconds === undefined || seconds === null ? null : Math.round(seconds)
+}
+
+function parseSeconds(raw: string | undefined): number | null {
+  if (!raw) return null
+  const n = Number.parseFloat(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+/** Matroska writes `HH:MM:SS.nnnnnnnnn` in the stream's DURATION tag. */
+function parseTimecode(raw: string | undefined): number | null {
+  if (!raw) return null
+  const m = /^(\d+):([0-5]\d):([0-5]\d(?:\.\d+)?)$/.exec(raw.trim())
+  if (!m) return null
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number.parseFloat(m[3]!)
 }
 
 function normalizeVideoCodec(raw: string | null): string | null {
@@ -173,6 +214,7 @@ function resolveAudioQualityTier(codec: string | null): string | null {
 
 function nullSpecs(): VideoTechSpecs {
   return {
+    durationS: null,
     videoCodec: null, videoResolution: null, videoQualityTier: null, hdr: false,
     audioCodec: null, audioChannels: null, audioQualityTier: null,
   }

@@ -58,9 +58,10 @@ const mockEpisodeFile = prisma.episodeFile as unknown as {
 const FAKE_SHOW = { id: 'show-1', title: 'Breaking Bad', year: 2008, tmdbId: null, tvdbId: null, overview: null, rating: null, genres: [], posterDownloaded: false, backdropDownloaded: false, ownedEpisodes: 0 }
 const FAKE_SEASON = { id: 'season-1', showId: 'show-1', seasonNumber: 1 }
 const FAKE_EPISODE = { id: 'episode-1', seasonId: 'season-1', episodeNumber: 1, title: null, airDate: null, status: 'owned' }
-const FAKE_EPISODE_FILE = { id: 'ef-1', episodeId: 'episode-1', path: '/tv/Breaking Bad/Season 1/S01E01.mkv', scannedAt: new Date(0), sizeBytes: BigInt(1000) }
+const FAKE_EPISODE_FILE = { id: 'ef-1', episodeId: 'episode-1', path: '/tv/Breaking Bad/Season 1/S01E01.mkv', scannedAt: new Date(0), sizeBytes: BigInt(1000), durationS: 1320 }
 
 const FAKE_TECH_SPECS = {
+  durationS: 1320,
   videoCodec: 'H.264',
   videoResolution: '1080p',
   videoQualityTier: '1080p',
@@ -260,6 +261,58 @@ describe('syncEpisodeFile — TvShow deduplication via folder anchor', () => {
 
     const result = await syncEpisodeFile(file, '/tv')
     expect(result).toBe('unchanged')
+    expect(mockEpisodeFile.update).not.toHaveBeenCalled()
+  })
+
+  it('persists the probed duration on a newly added file', async () => {
+    mockEpisodeFile.findFirst.mockResolvedValue(null)
+    mockTvShow.findFirst.mockResolvedValue(FAKE_SHOW)
+    mockEpisodeFile.findUnique.mockResolvedValue(null)
+
+    await syncEpisodeFile(makeScannedFile('/tv/Breaking Bad/Season 1/Breaking Bad S01E01.mkv'), '/tv')
+
+    expect(mockEpisodeFile.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ durationS: 1320 }) }),
+    )
+  })
+
+  it('rewrites an otherwise-unchanged row whose duration is still NULL (issue #108)', async () => {
+    const oldScannedAt = new Date(Date.now() - 10_000)
+    mockEpisodeFile.findFirst.mockResolvedValue(null)
+    mockTvShow.findFirst.mockResolvedValue(FAKE_SHOW)
+    mockEpisodeFile.findUnique.mockResolvedValue({
+      ...FAKE_EPISODE_FILE,
+      durationS: null,
+      scannedAt: new Date(Date.now() + 99_999),
+    })
+
+    const file = makeScannedFile('/tv/Breaking Bad/Season 1/Breaking Bad S01E01.mkv')
+    file.mtimeMs = oldScannedAt.getTime()
+
+    const result = await syncEpisodeFile(file, '/tv')
+    expect(result).toBe('changed')
+    expect(mockEpisodeFile.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ durationS: 1320 }) }),
+    )
+  })
+
+  it('leaves an unchanged row alone when the probe cannot read a duration', async () => {
+    const oldScannedAt = new Date(Date.now() - 10_000)
+    mockEpisodeFile.findFirst.mockResolvedValue(null)
+    mockTvShow.findFirst.mockResolvedValue(FAKE_SHOW)
+    mockEpisodeFile.findUnique.mockResolvedValue({
+      ...FAKE_EPISODE_FILE,
+      durationS: null,
+      scannedAt: new Date(Date.now() + 99_999),
+    })
+
+    const file = {
+      ...makeScannedFile('/tv/Breaking Bad/Season 1/Breaking Bad S01E01.mkv'),
+      mtimeMs: oldScannedAt.getTime(),
+      techSpecs: { ...FAKE_TECH_SPECS, durationS: null },
+    }
+
+    expect(await syncEpisodeFile(file, '/tv')).toBe('unchanged')
     expect(mockEpisodeFile.update).not.toHaveBeenCalled()
   })
 })
