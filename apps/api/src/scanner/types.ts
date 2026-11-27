@@ -1,4 +1,6 @@
 export interface VideoTechSpecs {
+  /** Whole seconds of runtime. The only probe signal that can contradict a filename (issue #108). */
+  durationS: number | null
   videoCodec: string | null
   videoResolution: string | null
   videoQualityTier: string | null

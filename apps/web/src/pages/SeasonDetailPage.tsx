@@ -10,6 +10,7 @@ import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
 import { ReorderEpisodesPanel } from '../components/ReorderEpisodesPanel.js'
 import { EpisodeTitleInline } from '../components/EpisodeTitleInline.js'
 import { useToast } from '../context/ToastContext.js'
+import { formatRuntime, medianRuntime, isRuntimeOutlier } from './episodeRuntime.js'
 
 function Spinner() {
   return <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-600 border-t-accent animate-spin flex-shrink-0" />
@@ -174,6 +175,11 @@ export function SeasonDetailPage() {
     ? season.episodes
     : season.episodes.filter((e) => e.status === 'owned')
 
+  // The yardstick for a wrong-slot file is the season's own files (issue #108).
+  const seasonMedianRuntime = medianRuntime(
+    season.episodes.flatMap((e) => e.files.map((f) => f.durationS)),
+  )
+
   return (
     <div className="p-6 space-y-6">
       {/* Breadcrumb */}
@@ -326,6 +332,15 @@ export function SeasonDetailPage() {
                   <div key={file.id} className="space-y-1">
                     <p className="text-xs text-gray-500 font-mono truncate">{file.path}</p>
                     <div className="flex flex-wrap gap-1.5">
+                      {formatRuntime(file.durationS) && (
+                        <TechBadge
+                          label={formatRuntime(file.durationS)!}
+                          variant={isRuntimeOutlier(file.durationS, seasonMedianRuntime) ? 'warning' : 'default'}
+                          {...(isRuntimeOutlier(file.durationS, seasonMedianRuntime)
+                            ? { title: `Unusual runtime for this season (median ${formatRuntime(seasonMedianRuntime)})` }
+                            : {})}
+                        />
+                      )}
                       {file.videoQualityTier && (
                         <TechBadge label={file.videoQualityTier} variant="quality" />
                       )}

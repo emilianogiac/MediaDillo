@@ -170,3 +170,44 @@ describe('specials with no known episodeCount (issue #95)', () => {
     expect(container.querySelectorAll('.border-orange-700\\/50').length).toBeGreaterThan(0)
   })
 })
+
+describe('SeasonDetailPage — file runtime (issue #108)', () => {
+  const withRuntimes = (...durations: Array<number | null>) =>
+    makeSeason({
+      episodes: durations.map((d, i) => {
+        const ep = makeEpisodeWithFile(i + 1)
+        return { ...ep, files: [{ ...ep.files[0]!, durationS: d }] }
+      }),
+    })
+
+  it('shows each file runtime as a badge', async () => {
+    mockFetchSeason.mockResolvedValue(withRuntimes(1320, 1320, 1320))
+    renderPage()
+    await waitFor(() => expect(screen.getAllByText('22m')).toHaveLength(3))
+  })
+
+  it('flags a double-length file against the season median', async () => {
+    mockFetchSeason.mockResolvedValue(withRuntimes(1320, 1320, 1320, 2640))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('44m')).toBeInTheDocument())
+    expect(screen.getByText('44m')).toHaveAttribute(
+      'title',
+      'Unusual runtime for this season (median 22m)',
+    )
+    expect(screen.getAllByText('22m')[0]).not.toHaveAttribute('title')
+  })
+
+  it('renders no runtime badge for a file that has not been probed yet', async () => {
+    mockFetchSeason.mockResolvedValue(withRuntimes(null, null))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('Owned Episode 1')).toBeInTheDocument())
+    expect(screen.queryByTitle(/Unusual runtime/)).not.toBeInTheDocument()
+  })
+
+  it('flags nothing when too few files have a runtime to form a median', async () => {
+    mockFetchSeason.mockResolvedValue(withRuntimes(1320, 7200))
+    renderPage()
+    await waitFor(() => expect(screen.getByText('2h 0m')).toBeInTheDocument())
+    expect(screen.queryByTitle(/Unusual runtime/)).not.toBeInTheDocument()
+  })
+})

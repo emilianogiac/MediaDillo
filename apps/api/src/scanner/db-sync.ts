@@ -10,6 +10,16 @@ import { parseMovieFolderName, parseFilename, detect3DFormat } from './filename-
 import { extractTechSpecs } from './ffprobe.js'
 import { logActivity } from '../activity/log.js'
 
+/**
+ * True when a stored row predates duration persistence (issue #108) and the probe can
+ * now supply one. Without this, a rescan leaves `durationS` NULL forever: the other
+ * change triggers (mtime, codec, edition) are all unchanged for a file that was already
+ * scanned correctly, so nothing would ever rewrite the row.
+ */
+function needsDurationBackfill(existing: { durationS: number | null }, specs: VideoTechSpecs): boolean {
+  return existing.durationS === null && specs.durationS !== null
+}
+
 export interface ScanCounts {
   added: number
   changed: number
@@ -146,6 +156,7 @@ export async function syncMovieFile(
         path: file.path,
         sizeBytes: file.sizeBytes,
         edition,
+        durationS: specs.durationS,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -160,12 +171,13 @@ export async function syncMovieFile(
   }
 
   const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
-  if (mtimeChanged || existing.videoCodec !== specs.videoCodec || existing.edition !== edition) {
+  if (mtimeChanged || existing.videoCodec !== specs.videoCodec || existing.edition !== edition || needsDurationBackfill(existing, specs)) {
     await prisma.movieFile.update({
       where: { path: file.path },
       data: {
         sizeBytes: file.sizeBytes,
         edition,
+        durationS: specs.durationS,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -279,7 +291,7 @@ export async function syncMovieFolder(
     try {
       specs = await extractTechSpecs(walkedFile.path)
     } catch {
-      specs = { videoCodec: null, videoResolution: null, videoQualityTier: null, hdr: false, audioCodec: null, audioChannels: null, audioQualityTier: null }
+      specs = { durationS: null, videoCodec: null, videoResolution: null, videoQualityTier: null, hdr: false, audioCodec: null, audioChannels: null, audioQualityTier: null }
     }
 
     const fileParsed = parseFilename(walkedFile.path)
@@ -295,6 +307,7 @@ export async function syncMovieFolder(
           sizeBytes: walkedFile.sizeBytes,
           edition: fileEdition,
           threeD: fileThreeD,
+          durationS: specs.durationS,
           videoCodec: specs.videoCodec,
           videoResolution: specs.videoResolution,
           videoQualityTier: specs.videoQualityTier,
@@ -308,7 +321,7 @@ export async function syncMovieFolder(
       added++
     } else {
       const needsReparent = existing.movieId !== movie.id
-      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition || existing.threeD !== fileThreeD
+      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition || existing.threeD !== fileThreeD || needsDurationBackfill(existing, specs)
       if (needsReparent || needsUpdate) {
         const oldMovieId = needsReparent ? existing.movieId : null
         await prisma.movieFile.update({
@@ -318,6 +331,7 @@ export async function syncMovieFolder(
             sizeBytes: walkedFile.sizeBytes,
             edition: fileEdition,
             threeD: fileThreeD,
+            durationS: specs.durationS,
             videoCodec: specs.videoCodec,
             videoResolution: specs.videoResolution,
             videoQualityTier: specs.videoQualityTier,
@@ -498,6 +512,7 @@ export async function syncEpisodeFile(
         sizeBytes: file.sizeBytes,
         multiEpisodeEnd,
         threeD: fileThreeD,
+        durationS: specs.durationS,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,
@@ -516,7 +531,7 @@ export async function syncEpisodeFile(
   const wrongMultiEnd = (existing.multiEpisodeEnd ?? null) !== multiEpisodeEnd
   const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
 
-  if (wrongEpisode || wrongMultiEnd || mtimeChanged) {
+  if (wrongEpisode || wrongMultiEnd || mtimeChanged || needsDurationBackfill(existing, specs)) {
     const oldEpisodeId = existing.episodeId
     await prisma.episodeFile.update({
       where: { path: file.path },
@@ -525,6 +540,7 @@ export async function syncEpisodeFile(
         multiEpisodeEnd,
         threeD: fileThreeD,
         sizeBytes: file.sizeBytes,
+        durationS: specs.durationS,
         videoCodec: specs.videoCodec,
         videoResolution: specs.videoResolution,
         videoQualityTier: specs.videoQualityTier,

@@ -70,3 +70,49 @@ describe('parseFfprobeOutput', () => {
     expect(r.videoCodec).toBeNull()
   })
 })
+
+describe('parseFfprobeOutput — duration (issue #108)', () => {
+  it('reads format.duration and rounds to whole seconds', () => {
+    const r = parseFfprobeOutput({ ...h264_aac_1080p, format: { duration: '1327.613000' } })
+    expect(r.durationS).toBe(1328)
+  })
+
+  it('falls back to the video stream duration when the container has none', () => {
+    const r = parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264', height: 1080, duration: '113.173000' }],
+    })
+    expect(r.durationS).toBe(113)
+  })
+
+  it('falls back to the Matroska DURATION tag, which is a timecode not a number', () => {
+    const r = parseFfprobeOutput({
+      streams: [
+        { codec_type: 'video', codec_name: 'h264', height: 1080, tags: { DURATION: '00:22:05.155000000' } },
+      ],
+    })
+    expect(r.durationS).toBe(1325)
+  })
+
+  it('prefers format.duration over the stream fallbacks', () => {
+    const r = parseFfprobeOutput({
+      format: { duration: '600.0' },
+      streams: [
+        { codec_type: 'video', codec_name: 'h264', height: 1080, duration: '1.0', tags: { DURATION: '00:00:02.000000000' } },
+      ],
+    })
+    expect(r.durationS).toBe(600)
+  })
+
+  it('skips a zero or unparseable duration rather than storing 0', () => {
+    expect(parseFfprobeOutput({ ...h264_aac_1080p, format: { duration: '0.000000' } }).durationS).toBeNull()
+    expect(parseFfprobeOutput({ ...h264_aac_1080p, format: { duration: 'N/A' } }).durationS).toBeNull()
+    expect(parseFfprobeOutput({ ...h264_aac_1080p }).durationS).toBeNull()
+  })
+
+  it('ignores a DURATION tag that is not a timecode', () => {
+    const r = parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264', height: 1080, tags: { DURATION: 'unknown' } }],
+    })
+    expect(r.durationS).toBeNull()
+  })
+})

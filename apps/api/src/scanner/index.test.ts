@@ -44,6 +44,7 @@ const mockScanRoot = prisma.scanRoot as unknown as {
 const FAKE_SCAN_ROOT = { id: 'root-1', path: '/mnt/nas', label: 'NAS', type: 'movies' as const }
 
 const FAKE_TECH_SPECS = {
+  durationS: 1320,
   videoCodec: 'H.264',
   videoResolution: '1080p',
   videoQualityTier: '1080p',
