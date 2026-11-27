@@ -1,3 +1,42 @@
+## 2026-11-27 — merging parts no longer strands their sidecars
+
+**Issue #79.** `mergeMovieParts` trashed the two video files and nothing else, so
+every sidecar named after a part survived pointing at a video that no longer
+existed. Merging 24 films on the Milan library left 39 orphaned `.nfo` files
+(2 × `part1.nfo`, 37 × `part2.nfo`). `part1.nfo` mostly escaped notice only by
+luck: the NFO writer re-creates `<Title> (Year).nfo` for the merged output, which
+happened to overwrite it. `part2.nfo` had no such collision and was always
+stranded.
+
+Same class as #71 — a destructive file operation reasoning about the video and
+nothing named after it.
+
+`retirePartSidecars` now retires each part's sidecars into the same `.trash` as
+the parts, so one trash entry holds the complete original state. It runs after
+the output has been probed and verified (#77), so a merge that fails
+verification leaves the parts *and* their sidecars untouched; the retired paths
+go into the activity log entry alongside the merged parts.
+
+Subtitles are retired too, not retargeted. A subtitle for part1 is timed to the
+first half only: renaming it onto the merged file would leave the first half
+correct and the second half unsubtitled, which is worse than absent. Offsetting
+and concatenating subtitles is a separate job.
+
+Selection is `sidecarsOfBasename` in `files/sidecars.ts`, sharing
+`belongsToEpisode` with the episode rename so merge and rename cannot disagree
+about what belongs to a video. It is stricter than the rename's bare
+`startsWith`: the character after the basename must be `.`, `-` or `_`, because
+this list is handed to `deleteToTrash` and a loose prefix match would let
+`Movie - part1` claim `Movie - part10.srt`. Folder-level artwork and `movie.nfo`
+carry no part basename and survive, which matters because the merged file lands
+in that same folder and goes on using them.
+
+Tests: `apps/api/src/files/merge.test.ts` — the selection on a real temp folder,
+and `mergeMovieParts` itself with ffmpeg/ffprobe stubbed, asserting that a
+verified merge retires all four originals into one `.trash` and that both a
+failed verification and an unmergeable pair leave all six files in place.
+Selection rules in `apps/api/src/files/sidecars.test.ts`.
+
 ## 2026-11-27 — the stale detector stops condemning canonical files
 
 **Issue #94**, following #92. Of the 84 files the detector still flagged on the

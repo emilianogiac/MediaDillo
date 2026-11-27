@@ -7,6 +7,7 @@ import {
   migrateSidecars,
   migrateEpisodeSidecars,
   removeIfEmpty,
+  sidecarsOfBasename,
 } from './sidecars.js'
 
 beforeAll(async () => {
@@ -321,5 +322,57 @@ describe('migrateEpisodeSidecars — bare episode thumbnails (issue #86)', () =>
     const n = await migrateEpisodeSidecars(dir, dir, OLD, NEW)
     expect(n).toBe(0)
     expect((await fs.readdir(dir)).sort()).toEqual(['banner.jpg', 'poster.jpg'])
+  })
+})
+
+describe('sidecarsOfBasename (issue #79)', () => {
+  const base = 'Il Gattopardo (1963) - part1'
+
+  it('claims the sidecars named after the part', () => {
+    expect(
+      sidecarsOfBasename(
+        [
+          `${base}.nfo`,
+          `${base}.eng.srt`,
+          `${base}-thumb.jpg`,
+          `${base}.jpg`,
+          `${base}-poster.png`,
+        ],
+        base,
+      ).sort(),
+    ).toEqual(
+      [`${base}-poster.png`, `${base}-thumb.jpg`, `${base}.eng.srt`, `${base}.jpg`, `${base}.nfo`].sort(),
+    )
+  })
+
+  it('leaves the folder-level artwork and NFO alone', () => {
+    // The merged file lands in this same folder and keeps using these.
+    expect(
+      sidecarsOfBasename(
+        ['poster.jpg', 'backdrop.jpg', 'movie.nfo', 'logo.svg', 'Il Gattopardo (1963).nfo'],
+        base,
+      ),
+    ).toEqual([])
+  })
+
+  it('does not claim the part video itself, or the other part', () => {
+    expect(
+      sidecarsOfBasename([`${base}.mkv`, 'Il Gattopardo (1963) - part2.mkv'], base),
+    ).toEqual([])
+  })
+
+  it('requires a separator, so part1 cannot claim part10', () => {
+    // The returned list goes to deleteToTrash, so a loose prefix match destroys files.
+    expect(sidecarsOfBasename(['Movie - part10.srt', 'Movie - part1.srt'], 'Movie - part1')).toEqual([
+      'Movie - part1.srt',
+    ])
+  })
+
+  it('ignores a file that merely starts with the basename but is not a sidecar', () => {
+    expect(sidecarsOfBasename([`${base}.bin`, `${base}.db`], base)).toEqual([])
+  })
+
+  it('returns nothing for an empty basename rather than claiming the folder', () => {
+    expect(sidecarsOfBasename(['poster.jpg', 'movie.nfo'], '')).toEqual([])
   })
 })

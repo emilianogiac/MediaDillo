@@ -184,6 +184,28 @@ function belongsToEpisode(entry: string): boolean {
 }
 
 /**
+ * The folder entries that are sidecars of one specific video basename.
+ *
+ * Shares `belongsToEpisode` with the episode rename, so merge and rename cannot
+ * disagree about what belongs to a video (issue #79).
+ *
+ * The remainder after the basename must start with a separator. Plain `startsWith` is
+ * enough when the caller is moving files, but this list is handed to `deleteToTrash`:
+ * without the separator check, retiring `Movie - part1` would also claim
+ * `Movie - part10.srt`. The video itself is excluded — callers retire that by path —
+ * and so is any other video sharing the prefix.
+ */
+export function sidecarsOfBasename(entries: string[], videoBasename: string): string[] {
+  if (!videoBasename) return []
+  return entries.filter((entry) => {
+    if (!entry.startsWith(videoBasename) || entry.length === videoBasename.length) return false
+    if (!/^[.\-_]/.test(entry.slice(videoBasename.length))) return false
+    if (VIDEO_EXTENSIONS.has(path.extname(entry).toLowerCase())) return false
+    return belongsToEpisode(entry)
+  })
+}
+
+/**
  * Moves the sidecars belonging to one renamed video file.
  *
  * Differs from migrateSidecars, which moves a whole movie folder's sidecars: an episode
