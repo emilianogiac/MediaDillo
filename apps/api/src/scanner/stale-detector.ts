@@ -8,7 +8,9 @@ const KNOWN_ARTWORK = new Set([
   'fanart.jpg', 'fanart.jpeg', 'fanart.png',
   'thumb.jpg', 'thumb.jpeg', 'thumb.png',
   'banner.jpg', 'banner.jpeg', 'banner.png',
-  'logo.jpg', 'logo.png',
+  // .svg because clearlogos are commonly vector; files/sidecars.ts already listed it,
+  // so every SVG logo in the library was reported as an unrecognized file (issue #94).
+  'logo.jpg', 'logo.png', 'logo.svg',
   'clearart.png', 'clearart.jpg',
   'clearlogo.png', 'clearlogo.jpg',
   'characterart.png', 'characterart.jpg',
@@ -46,11 +48,28 @@ function isEpisodeArtwork(basename: string, videoBasenames: Set<string>): boolea
   return stem.endsWith('-thumb') && videoBasenames.has(stem.slice(0, -'-thumb'.length))
 }
 
-// Canonical NFO filenames created by MediaDillo.
-// Any .nfo whose basename is NOT in this set was created by another tool (TMM, Kodi, etc.)
-// and should be flagged as stale when the corresponding canonical NFO already exists.
-const CANONICAL_NFO = new Set([
+// NFO filenames MediaDillo writes itself. Their presence is what proves MediaDillo has
+// taken over a folder's metadata, which is the precondition for flagging a foreign NFO.
+const MEDIADILLO_NFO = new Set([
   'movie.nfo', 'tvshow.nfo', 'episode.nfo',
+])
+
+// The MediaDillo NFOs that describe one specific video in their folder, as opposed to
+// `tvshow.nfo`, which describes the show a season folder belongs to. Only these can
+// make a video-named NFO redundant: see the `.nfo` branch below.
+const PER_ITEM_MEDIADILLO_NFO = new Set([
+  'movie.nfo', 'episode.nfo',
+])
+
+// NFO filenames that are never stale, whoever wrote them.
+//
+// Deliberately wider than MEDIADILLO_NFO, and the two must stay separate: `season.nfo`
+// is standard Kodi/Jellyfin season metadata that MediaDillo does not write, so keeping
+// it in one set would make its presence in a season folder count as "MediaDillo has
+// taken over" and start condemning that folder's other NFOs (issue #94).
+const CANONICAL_NFO = new Set([
+  ...MEDIADILLO_NFO,
+  'season.nfo',
 ])
 
 // Subtitle sidecars. Single source of truth: a format missing here falls all the way
@@ -122,8 +141,11 @@ export async function detectStaleFiles(
         '_fanart': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png', 'fanart.jpg', 'fanart.jpeg', 'fanart.png'],
         '-backdrop': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
         '_backdrop': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
-        '-landscape': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
-        '_landscape': ['backdrop.jpg', 'backdrop.jpeg', 'backdrop.png'],
+        // Its own counterpart, not the backdrop: landscape artwork is a distinct
+        // 16:9 titled image, so `<title>-landscape.jpg` beside a backdrop but with
+        // no `landscape.jpg` was the only copy of it in the library (issue #94).
+        '-landscape': ['landscape.jpg', 'landscape.jpeg', 'landscape.png'],
+        '_landscape': ['landscape.jpg', 'landscape.jpeg', 'landscape.png'],
         '-banner': ['banner.jpg', 'banner.jpeg', 'banner.png'],
         '_banner': ['banner.jpg', 'banner.jpeg', 'banner.png'],
         '-clearart': ['clearart.png'],
@@ -132,8 +154,8 @@ export async function detectStaleFiles(
         '_discart': ['disc.png', 'discart.png'],
         '-disc': ['disc.png', 'discart.png'],
         '_disc': ['disc.png', 'discart.png'],
-        '-logo': ['logo.jpg', 'logo.png'],
-        '_logo': ['logo.jpg', 'logo.png'],
+        '-logo': ['logo.jpg', 'logo.png', 'logo.svg'],
+        '_logo': ['logo.jpg', 'logo.png', 'logo.svg'],
         '-thumb': ['thumb.jpg', 'thumb.jpeg', 'thumb.png'],
         '_thumb': ['thumb.jpg', 'thumb.jpeg', 'thumb.png'],
       }
@@ -155,7 +177,24 @@ export async function detectStaleFiles(
     // MediaDillo NFO already exists in the same folder (confirming MediaDillo has taken over).
     if (ext === '.nfo') {
       const dir = path.dirname(filePath)
-      const hasCanonicalNfo = [...CANONICAL_NFO].some(n => files.has(path.join(dir, n).toLowerCase()))
+
+      // An .nfo named after a video in the same folder IS that video's NFO — the
+      // convention Kodi and Jellyfin actually use for episodes, which name the file
+      // after the video rather than `episode.nfo` (issue #94).
+      //
+      // Unless MediaDillo has already written its own NFO for that same video, which
+      // is what `movie.nfo` beside `<Title> (Year).mkv` means: there the video-named
+      // copy really is the duplicate the triage confirmed as stale. `tvshow.nfo` does
+      // not count — it describes the show, not the episode next to it, so an episode
+      // NFO in a season folder survives.
+      if (videoBasenames.has(basename.slice(0, -ext.length))) {
+        const superseded = [...PER_ITEM_MEDIADILLO_NFO].some((n) => files.has(path.join(dir, n).toLowerCase()))
+        if (!superseded) continue
+        stale.push({ path: filePath, reason: 'non-canonical NFO (superseded by MediaDillo NFO)' })
+        continue
+      }
+
+      const hasCanonicalNfo = [...MEDIADILLO_NFO].some(n => files.has(path.join(dir, n).toLowerCase()))
       if (hasCanonicalNfo) {
         stale.push({ path: filePath, reason: 'non-canonical NFO (superseded by MediaDillo NFO)' })
       }

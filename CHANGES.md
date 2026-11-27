@@ -1,3 +1,49 @@
+## 2026-11-27 — the stale detector stops condemning canonical files
+
+**Issue #94**, following #92. Of the 84 files the detector still flagged on the
+Milan library, triage against the filesystem found only 26 genuinely stale. The
+remaining 58 were canonical files the detector had no rule for, and the feature
+offers a bulk delete.
+
+Four gaps, all closed:
+
+- **Episode NFOs (19 files).** Kodi and Jellyfin name an episode's NFO after its
+  video, not `episode.nfo`. An `.nfo` sitting beside a video of the same basename
+  is now recognised as that video's NFO.
+- **`season.nfo` (1 file).** Standard season metadata, absent from the canonical
+  list.
+- **`logo.svg` (9 files).** `KNOWN_ARTWORK` had `logo.png` and `logo.jpg` but not
+  the SVG spelling, which `files/sidecars.ts` had listed all along. It is now
+  also accepted as the canonical counterpart of a `-logo` suffixed file.
+- **Unsuperseded landscape art (9 files).** `-landscape` resolved to
+  `backdrop.jpg`, so a suffixed landscape was called redundant whenever a
+  backdrop existed. They are different images: for nine films the suffixed file
+  was the only landscape artwork in the folder and deleting it would have lost it
+  outright. `-landscape` now requires `landscape.jpg` itself.
+
+Two distinctions the fix turns on, both of which cost a round to find:
+
+`CANONICAL_NFO` was doing two jobs — "never stale" and "proof MediaDillo has
+taken this folder over, so foreign NFOs here are superseded". Adding `season.nfo`
+to a single set would have made its presence start condemning a season folder's
+other NFOs, so the sets are now separate.
+
+And a video-named NFO is not canonical unconditionally: `movie.nfo` beside
+`Iron Man (2008).mkv` means `Iron Man (2008).nfo` really is the duplicate the
+triage confirmed as stale. Only the per-item NFOs (`movie.nfo`, `episode.nfo`)
+supersede a video-named one; `tvshow.nfo` describes the show rather than the
+episode next to it, so episode NFOs in a season folder survive. Without that
+distinction the fix spared all 26 real positives too.
+
+Tests: `apps/api/src/scanner/stale-detector.test.ts`, including the real
+`/mnt/nas/film/Iron Man (2008)` listing, which carries every shape in the issue
+at once — two videos, two video-named NFOs, two suffixed landscapes, `movie.nfo`
+present and no `landscape.jpg`.
+
+Not changed: `-background`, which `files/sidecars.ts` recognises and the stale
+detector does not, so `<title>-background.jpg` still reports as unrecognized.
+Out of scope here and unmeasured against the library.
+
 ## 2026-11-27 — file duration is finally recorded
 
 **Issue #108.** `durationS` was NULL on all 10,700 `EpisodeFile` and 1,649

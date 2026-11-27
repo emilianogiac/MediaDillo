@@ -148,3 +148,151 @@ describe('detectStaleFiles — artwork recognition (issue #92)', () => {
 function await_detect(folder: string, known: Set<string>) {
   return detectStaleFiles(folder, known)
 }
+
+describe('detectStaleFiles — remaining false positives (issue #94)', () => {
+  const season = '/mnt/nas/serie_tv/Show (2001)/Season 01'
+  const movie = '/mnt/nas/film/Movie (2020)'
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('keeps an .nfo named after a video in the same folder', async () => {
+    // Kodi and Jellyfin name an episode's NFO after its video, not `episode.nfo`.
+    // 19 legitimate episode NFOs were queued for deletion on the Milan library.
+    const video = `${season}/Show - S01E01 - Pilot.mkv`
+    mockList([video, `${season}/Show - S01E01 - Pilot.nfo`, `${season}/tvshow.nfo`])
+    const stale = await detectStaleFiles(season, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('keeps an episode NFO even when the video itself is not in the library', async () => {
+    // The pairing is read off the filesystem, so an unmatched video (#97) does not
+    // drag its NFO down with it — the video alone is reported.
+    mockList([`${season}/00x03.mkv`, `${season}/00x03.nfo`, `${season}/tvshow.nfo`])
+    const stale = await detectStaleFiles(season, new Set())
+    expect(stale.map((s) => s.path)).toEqual([`${season}/00x03.mkv`])
+  })
+
+  it('keeps season.nfo', async () => {
+    const video = `${season}/Show - S01E01 - Pilot.mkv`
+    mockList([video, `${season}/season.nfo`])
+    const stale = await detectStaleFiles(season, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('does not let season.nfo condemn a foreign NFO on its own', async () => {
+    // season.nfo is not written by MediaDillo, so its presence is no evidence that
+    // MediaDillo has taken the folder over.
+    const video = `${season}/Show - S01E01 - Pilot.mkv`
+    mockList([video, `${season}/season.nfo`, `${season}/Old TMM Export.nfo`])
+    const stale = await detectStaleFiles(season, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('still flags a foreign NFO once a MediaDillo NFO is present', async () => {
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([video, `${movie}/movie.nfo`, `${movie}/Old TMM Export.nfo`])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([`${movie}/Old TMM Export.nfo`])
+    expect(stale[0]?.reason).toContain('non-canonical NFO')
+  })
+
+  it('keeps logo.svg', async () => {
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([video, `${movie}/logo.svg`])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('treats logo.svg as the canonical counterpart of a suffixed logo', async () => {
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([video, `${movie}/logo.svg`, `${movie}/Movie (2020)-logo.png`])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([`${movie}/Movie (2020)-logo.png`])
+  })
+
+  it('keeps suffixed landscape art when it is the only landscape in the folder', async () => {
+    // A backdrop does not supersede a landscape: they are different images. For nine
+    // films the suffixed file was the only landscape artwork present.
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([video, `${movie}/backdrop.jpg`, `${movie}/Movie (2020)-landscape.jpg`])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([])
+  })
+
+  it('still flags suffixed landscape art once landscape.jpg exists', async () => {
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([video, `${movie}/landscape.jpg`, `${movie}/Movie (2020)-landscape.jpg`])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path)).toEqual([`${movie}/Movie (2020)-landscape.jpg`])
+    expect(stale[0]?.reason).toContain('superseded by canonical')
+  })
+
+  it('still flags the genuinely stale cases the triage confirmed', async () => {
+    // TMM -poster/-backdrop with the canonical present, and a <title>.nfo duplicate
+    // alongside movie.nfo: 26 of the 84 were real and must stay flagged.
+    const video = `${movie}/Movie (2020).mkv`
+    mockList([
+      video,
+      `${movie}/poster.jpg`,
+      `${movie}/backdrop.jpg`,
+      `${movie}/movie.nfo`,
+      `${movie}/Movie (2020)-poster.jpg`,
+      `${movie}/Movie (2020)-backdrop.jpg`,
+      `${movie}/Movie (2020).nfo`,
+    ])
+    const stale = await detectStaleFiles(movie, new Set([video]))
+    expect(stale.map((s) => s.path.split('/').pop()).sort()).toEqual([
+      'Movie (2020)-backdrop.jpg',
+      'Movie (2020)-poster.jpg',
+      'Movie (2020).nfo',
+    ])
+  })
+  it('flags a video-named NFO only when a per-item MediaDillo NFO supersedes it', async () => {
+    // movie.nfo and episode.nfo describe the video beside them, so a video-named copy
+    // is a duplicate. tvshow.nfo describes the show, not the episode next to it.
+    const video = `${season}/Show - S01E01 - Pilot.mkv`
+    const nfo = `${season}/Show - S01E01 - Pilot.nfo`
+
+    mockList([video, nfo, `${season}/episode.nfo`])
+    expect((await detectStaleFiles(season, new Set([video]))).map((s) => s.path)).toEqual([nfo])
+
+    vi.clearAllMocks()
+    mockList([video, nfo, `${season}/tvshow.nfo`])
+    expect((await detectStaleFiles(season, new Set([video]))).map((s) => s.path)).toEqual([])
+  })
+})
+
+describe('detectStaleFiles — a real multi-edition movie folder (issue #94)', () => {
+  // Taken verbatim from /mnt/nas/film/Iron Man (2008) on the live library. It carries
+  // every shape issue #94 is about at once: two videos, each with its own video-named
+  // NFO and its own suffixed landscape art, movie.nfo present, and no landscape.jpg.
+  const folder = '/mnt/nas/film/Iron Man (2008)'
+  const names = [
+    'Iron Man (2008) {edition-Extended Edition}-landscape.jpg',
+    'Iron Man (2008) {edition-Extended Edition}.mkv',
+    'Iron Man (2008) {edition-Extended Edition}.nfo',
+    'Iron Man (2008)-landscape.jpg',
+    'Iron Man (2008).mkv',
+    'Iron Man (2008).nfo',
+    'backdrop.jpg',
+    'folder.jpg',
+    'logo.png',
+    'movie.nfo',
+    'poster.jpg',
+  ]
+
+  beforeEach(() => vi.clearAllMocks())
+
+  it('keeps both landscapes and flags only the two NFOs movie.nfo supersedes', async () => {
+    mockList(names.map((n) => `${folder}/${n}`))
+    const known = new Set([
+      `${folder}/Iron Man (2008).mkv`,
+      `${folder}/Iron Man (2008) {edition-Extended Edition}.mkv`,
+    ])
+    const stale = await detectStaleFiles(folder, known)
+    expect(stale.map((s) => s.path.split('/').pop()).sort()).toEqual([
+      'Iron Man (2008) {edition-Extended Edition}.nfo',
+      'Iron Man (2008).nfo',
+    ])
+  })
+})
