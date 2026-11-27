@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { prisma } from '@mediadillo/db'
+import { prisma, TitleSource } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { searchMovieCandidates } from '../metadata/matcher.js'
 import { getApiConfig } from '../api-config.js'
@@ -172,6 +172,40 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
     await prisma.tvShow.update({
       where: { id: req.params.showId },
       data: { ownedEpisodes: ownedCount },
+    })
+
+    return reply.send(updated)
+  })
+
+  // PATCH /api/missing/shows/:showId/episodes/:episodeId/title — correct an episode title
+  //
+  // A title set here is marked `manual` and is never overwritten by enrichment
+  // (issue #96): some providers mis-attribute episode titles for a given ordering,
+  // so a human-verified title outranks the provider's. Pass `reset: true` to hand
+  // the title back to the provider on the next enrich.
+  app.patch<{
+    Params: { showId: string; episodeId: string }
+    Body: { title?: string; reset?: boolean }
+  }>('/missing/shows/:showId/episodes/:episodeId/title', async (req, reply) => {
+    const { title, reset } = req.body ?? {}
+    if (!reset && (typeof title !== 'string' || title.trim() === '')) {
+      return reply.code(400).send({ error: 'title must be a non-empty string, or pass reset: true' })
+    }
+
+    const episode = await prisma.episode.findUnique({
+      where: { id: req.params.episodeId },
+      include: { season: { select: { showId: true } } },
+    })
+    if (!episode || episode.season.showId !== req.params.showId) {
+      return reply.code(404).send({ error: 'Episode not found' })
+    }
+
+    // Reset only flips provenance; the provider title arrives on the next enrich.
+    const updated = await prisma.episode.update({
+      where: { id: req.params.episodeId },
+      data: reset
+        ? { titleSource: TitleSource.provider }
+        : { title: title!.trim(), titleSource: TitleSource.manual },
     })
 
     return reply.send(updated)

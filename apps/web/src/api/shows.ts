@@ -1,5 +1,5 @@
 import { apiFetch } from './client.js'
-import type { ShowSummary, ShowDetail, SeasonDetail, ImageCandidate, MovieCandidate } from './types.js'
+import type { ShowSummary, ShowDetail, SeasonDetail, EpisodeDetail, ImageCandidate, MovieCandidate } from './types.js'
 import type { RenamePreviewItem } from './files.js'
 
 export interface ShowsFilter {
@@ -263,5 +263,31 @@ export async function updateShowMetadata(
   return apiFetch<ShowDetail>(`/metadata/shows/${id}`, {
     method: 'PUT',
     body: JSON.stringify(fields),
+  })
+}
+
+/**
+ * Correct an episode title. The new title is marked `manual`, so enrichment
+ * will leave it alone (#96).
+ */
+export async function updateEpisodeTitle(
+  showId: string,
+  episodeId: string,
+  title: string,
+): Promise<EpisodeDetail> {
+  return apiFetch<EpisodeDetail>(`/missing/shows/${showId}/episodes/${episodeId}/title`, {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  })
+}
+
+/** Hand an episode title back to the provider; it refreshes on the next enrich. */
+export async function resetEpisodeTitle(
+  showId: string,
+  episodeId: string,
+): Promise<EpisodeDetail> {
+  return apiFetch<EpisodeDetail>(`/missing/shows/${showId}/episodes/${episodeId}/title`, {
+    method: 'PATCH',
+    body: JSON.stringify({ reset: true }),
   })
 }

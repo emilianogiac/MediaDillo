@@ -110,6 +110,8 @@ export interface EpisodeDetail {
   id: string
   episodeNumber: number
   title: string | null
+  /** `manual` titles are human-verified and are not overwritten by enrichment (#96). */
+  titleSource: 'provider' | 'manual'
   airDate: string | null
   status: 'owned' | 'missing' | 'not_yet_aired' | 'ignored'
   files: EpisodeFile[]
