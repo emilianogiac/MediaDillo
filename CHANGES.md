@@ -1,3 +1,23 @@
+## 2026-11-27 — the duration backfill now documents a command that works
+
+**Issue #115.** The usage comment added with #108 told the operator to run
+`npx tsx src/scripts/backfill-durations.ts` inside the app container. That path
+does not exist there: the image ships `apps/api/dist` and no `src`. `tsx` *is*
+installed, so the command fails on the missing source file and reads like a
+packaging fault rather than a wrong path.
+
+The comment now gives the compiled invocation as the deployed form —
+`node apps/api/dist/scripts/backfill-durations.js` — and labels the `pnpm`
+script as local-only. Added `backfill:durations:dist` for the container.
+
+Also recorded two things measured against the live library while sizing the run,
+since they are the questions anyone about to run it will ask: a serial probe is
+~100ms per file and concurrency 8 is ~5x faster while leaving the mount
+unsaturated, and a row whose file is gone from disk is counted `unreadable` and
+left NULL — which makes the unreadable list a free report of orphaned file rows.
+
+No behaviour change.
+
 ## 2026-11-27 — the test suite is green again
 
 **Issue #98.** Five web page suites were red on `main` — 39 tests across

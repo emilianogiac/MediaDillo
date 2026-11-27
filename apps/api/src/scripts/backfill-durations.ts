@@ -3,13 +3,22 @@
  *
  * This is a script rather than a startup migration or a route: it is ~12k ffprobe calls
  * against the NAS, which is far too slow to block API boot and far too slow for a
- * request to survive. Run it once per deployment:
+ * request to survive. Run it once per deployment.
  *
- *   docker compose exec app sh -c "cd apps/api && npx tsx src/scripts/backfill-durations.ts"
+ * On a deployed instance — the app image ships `apps/api/dist` and no `src`, so this
+ * has to be the compiled file, not the TypeScript one (issue #115):
+ *
+ *   docker compose exec app node apps/api/dist/scripts/backfill-durations.js --concurrency 8
+ *
+ * Locally, where the source is present: `pnpm --filter @mediadillo/api backfill:durations`.
  *
  * Flags: --dry-run (probe and report, write nothing), --limit N, --concurrency N.
+ * Concurrency 8 measured ~5x faster than serial against the NAS and leaves the mount
+ * unsaturated; serial is ~100ms per file.
  *
  * Only NULL rows are touched, so the run is idempotent and safe to interrupt and resume.
+ * A row whose file is gone from disk is counted `unreadable` and left NULL, so the
+ * unreadable list doubles as a report of orphaned file rows.
  */
 import { prisma } from '@mediadillo/db'
 import { extractTechSpecs } from '../scanner/ffprobe.js'
