@@ -25,6 +25,42 @@ export function episodeSyncData(
   return existing.titleSource === 'manual' ? base : { ...base, title: providerTitle }
 }
 
+/**
+ * Create an episode row, treating "it already exists" as the update case.
+ *
+ * `findFirst` + `create` is not atomic, so two overlapping enrichments of the
+ * same show race on the `@@unique([seasonId, episodeNumber])` key. Letting that
+ * throw aborted the whole enrich and left the show half-synced, which is worse
+ * than either outcome (issue #106). The conflict path goes through
+ * `episodeSyncData`, so a hand-corrected title still survives (issue #96).
+ */
+export async function createOrSyncEpisode(
+  seasonId: string,
+  episodeNumber: number,
+  providerTitle: string | null,
+  airDate: Date | null,
+  status: EpisodeStatus,
+): Promise<void> {
+  try {
+    await prisma.episode.create({
+      data: { seasonId, episodeNumber, title: providerTitle, airDate, status },
+    })
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err
+    const existing = await prisma.episode.findFirst({ where: { seasonId, episodeNumber } })
+    if (!existing) throw err
+    await prisma.episode.update({
+      where: { id: existing.id },
+      data: episodeSyncData(existing, providerTitle, airDate, status),
+    })
+  }
+}
+
+/** Prisma's unique-constraint failure, without depending on the error class. */
+export function isUniqueViolation(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'P2002'
+}
+
 // ---------------------------------------------------------------------------
 // Movies
 // ---------------------------------------------------------------------------
@@ -62,27 +98,42 @@ export async function enrichTvShow(
   tmdbId: number,
   tvdbClient: TvdbClient | null = null,
 ): Promise<void> {
-  const details = await tmdbClient.getTv(tmdbId)
+  // A stale or deleted TMDB id must not take the whole enrich down with it: TVDB
+  // is the authoritative episode source for any show that has a `tvdbId`, and
+  // losing the TMDB-sourced artwork and credits is far cheaper than losing every
+  // episode title (issue #105).
+  let details: Awaited<ReturnType<TmdbClient['getTv']>> | null = null
+  try {
+    details = await tmdbClient.getTv(tmdbId)
+  } catch (err) {
+    const fallback = await prisma.tvShow.findUnique({
+      where: { id: showId },
+      select: { tvdbId: true },
+    })
+    if (!tvdbClient || !fallback?.tvdbId) throw err
+  }
 
-  const tvShowStatus = details.status === 'Ended' || details.status === 'Canceled' ? 'ended' : 'continuing'
+  if (details) {
+    const tvShowStatus = details.status === 'Ended' || details.status === 'Canceled' ? 'ended' : 'continuing'
 
-  await prisma.tvShow.update({
-    where: { id: showId },
-    data: {
-      tmdbId: details.id,
-      title: details.name,
-      year: details.first_air_date ? parseInt(details.first_air_date.slice(0, 4), 10) : null,
-      overview: details.overview,
-      genres: details.genres.map((g) => g.name),
-      rating: details.vote_average,
-      status: tvShowStatus,
-      totalEpisodes: details.number_of_episodes,
-      posterUrl: tmdbImageUrl(details.poster_path, 'w500'),
-      backdropUrl: tmdbImageUrl(details.backdrop_path, 'w1280'),
-    },
-  })
+    await prisma.tvShow.update({
+      where: { id: showId },
+      data: {
+        tmdbId: details.id,
+        title: details.name,
+        year: details.first_air_date ? parseInt(details.first_air_date.slice(0, 4), 10) : null,
+        overview: details.overview,
+        genres: details.genres.map((g) => g.name),
+        rating: details.vote_average,
+        status: tvShowStatus,
+        totalEpisodes: details.number_of_episodes,
+        posterUrl: tmdbImageUrl(details.poster_path, 'w500'),
+        backdropUrl: tmdbImageUrl(details.backdrop_path, 'w1280'),
+      },
+    })
 
-  await syncCredits('tv', showId, details.credits?.cast ?? [], details.credits?.crew ?? [])
+    await syncCredits('tv', showId, details.credits?.cast ?? [], details.credits?.crew ?? [])
+  }
 
   // Resolve TVDB ID: prefer stored value, fall back to TMDB external_ids
   let resolvedTvdbId: number | null = null
@@ -128,7 +179,9 @@ export async function enrichTvShow(
     }
   }
 
-  // No TVDB available — fall back to TMDB for episode data
+  // No TVDB available — fall back to TMDB for episode data. Unreachable without
+  // `details`, since a TMDB failure only survives above when TVDB can take over.
+  if (!details) return
   for (let s = 1; s <= details.number_of_seasons; s++) {
     await delay(RATE_LIMIT_MS)
     await syncSeasonData(tmdbClient, null, null, showId, tmdbId, s)
@@ -201,10 +254,19 @@ async function syncSeasonFromTvdb(
   // rows keyed only on `number`, so an episode from another season arriving here would
   // silently overwrite this season's titles (issue #90). Filter again rather than
   // trust the caller.
-  const episodes = allEpisodes.filter(
+  const inSeason = allEpisodes.filter(
     (ep): ep is TvdbEpisode & { number: number } =>
       ep.number != null && ep.seasonNumber === seasonNumber
   )
+  // TVDB sometimes lists the same (season, number) twice — series 272472's
+  // `alternate` order repeats S11E14 and S11E28. Writing both would hit the
+  // unique key and abort the sync, so keep the first of each (issue #106).
+  const seenNumbers = new Set<number>()
+  const episodes = inSeason.filter((ep) => {
+    if (seenNumbers.has(ep.number)) return false
+    seenNumbers.add(ep.number)
+    return true
+  })
 
   // Upsert season
   let dbSeason = await prisma.season.findFirst({ where: { showId, seasonNumber } })
@@ -236,15 +298,7 @@ async function syncSeasonFromTvdb(
     if (!existing) {
       if (ownedOnly) continue
       const status = airDate && airDate > today ? 'not_yet_aired' : 'missing'
-      await prisma.episode.create({
-        data: {
-          seasonId: dbSeason.id,
-          episodeNumber: ep.number,
-          title: ep.name,
-          airDate,
-          status,
-        },
-      })
+      await createOrSyncEpisode(dbSeason.id, ep.number, ep.name, airDate, status)
     } else {
       const newStatus =
         existing.status === 'owned' || existing.status === 'ignored'
@@ -340,15 +394,7 @@ async function syncAllSeasonsFromTvdb(
 
       if (!existing) {
         const status = airDate && airDate > today ? 'not_yet_aired' : 'missing'
-        await prisma.episode.create({
-          data: {
-            seasonId: dbSeason.id,
-            episodeNumber: ep.number,
-            title: ep.name,
-            airDate,
-            status,
-          },
-        })
+        await createOrSyncEpisode(dbSeason.id, ep.number, ep.name, airDate, status)
       } else {
         const newStatus =
           existing.status === 'owned' || existing.status === 'ignored'
@@ -471,15 +517,7 @@ async function syncSeason(
     if (!existing) {
       if (ownedOnly) continue // Never create missing/not_yet_aired rows for specials
       const status = airDate && airDate > today ? 'not_yet_aired' : 'missing'
-      await prisma.episode.create({
-        data: {
-          seasonId: dbSeason.id,
-          episodeNumber: ep.episode_number,
-          title: ep.name,
-          airDate,
-          status,
-        },
-      })
+      await createOrSyncEpisode(dbSeason.id, ep.episode_number, ep.name, airDate, status)
     } else {
       // Update title and air date; preserve 'owned' and 'ignored' statuses
       const newStatus =
