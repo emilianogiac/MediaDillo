@@ -96,3 +96,28 @@ export function canonicalEpisodeFileName(
   }
   return `${show} - ${code}${partSuffix}${ext}`
 }
+
+/**
+ * Whether a show's folder already carries its canonical `Title (Year)` name.
+ *
+ * This is the single definition of "organized" for a show. It used to be
+ * derived independently in two places — the shows list computed it from the
+ * folder name while `GET /shows/:id` hardcoded `false` — so the list and the
+ * show page could disagree about the same show (issue #109).
+ *
+ * A show with no provider id is never organized: without a match there is no
+ * canonical name to compare against.
+ *
+ * @param showFolder Absolute path of the show's folder, or null when unknown.
+ * @param hasProviderId Whether the show carries a tmdbId or a tvdbId.
+ */
+export function isShowFolderCanonical(
+  showFolder: string | null | undefined,
+  title: string,
+  year: number | null,
+  hasProviderId: boolean,
+): boolean {
+  if (!hasProviderId || !showFolder) return false
+  const folderName = showFolder.replace(/\/+$/, '').split('/').pop()
+  return folderName === canonicalMovieFolderName(title, year)
+}

@@ -1,3 +1,25 @@
+## 2026-11-27 — one definition of "organized"
+
+**Issue #109.** A show could read "✓ Organized" on its own page and still sit in
+the unorganized bucket on the shows list, caught by the unorganized filter.
+`IT - Il pagliaccio assassino` and `Conte Dacula` both did: their episode files
+were already canonical and only the folder name was wrong.
+
+Two independent derivations of the same word were to blame. The shows list
+compared the show's folder name to `Title (Year)`; the show page asked the
+organize preview what was pending but filtered to `episode-file` items, throwing
+away the `show-folder` item — the one thing the list looks at. Separately,
+`GET /api/shows/:id` hardcoded `isOrganized: false`, so the field it shipped was
+always wrong.
+
+Now `isShowFolderCanonical` in `files/naming.ts` is the single definition, used
+by both the list and the detail endpoint. The page badge moved into
+`pages/organizeDots.ts`, which tracks folder renames as their own signal and only
+reports organized when the preview has nothing left to do — strictly stronger
+than the list's check, so the two can no longer contradict each other.
+
+Tests: `apps/api/src/files/naming.test.ts` (8 new), `apps/web/src/pages/organizeDots.test.ts` (5).
+
 ## 2026-11-27 — enrichment survives a dead TMDB id and a concurrent run
 
 **Issue #105 — a stale TMDB id no longer blocks TVDB.**

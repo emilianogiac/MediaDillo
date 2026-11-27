@@ -8,6 +8,7 @@ import { fetchJellyfinStatus, fetchJellyfinShowUrl } from '../api/jellyfin.js'
 import { ArtworkManager } from '../components/ArtworkManager.js'
 import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
+import { organizeDotsFrom, isFullyOrganized, type OrganizeDots } from './organizeDots.js'
 import { useToast } from '../context/ToastContext.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
 import { TechBadge } from '../components/TechBadge.js'
@@ -63,7 +64,7 @@ export function ShowDetailPage() {
   const [tvdbIdInput, setTvdbIdInput] = useState('')
   const [savingTvdbId, setSavingTvdbId] = useState(false)
   const [tvdbOrders, setTvdbOrders] = useState<{ type: string; name: string }[]>([])
-  const [organizeDots, setOrganizeDots] = useState<{ renames: boolean; removals: boolean } | null>(null)
+  const [organizeDots, setOrganizeDots] = useState<OrganizeDots | null>(null)
   const [organizeTrigger, setOrganizeTrigger] = useState(0)
   const [jellyfinConfigured, setJellyfinConfigured] = useState(false)
   const [openingJellyfin, setOpeningJellyfin] = useState(false)
@@ -100,8 +101,7 @@ export function ShowDetailPage() {
     if (!id) return
     try {
       const preview = await fetchOrganizePreview(id)
-      const episodeRenames = preview.renames.filter((r) => r.type === 'episode-file')
-      setOrganizeDots({ renames: episodeRenames.length > 0, removals: preview.removals.length > 0 })
+      setOrganizeDots(organizeDotsFrom(preview))
     } catch { /* silent — dots just won't show */ }
   }
 
@@ -362,7 +362,7 @@ export function ShowDetailPage() {
             {!show.tmdbId && show.tvdbId && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-blue-900/40 border border-blue-700/40 text-blue-300 self-center">TVDB only</span>
             )}
-            {organizeDots !== null && !organizeDots.renames && !organizeDots.removals && (
+            {organizeDots !== null && isFullyOrganized(organizeDots) && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-green-900/40 border border-green-700/40 text-green-400 self-center">✓ Organized</span>
             )}
           </div>
