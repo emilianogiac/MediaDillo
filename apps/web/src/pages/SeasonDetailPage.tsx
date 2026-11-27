@@ -8,6 +8,7 @@ import { MergePartsPanel } from '../components/MergePartsPanel.js'
 import { AssignFilesPanel } from '../components/AssignFilesPanel.js'
 import { EpisodeRenamePanel } from '../components/EpisodeRenamePanel.js'
 import { ReorderEpisodesPanel } from '../components/ReorderEpisodesPanel.js'
+import { EpisodeTitleInline } from '../components/EpisodeTitleInline.js'
 import { useToast } from '../context/ToastContext.js'
 
 function Spinner() {
@@ -280,9 +281,21 @@ export function SeasonDetailPage() {
 
               <div className="flex-1 min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-gray-100 truncate">
-                    {ep.title ?? `Episode ${ep.episodeNumber}`}
-                  </span>
+                  {id ? (
+                    <EpisodeTitleInline
+                      key={ep.id}
+                      showId={id}
+                      episodeId={ep.id}
+                      episodeNumber={ep.episodeNumber}
+                      title={ep.title}
+                      titleSource={ep.titleSource ?? 'provider'}
+                      onChanged={load}
+                    />
+                  ) : (
+                    <span className="text-sm font-medium text-gray-100 truncate">
+                      {ep.title ?? `Episode ${ep.episodeNumber}`}
+                    </span>
+                  )}
                   <span
                     className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${STATUS_STYLES[ep.status]}`}
                   >
