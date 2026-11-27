@@ -1,3 +1,52 @@
+## 2026-11-27 — the test suite is green again
+
+**Issue #98.** Five web page suites were red on `main` — 39 tests across
+`SettingsPage`, `ShowsPage`, `MoviesPage`, `MovieDetailPage` and
+`DashboardPage`. Not flaky: the harnesses had drifted from the components, and a
+red baseline means "did I break anything" can only be answered by stashing and
+comparing counts.
+
+`pnpm test` is now **466 passed, 0 failed, 0 unhandled errors**, exit 0, with
+nothing skipped.
+
+Four distinct causes, in rough order of how much damage each did:
+
+**Bare `vi.mock` factories.** `vi.mock('../api/movies.js', () => ({ fetchMovie:
+vi.fn() }))` replaces the entire module, so every other export is `undefined`
+and the first newer import the page picked up throws inside an effect — before
+the assertion under test ever runs. Every factory now spreads
+`importOriginal()`. `MovieDetailPage` is the clearest case: it imports twenty-odd
+functions from `api/movies.js`, which is why maintaining the list by hand stopped
+working.
+
+**Spreading the original is not free, though.** An export that is spread rather
+than stubbed is the *real* function, and these pages fetch on mount:
+`fetchApiKeys`, `fetchAutoCleanup`, `fetchScanRoots`, `fetchEditions`,
+`fetchJellyfinStatus`, `fetchRenamePreview`, `fetchRenameLog`. jsdom has no
+origin to resolve `/api/...` against, so each one rejects. Vitest reports that as
+an unhandled error and exits non-zero even with every assertion green — so the
+mount-time calls are stubbed explicitly, each with a comment saying why.
+
+**Missing `ToastProvider`.** `ShowsPage`, `MoviesPage` and `MovieDetailPage`
+gained `useToast`, which throws outside the provider.
+
+**A missing fixture field.** `ShowsPage` explodes a show into one display entry
+per scan root, so `makeShow` without `scanRoots` threw in a `useMemo`.
+
+Three stale assertions were rewritten to follow the component, not the reverse:
+
+- `ShowsPage` and `MoviesPage` replaced the `Loading…` text with skeleton cards.
+- The Dashboard's single "Last Scan" card became `ScanHistoryCard`, which reads
+  the scan-log endpoint instead of `stats.lastScan` and renders nothing at all
+  when there are no scans. The two tests now assert the scan-log figures and the
+  card's absence. `stats.lastScan` is no longer read anywhere in the web app —
+  worth removing from the stats payload, but not here.
+
+One real component fix came out of it: `ScanHistoryCard` had
+`fetchScanLogs(10).then(setLogs).finally(...)` with no `catch`, so a failed fetch
+left the card on "Loading…" forever and rejected unhandled — in the browser as
+well as in jsdom. It now falls back to an empty history.
+
 ## 2026-11-27 — merging parts no longer strands their sidecars
 
 **Issue #79.** `mergeMovieParts` trashed the two video files and nothing else, so

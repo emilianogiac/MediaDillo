@@ -200,7 +200,10 @@ function ScanHistoryCard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchScanLogs(10).then(setLogs).finally(() => setLoading(false))
+    // A failed fetch has to be swallowed, not left to reject: without the catch the
+    // card stays on "Loading…" forever and the rejection goes unhandled (issue #98).
+    // An empty history renders nothing, which is the right fallback here.
+    fetchScanLogs(10).then(setLogs).catch(() => setLogs([])).finally(() => setLoading(false))
   }, [])
 
   if (loading) return (

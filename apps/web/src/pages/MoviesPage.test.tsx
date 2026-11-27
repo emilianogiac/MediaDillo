@@ -2,16 +2,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { MoviesPage } from './MoviesPage.js'
+import { ToastProvider } from '../context/ToastContext.js'
 
-vi.mock('../api/movies.js', () => ({
+// Spread the original: a bare factory replaces the whole module, so any export the
+// page picks up later is undefined and throws inside an effect (issue #98).
+vi.mock('../api/movies.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/movies.js')>()),
   fetchMovies: vi.fn(),
   fetchScanRoots: vi.fn(),
+  fetchEditions: vi.fn(),
 }))
 
-import { fetchMovies, fetchScanRoots } from '../api/movies.js'
+import { fetchMovies, fetchScanRoots, fetchEditions } from '../api/movies.js'
 
 const mockFetchMovies = fetchMovies as ReturnType<typeof vi.fn>
 const mockFetchScanRoots = fetchScanRoots as ReturnType<typeof vi.fn>
+// Fetched on mount; unstubbed it reaches the real module and attempts a network call.
+const mockFetchEditions = fetchEditions as ReturnType<typeof vi.fn>
 
 const makeMovie = (overrides = {}) => ({
   id: 'movie-1',
@@ -30,24 +37,31 @@ const makeMovie = (overrides = {}) => ({
   ...overrides,
 })
 
+// The page calls useToast, which throws outside a provider.
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <MoviesPage />
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter>
+        <MoviesPage />
+      </MemoryRouter>
+    </ToastProvider>,
   )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
   mockFetchScanRoots.mockResolvedValue([])
+  mockFetchEditions.mockResolvedValue([])
 })
 
 describe('MoviesPage', () => {
   it('shows loading state initially', () => {
+    // The page replaced the "Loading…" text with skeleton cards, so the assertion
+    // followed the component rather than the component being reverted (issue #98).
     mockFetchMovies.mockReturnValue(new Promise(() => {}))
-    renderPage()
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    const { container } = renderPage()
+    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+    expect(screen.getByText('…')).toBeInTheDocument()
   })
 
   it('renders movie cards after load', async () => {
