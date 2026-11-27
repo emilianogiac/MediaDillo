@@ -710,6 +710,11 @@ export function ShowDetailPage() {
           <h2 className="text-lg font-semibold">Seasons</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {show.seasons.map((season) => {
+              // Specials have no meaningful denominator: nobody aims to own every
+              // featurette a provider lists, and the enricher deliberately leaves
+              // Season 0's episodeCount at 0 because provider specials data is
+              // unreliable. Show a plain count instead of a ratio (issue #95).
+              const uncountable = season.seasonNumber === 0 || season.episodeCount === 0
               const pct =
                 season.episodeCount > 0
                   ? Math.round((season.ownedCount / season.episodeCount) * 100)
@@ -730,11 +735,15 @@ export function ShowDetailPage() {
                   className="bg-surface-raised border border-gray-700 hover:border-accent/60 rounded-lg p-3 space-y-2 transition-colors"
                 >
                   <p className="text-sm font-medium">{season.seasonNumber === 0 ? 'Specials' : `Season ${season.seasonNumber}`}</p>
-                  <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
-                    <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-                  </div>
+                  {!uncountable && (
+                    <div className="h-1 rounded-full bg-gray-700 overflow-hidden">
+                      <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
                   <p className="text-xs text-gray-500">
-                    {season.ownedCount}/{season.episodeCount} episodes
+                    {uncountable
+                      ? `${season.ownedCount} ${season.ownedCount === 1 ? 'episode' : 'episodes'}`
+                      : `${season.ownedCount}/${season.episodeCount} episodes`}
                   </p>
                 </Link>
               )

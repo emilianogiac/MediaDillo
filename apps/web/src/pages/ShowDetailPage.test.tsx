@@ -2,12 +2,27 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ShowDetailPage } from './ShowDetailPage.js'
+import { ToastProvider } from '../context/ToastContext.js'
 
-vi.mock('../api/shows.js', () => ({
+vi.mock('../api/shows.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/shows.js')>()),
   fetchShow: vi.fn(),
+  fetchShows: vi.fn(async () => []),
+  fetchTvdbOrders: vi.fn(async () => []),
+  fetchOrganizePreview: vi.fn(async () => ({ renames: [], removals: [] })),
+  fetchShowImages: vi.fn(async () => []),
   triggerShowDownload: vi.fn(),
-  fetchShowImages: vi.fn(),
   selectShowImage: vi.fn(),
+}))
+
+vi.mock('../api/movies.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/movies.js')>()),
+  fetchScanRoots: vi.fn(async () => []),
+}))
+
+vi.mock('../api/jellyfin.js', () => ({
+  fetchJellyfinStatus: vi.fn(async () => ({ configured: false })),
+  fetchJellyfinShowUrl: vi.fn(async () => null),
 }))
 
 import { fetchShow } from '../api/shows.js'
@@ -37,16 +52,19 @@ const makeDetail = (overrides = {}) => ({
     { id: 'c1', role: 'director' as const, character: null, person: { id: 'p1', name: 'Vince Gilligan', profileUrl: null } },
     { id: 'c2', role: 'cast' as const, character: 'Walter White', person: { id: 'p2', name: 'Bryan Cranston', profileUrl: null } },
   ],
+  scanRoots: [],
   ...overrides,
 })
 
 function renderPage(showId = 'show-1') {
   return render(
+    <ToastProvider>
     <MemoryRouter initialEntries={[`/shows/${showId}`]}>
       <Routes>
         <Route path="/shows/:id" element={<ShowDetailPage />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </ToastProvider>,
   )
 }
 
