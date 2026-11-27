@@ -2,17 +2,45 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { MovieDetailPage } from './MovieDetailPage.js'
+import { ToastProvider } from '../context/ToastContext.js'
 
-vi.mock('../api/movies.js', () => ({
+// Spread the original: a bare factory replaces the whole module, so any export the
+// page picks up later is undefined and throws inside an effect (issue #98). This page
+// imports twenty-odd functions from api/movies.js, which is why listing them by hand
+// stopped working.
+vi.mock('../api/movies.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/movies.js')>()),
   fetchMovie: vi.fn(),
+  fetchMovies: vi.fn(),
+  fetchScanRoots: vi.fn(),
   triggerMovieDownload: vi.fn(),
   fetchMovieImages: vi.fn(),
   selectMovieImage: vi.fn(),
 }))
+// Both are fetched on mount by panels the page renders: MovieFilesPanel previews
+// renames, and the rename history loads alongside it.
+vi.mock('../api/files.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/files.js')>()),
+  fetchRenamePreview: vi.fn(),
+  fetchRenameLog: vi.fn(),
+}))
+vi.mock('../api/jellyfin.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/jellyfin.js')>()),
+  fetchJellyfinStatus: vi.fn(),
+}))
 
-import { fetchMovie } from '../api/movies.js'
+import { fetchMovie, fetchMovies, fetchScanRoots } from '../api/movies.js'
+import { fetchJellyfinStatus } from '../api/jellyfin.js'
+import { fetchRenamePreview, fetchRenameLog } from '../api/files.js'
 
 const mockFetchMovie = fetchMovie as ReturnType<typeof vi.fn>
+// All three are fetched on mount. Left unstubbed they reach the real modules and
+// attempt network calls, which surface as unhandled rejections rather than failures.
+const mockFetchMovies = fetchMovies as ReturnType<typeof vi.fn>
+const mockFetchScanRoots = fetchScanRoots as ReturnType<typeof vi.fn>
+const mockJellyfinStatus = fetchJellyfinStatus as ReturnType<typeof vi.fn>
+const mockRenamePreview = fetchRenamePreview as ReturnType<typeof vi.fn>
+const mockRenameLog = fetchRenameLog as ReturnType<typeof vi.fn>
 
 const makeDetail = (overrides = {}) => ({
   id: 'movie-1',
@@ -53,18 +81,26 @@ const makeDetail = (overrides = {}) => ({
   ...overrides,
 })
 
+// The page calls useToast, which throws outside a provider.
 function renderPage(movieId = 'movie-1') {
   return render(
-    <MemoryRouter initialEntries={[`/movies/${movieId}`]}>
-      <Routes>
-        <Route path="/movies/:id" element={<MovieDetailPage />} />
-      </Routes>
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter initialEntries={[`/movies/${movieId}`]}>
+        <Routes>
+          <Route path="/movies/:id" element={<MovieDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    </ToastProvider>,
   )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockFetchMovies.mockResolvedValue([])
+  mockFetchScanRoots.mockResolvedValue([])
+  mockJellyfinStatus.mockResolvedValue({ configured: false, connected: false })
+  mockRenamePreview.mockResolvedValue([])
+  mockRenameLog.mockResolvedValue([])
 })
 
 describe('MovieDetailPage', () => {

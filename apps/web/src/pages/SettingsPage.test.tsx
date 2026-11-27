@@ -2,19 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { SettingsPage } from './SettingsPage.js'
 
-vi.mock('../api/jellyfin.js', () => ({
+// Spreading the original is what keeps these mocks from rotting: a bare factory
+// replaces the whole module, so every export the page picks up later is undefined and
+// blows up in an effect rather than failing the assertion under test (issue #98).
+vi.mock('../api/jellyfin.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/jellyfin.js')>()),
   fetchJellyfinStatus: vi.fn(),
   triggerJellyfinRefresh: vi.fn(),
 }))
 
-vi.mock('../api/export.js', () => ({
+vi.mock('../api/export.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/export.js')>()),
   downloadJson: vi.fn(),
   downloadMoviesCsv: vi.fn(),
   downloadShowsCsv: vi.fn(),
   writeBulkNfo: vi.fn(),
 }))
 
-vi.mock('../api/settings.js', () => ({
+vi.mock('../api/settings.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/settings.js')>()),
   fetchAllScanRoots: vi.fn(),
   fetchSchedule: vi.fn(),
   fetchScanLogs: vi.fn(),
@@ -22,11 +28,13 @@ vi.mock('../api/settings.js', () => ({
   updateScanRoot: vi.fn(),
   deleteScanRoot: vi.fn(),
   updateSchedule: vi.fn(),
+  fetchApiKeys: vi.fn(),
+  fetchAutoCleanup: vi.fn(),
 }))
 
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
 import { downloadJson, writeBulkNfo } from '../api/export.js'
-import { fetchAllScanRoots, fetchSchedule, fetchScanLogs } from '../api/settings.js'
+import { fetchAllScanRoots, fetchSchedule, fetchScanLogs, fetchApiKeys, fetchAutoCleanup } from '../api/settings.js'
 
 const mockStatus = fetchJellyfinStatus as ReturnType<typeof vi.fn>
 const mockRefresh = triggerJellyfinRefresh as ReturnType<typeof vi.fn>
@@ -35,6 +43,10 @@ const mockBulkNfo = writeBulkNfo as ReturnType<typeof vi.fn>
 const mockFetchRoots = fetchAllScanRoots as ReturnType<typeof vi.fn>
 const mockFetchSchedule = fetchSchedule as ReturnType<typeof vi.fn>
 const mockFetchLogs = fetchScanLogs as ReturnType<typeof vi.fn>
+// Both are fetched on mount. Left unstubbed they reach the real module and attempt a
+// network call, which surfaces as an unhandled rejection rather than a test failure.
+const mockFetchApiKeys = fetchApiKeys as ReturnType<typeof vi.fn>
+const mockFetchAutoCleanup = fetchAutoCleanup as ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -43,6 +55,8 @@ beforeEach(() => {
   mockBulkNfo.mockResolvedValue({ movies: 3, shows: 1, errors: [] })
   mockFetchRoots.mockResolvedValue([])
   mockFetchSchedule.mockResolvedValue('disabled')
+  mockFetchApiKeys.mockResolvedValue({ tmdbApiKey: '', tvdbApiKey: '', jellyfinUrl: '', jellyfinApiKey: '', metadataLanguage: 'it-IT' })
+  mockFetchAutoCleanup.mockResolvedValue(false)
   mockFetchLogs.mockResolvedValue([])
 })
 

@@ -2,14 +2,25 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { ShowsPage } from './ShowsPage.js'
+import { ToastProvider } from '../context/ToastContext.js'
 
-vi.mock('../api/shows.js', () => ({
+// Spread the original: a bare factory replaces the whole module, so any export the
+// page picks up later is undefined and throws inside an effect (issue #98).
+vi.mock('../api/shows.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/shows.js')>()),
   fetchShows: vi.fn(),
+}))
+vi.mock('../api/movies.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/movies.js')>()),
+  fetchScanRoots: vi.fn(),
 }))
 
 import { fetchShows } from '../api/shows.js'
+import { fetchScanRoots } from '../api/movies.js'
 
 const mockFetchShows = fetchShows as ReturnType<typeof vi.fn>
+// Fetched on mount; unstubbed it reaches the real module and attempts a network call.
+const mockFetchScanRoots = fetchScanRoots as ReturnType<typeof vi.fn>
 
 const makeShow = (overrides = {}) => ({
   id: 'show-1',
@@ -24,26 +35,36 @@ const makeShow = (overrides = {}) => ({
   status: 'ended' as const,
   ownedEpisodes: 62,
   totalEpisodes: 62,
+  // Required: the page explodes a show into one entry per scan root, so a missing
+  // array throws in a useMemo before any assertion runs (issue #98).
+  scanRoots: [{ id: 'root-1', label: 'serie_tv' }],
   ...overrides,
 })
 
+// The page calls useToast, which throws outside a provider.
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <ShowsPage />
-    </MemoryRouter>,
+    <ToastProvider>
+      <MemoryRouter>
+        <ShowsPage />
+      </MemoryRouter>
+    </ToastProvider>,
   )
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockFetchScanRoots.mockResolvedValue([])
 })
 
 describe('ShowsPage', () => {
   it('shows loading state initially', () => {
+    // The page replaced the "Loading…" text with skeleton cards, so the assertion
+    // followed the component rather than the component being reverted (issue #98).
     mockFetchShows.mockReturnValue(new Promise(() => {}))
-    renderPage()
-    expect(screen.getByText('Loading…')).toBeInTheDocument()
+    const { container } = renderPage()
+    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+    expect(screen.getByText('…')).toBeInTheDocument()
   })
 
   it('renders show cards after load', async () => {
