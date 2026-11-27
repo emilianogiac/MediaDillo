@@ -1,5 +1,33 @@
 # Changes
 
+## 2026-11-27 — Episode title locks are visible and operable (#101)
+
+**Problem.** #96 protects a hand-corrected episode title from enrichment, but
+nothing surfaced it. You could not tell a protected title from an unprotected
+one, could not correct a title from the UI at all, and could not undo the
+protection without calling the API by hand.
+
+**Change.** New `EpisodeTitleInline` component, used for every episode row on
+the season detail page:
+
+- a `manual` title carries a **🔒 Locked** badge, with a tooltip explaining
+  that metadata refreshes will not overwrite it
+- **Edit** saves a corrected title and locks it
+- **Unlock** hands the title back to the provider, so the lock is escapable
+
+Supporting work: `EpisodeDetail.titleSource` added to the web types, and
+`updateEpisodeTitle()` / `resetEpisodeTitle()` added to the shows API client.
+The season endpoint already returned the field, so no API change was needed.
+
+Per-episode, not per-show: locking a whole show would freeze titles that
+genuinely should keep updating.
+
+**Tests.** `apps/web/src/components/EpisodeTitleInline.test.tsx` — badge shown
+only for manual titles, the tooltip explains the lock, saving calls the update
+endpoint and reports back, unlocking calls the reset endpoint, empty titles are
+refused, cancel is a no-op, and a title-less episode falls back to a
+placeholder. 8 tests.
+
 ## 2026-11-27 — Manual episode titles survive enrichment (#96)
 
 **Problem.** Enrichment overwrote `Episode.title` unconditionally, so any
