@@ -360,11 +360,19 @@ export async function metadataRoutes(app: FastifyInstance): Promise<void> {
     })
 
     // Re-enrich when tvdbId or tvdbOrder changes
-    if ((tvdbIdChanged || tvdbOrderChanged) && show.tmdbId) {
-      const client = await getTmdbClient().catch(() => null)
+    if (tvdbIdChanged || tvdbOrderChanged) {
       const tvdbClient = await getTvdbClientOrNull()
-      if (client) {
-        enrichTvShow(client, show.id, show.tmdbId, tvdbClient).catch((err: unknown) => {
+      if (show.tmdbId) {
+        const client = await getTmdbClient().catch(() => null)
+        if (client) {
+          enrichTvShow(client, show.id, show.tmdbId, tvdbClient).catch((err: unknown) => {
+            app.log.warn(err, `Background re-enrich after tvdb change for show ${show.id}`)
+          })
+        }
+      } else if (tvdbClient && updated.tvdbId) {
+        // A TVDB-only show has no tmdbId to enrich through, so correcting its
+        // tvdbId or its ordering used to change nothing at all (issue #105).
+        enrichShowFromTvdb(tvdbClient, show.id, updated.tvdbId).catch((err: unknown) => {
           app.log.warn(err, `Background re-enrich after tvdb change for show ${show.id}`)
         })
       }

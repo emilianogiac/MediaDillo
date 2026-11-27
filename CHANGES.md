@@ -1,3 +1,30 @@
+## 2026-11-27 — enrichment survives a dead TMDB id and a concurrent run
+
+**Issue #105 — a stale TMDB id no longer blocks TVDB.**
+`enrichTvShow` opened with an unguarded `tmdbClient.getTv()`, so a deleted TMDB
+id threw before any TVDB work ran. Two shows were stuck that way (The
+Scooby-Doo Show (1976) → tmdbId 6172, Tom & Jerry → 3936), keeping
+scanner-derived filename titles even though TVDB held the right Italian ones.
+The TMDB fetch is now non-fatal whenever the show has a `tvdbId` and a TVDB
+client is available; only the TMDB-sourced fields and credits are skipped.
+`PUT /api/metadata/shows/:id` also re-enriches TVDB-only shows now — its
+re-enrich was gated on `tmdbId`, so correcting a TVDB-only show's id did
+nothing at all.
+
+**Issue #106 — a concurrent enrich no longer abandons the sync.**
+Episodes were written as `findFirst` + `create`, which races on the unique
+`(seasonId, episodeNumber)` key when two enrichments of the same show overlap —
+easily reached, because a `tvdbId`/`tvdbOrder` change starts one in the
+background. The P2002 aborted the rest of the run and left the show
+half-updated. All three create sites now go through `createOrSyncEpisode`,
+which treats the conflict as the update case and routes it through
+`episodeSyncData` so a locked title (#96) still survives.
+`syncSeasonFromTvdb` also dedupes by episode number now, matching
+`syncAllSeasonsFromTvdb`: TVDB repeats some `(season, number)` pairs — series
+272472's `alternate` order lists S11E14 and S11E28 twice.
+
+Tests: `apps/api/src/metadata/enrich-resilience.test.ts` (9).
+
 # Changes
 
 ## 2026-11-27 — Add a Lock action for titles that are already correct (#103)
