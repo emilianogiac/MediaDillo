@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import { prisma } from '@mediadillo/db'
 import { canonicalMovieFileName, canonicalMovieFolderName } from './naming.js'
 import { deleteToTrash } from './rename.js'
+import { sidecarsOfBasename } from './sidecars.js'
 import { logActivity } from '../activity/log.js'
 import {
   assessMerge,
@@ -181,7 +182,15 @@ export async function mergeMovieParts(
       return { error: `Merge verification failed: ${check.error}; originals left untouched` }
     }
 
-    // Only now is it safe to retire the originals.
+    // Only now is it safe to retire the originals — and "the originals" means each
+    // part's sidecars too, not just its video (issue #79). Merging 24 films on the
+    // Milan library left 39 .nfo files pointing at videos that no longer existed.
+    //
+    // Everything named after a part is retired, subtitles included: a subtitle for
+    // part1 is timed to the first half only, so renaming it onto the merged file would
+    // leave the second half unsubtitled and the first half correct — worse than absent.
+    // Offsetting and concatenating subtitles is a separate job.
+    const retiredSidecars = await retirePartSidecars([f1.path, f2.path])
     await deleteToTrash(f1.path)
     await deleteToTrash(f2.path)
 
@@ -199,7 +208,7 @@ export async function mergeMovieParts(
       action: 'episode_merge',
       movieId,
       filePath: outputPath,
-      detail: { mergedParts: [f1.path, f2.path] },
+      detail: { mergedParts: [f1.path, f2.path], retiredSidecars },
     }).catch(() => {})
 
     return { outputPath }
@@ -208,6 +217,44 @@ export async function mergeMovieParts(
   } finally {
     await fs.unlink(concatFile).catch(() => {})
   }
+}
+
+/**
+ * Retires every sidecar belonging to the parts being merged, into the same `.trash`
+ * as the parts themselves, so one trash entry holds the complete original state.
+ *
+ * Returns the paths retired, for the activity log.
+ *
+ * A sidecar that cannot be moved is reported and skipped rather than failing the
+ * merge: by the time this runs the output has been produced and verified, so aborting
+ * would leave a merged file the database knows nothing about — a worse state than a
+ * single stranded .nfo.
+ */
+export async function retirePartSidecars(partPaths: string[]): Promise<string[]> {
+  const retired: string[] = []
+
+  for (const partPath of partPaths) {
+    const dir = path.dirname(partPath)
+    const base = path.basename(partPath, path.extname(partPath))
+    let entries: string[]
+    try {
+      entries = await fs.readdir(dir)
+    } catch {
+      continue
+    }
+
+    for (const entry of sidecarsOfBasename(entries, base)) {
+      const full = path.join(dir, entry)
+      try {
+        await deleteToTrash(full)
+        retired.push(full)
+      } catch (err) {
+        console.warn(`[merge] could not retire sidecar ${full}:`, err)
+      }
+    }
+  }
+
+  return retired
 }
 
 function runFfmpegConcat(concatFile: string, outputPath: string): Promise<void> {
