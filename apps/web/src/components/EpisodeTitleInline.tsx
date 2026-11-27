@@ -50,7 +50,9 @@ export function EpisodeTitleInline({
       toast({ type: 'error', message: 'Title cannot be empty' })
       return
     }
-    if (next === title) {
+    // Saving unchanged text still has an effect when the episode is unlocked:
+    // it is how the user says "this title is right, keep it" (#103).
+    if (next === title && locked) {
       setEditing(false)
       return
     }
@@ -62,6 +64,21 @@ export function EpisodeTitleInline({
       onChanged()
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Could not save title' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /** Protect the current title without changing it. */
+  async function lockAsIs() {
+    if (!title) return
+    setBusy(true)
+    try {
+      await updateEpisodeTitle(showId, episodeId, title)
+      toast({ type: 'success', message: `Episode ${episodeNumber} title locked` })
+      onChanged()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Could not lock title' })
     } finally {
       setBusy(false)
     }
@@ -141,7 +158,7 @@ export function EpisodeTitleInline({
         Edit
       </button>
 
-      {locked && (
+      {locked ? (
         <button
           type="button"
           onClick={() => void release()}
@@ -151,6 +168,21 @@ export function EpisodeTitleInline({
           className="text-xs text-gray-500 hover:text-accent flex-shrink-0 disabled:opacity-50"
         >
           Unlock
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void lockAsIs()}
+          disabled={busy || !title}
+          aria-label={`Lock title for episode ${episodeNumber}`}
+          title={
+            title
+              ? 'Keep this title as it is — metadata refreshes will not change it'
+              : 'Give the episode a title before locking it'
+          }
+          className="text-xs text-gray-500 hover:text-accent flex-shrink-0 disabled:opacity-40 disabled:hover:text-gray-500"
+        >
+          Lock
         </button>
       )}
     </span>
