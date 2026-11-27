@@ -8,7 +8,7 @@ import { migrateEpisodeSidecars } from '../files/sidecars.js'
 import { logActivity } from '../activity/log.js'
 import { detectStaleFiles } from '../scanner/stale-detector.js'
 import { runSeasonScan, runShowScan, isScanRunning } from '../scanner/index.js'
-import { canonicalEpisodeFileName, canonicalMovieFolderName } from '../files/naming.js'
+import { canonicalEpisodeFileName, canonicalMovieFolderName, isShowFolderCanonical } from '../files/naming.js'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { TvdbClient } from '../metadata/tvdb-client.js'
 import { syncSeasonTitles } from '../metadata/enricher.js'
@@ -175,9 +175,8 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     function isShowOrganized(s: typeof shows[0]): boolean {
-      if (!s.tmdbId && !s.tvdbId) return false
-      const folderName = showFolderName(s)
-      return folderName === canonicalMovieFolderName(s.title, s.year)
+      // Shared with GET /shows/:id so the list and the show page cannot disagree (#109).
+      return isShowFolderCanonical(showFolderName(s), s.title, s.year, Boolean(s.tmdbId || s.tvdbId))
     }
 
     let filtered = shows
@@ -297,7 +296,9 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       scanRoots: showScanRoots,
       isDuplicate: dupCount > 1,
       duplicateCount: dupCount,
-      isOrganized: false,
+      // Was hardcoded false, which made this endpoint disagree with the shows
+      // list about the same show (#109). Same helper, same answer.
+      isOrganized: isShowFolderCanonical(showFolder, show.title, show.year, Boolean(show.tmdbId || show.tvdbId)),
       showFolder,
     })
   })

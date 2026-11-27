@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import {
-  sanitizeForFilename,
-  canonicalMovieFolderName,
-  canonicalMovieFileName,
-  canonicalSeasonFolderName,
   canonicalEpisodeFileName,
+  canonicalMovieFileName,
+  canonicalMovieFolderName,
+  canonicalSeasonFolderName,
+  isShowFolderCanonical,
+  sanitizeForFilename,
 } from './naming.js'
 
 describe('sanitizeForFilename', () => {
@@ -207,5 +208,54 @@ describe('sanitizeForFilename — non-ASCII symbols and punctuation (issue #69)'
       const leaked = [...out].filter((ch) => ch.charCodeAt(0) > 127)
       expect(leaked, `leaked from ${JSON.stringify(title)}: ${JSON.stringify(leaked)}`).toEqual([])
     }
+  })
+})
+
+/**
+ * Issue #109.
+ *
+ * "Organized" was derived in two places and meant two different things: the
+ * shows list compared the folder name, `GET /shows/:id` hardcoded `false`, and
+ * the show page's badge looked at pending episode renames while discarding the
+ * pending folder rename. A show could read "✓ Organized" on its own page and
+ * sit in the unorganized bucket on the list.
+ */
+describe('isShowFolderCanonical (issue #109)', () => {
+  it('accepts a folder that already matches Title (Year)', () => {
+    expect(isShowFolderCanonical('/mnt/nas/serie_tv/Conte Dacula (1988)', 'Conte Dacula', 1988, true)).toBe(true)
+  })
+
+  it('rejects the underscored folder that looked organized on the show page', () => {
+    expect(isShowFolderCanonical('/mnt/nas/cartoni_tv/Conte_Dacula_(1988)', 'Conte Dacula', 1988, true)).toBe(false)
+  })
+
+  it('rejects a folder named from a different title', () => {
+    expect(
+      isShowFolderCanonical('/mnt/nas/serie_tv/It (1990)', 'IT - Il pagliaccio assassino', 1990, true),
+    ).toBe(false)
+  })
+
+  it('is never organized without a provider id — there is no canonical name to match', () => {
+    expect(isShowFolderCanonical('/mnt/nas/serie_tv/Conte Dacula (1988)', 'Conte Dacula', 1988, false)).toBe(false)
+  })
+
+  it('is not organized when the folder is unknown', () => {
+    expect(isShowFolderCanonical(null, 'Conte Dacula', 1988, true)).toBe(false)
+    expect(isShowFolderCanonical(undefined, 'Conte Dacula', 1988, true)).toBe(false)
+  })
+
+  it('tolerates a trailing slash on the folder path', () => {
+    expect(isShowFolderCanonical('/mnt/nas/serie_tv/Fringe (2008)/', 'Fringe', 2008, true)).toBe(true)
+  })
+
+  it('handles a show with no year', () => {
+    expect(isShowFolderCanonical('/mnt/nas/serie_tv/Unknown', 'Unknown', null, true)).toBe(true)
+  })
+
+  it('applies the same sanitising as the folder namer, so a colon still matches', () => {
+    expect(
+      isShowFolderCanonical('/mnt/nas/serie_tv/Star Trek The Next Generation (1987)',
+        'Star Trek: The Next Generation', 1987, true),
+    ).toBe(true)
   })
 })
