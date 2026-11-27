@@ -1,5 +1,27 @@
 # Changes
 
+## 2026-11-27 — Add a Lock action for titles that are already correct (#103)
+
+**Problem.** #101 shipped **Edit** and **Unlock** but no **Lock**, so locking
+only happened as a side effect of saving an edited title. A provider title that
+was already correct could not be protected without first changing it into
+something else and back. The obvious workaround — open the editor and save
+without changing anything — silently did nothing, because `save()` returned
+early when the text was unchanged.
+
+**Change.**
+
+- **Lock** action, shown when the title is provider-owned, marks it `manual`
+  without altering the text.
+- Disabled when the episode has no title (the endpoint rejects empty titles),
+  with a tooltip saying why.
+- Saving unchanged text now still locks an unlocked episode; on an already
+  locked one it stays a no-op.
+
+**Tests.** 6 added to `EpisodeTitleInline.test.tsx` (14 total): Lock offered
+only when unlocked, locks the existing title unchanged, disabled without a
+title, and both unchanged-save paths.
+
 ## 2026-11-27 — Season 0 no longer reads "owned/0" (#95)
 
 **Problem.** A fully-owned specials season displayed as `4/0 episodes` with a

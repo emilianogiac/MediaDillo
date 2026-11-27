@@ -111,3 +111,54 @@ describe('EpisodeTitleInline (issue #101)', () => {
     expect(screen.getByText('Episode 28')).toBeInTheDocument()
   })
 })
+
+/**
+ * Issue #103 — #101 shipped Edit and Unlock but no Lock, so a title that was
+ * already correct could not be protected without first changing it.
+ */
+describe('locking a title that is already correct (issue #103)', () => {
+  it('offers Lock for a provider title', () => {
+    renderTitle()
+    expect(screen.getByLabelText('Lock title for episode 28')).toBeInTheDocument()
+  })
+
+  it('does not offer Lock for an already-locked title', () => {
+    renderTitle({ titleSource: 'manual' })
+    expect(screen.queryByLabelText('Lock title for episode 28')).not.toBeInTheDocument()
+  })
+
+  it('Lock protects the existing title without changing it', async () => {
+    const user = userEvent.setup()
+    const { onChanged } = renderTitle()
+    await user.click(screen.getByLabelText('Lock title for episode 28'))
+    await waitFor(() =>
+      expect(updateEpisodeTitle).toHaveBeenCalledWith('show-1', 'ep-1', 'Il promesso puffo'),
+    )
+    expect(onChanged).toHaveBeenCalled()
+  })
+
+  it('cannot lock an episode that has no title', async () => {
+    renderTitle({ title: null })
+    const btn = screen.getByLabelText('Lock title for episode 28')
+    expect(btn).toBeDisabled()
+    expect(btn.getAttribute('title')).toMatch(/give the episode a title/i)
+  })
+
+  it('saving unchanged text still locks an unlocked title', async () => {
+    const user = userEvent.setup()
+    renderTitle()
+    await user.click(screen.getByLabelText('Edit title for episode 28'))
+    await user.click(screen.getByText('Save'))
+    await waitFor(() =>
+      expect(updateEpisodeTitle).toHaveBeenCalledWith('show-1', 'ep-1', 'Il promesso puffo'),
+    )
+  })
+
+  it('saving unchanged text on a locked title is a no-op', async () => {
+    const user = userEvent.setup()
+    renderTitle({ titleSource: 'manual' })
+    await user.click(screen.getByLabelText('Edit title for episode 28'))
+    await user.click(screen.getByText('Save'))
+    expect(updateEpisodeTitle).not.toHaveBeenCalled()
+  })
+})
