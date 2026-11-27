@@ -244,6 +244,10 @@ model Episode {
   season        Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
   episodeNumber Int
   title         String?
+  /// Where `title` came from. `manual` titles are human-verified and are never
+  /// overwritten by enrichment — some providers mis-attribute episode titles
+  /// (see issue #96), so a corrected title must outlive the next refresh.
+  titleSource   TitleSource   @default(provider)
   airDate       DateTime?
   status        EpisodeStatus @default(missing)
   files         EpisodeFile[]
@@ -258,6 +262,14 @@ enum EpisodeStatus {
   missing
   not_yet_aired
   ignored
+}
+
+/// Provenance of an episode title. `provider` titles are refreshed from TMDB/TVDB
+/// on every enrich; `manual` titles were set or corrected by a human and are left
+/// alone until explicitly reset.
+enum TitleSource {
+  provider
+  manual
 }
 
 model EpisodeFile {

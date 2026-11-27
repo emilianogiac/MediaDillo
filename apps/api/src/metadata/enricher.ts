@@ -1,9 +1,29 @@
 import { prisma } from '@mediadillo/db'
+import type { EpisodeStatus, TitleSource } from '@mediadillo/db'
 import type { TmdbClient } from './tmdb-client.js'
 import { tmdbImageUrl } from './tmdb-client.js'
 import type { TvdbClient, TvdbEpisode } from './tvdb-client.js'
 
 const RATE_LIMIT_MS = 150 // ~6 req/s — well within TMDB's 40/s limit
+
+/**
+ * Build the update payload for an episode the provider already knows about.
+ *
+ * A title the user corrected by hand (`titleSource: 'manual'`) is never
+ * overwritten: some providers mis-attribute episode titles for a given
+ * ordering, so the human-verified value is the better one (issue #96).
+ * Everything else — air date, status — still syncs normally, and an explicit
+ * reset to `provider` re-opens the title to enrichment.
+ */
+export function episodeSyncData(
+  existing: { titleSource: TitleSource },
+  providerTitle: string | null,
+  airDate: Date | null,
+  status: EpisodeStatus,
+): { title?: string | null; airDate: Date | null; status: EpisodeStatus } {
+  const base = { airDate, status }
+  return existing.titleSource === 'manual' ? base : { ...base, title: providerTitle }
+}
 
 // ---------------------------------------------------------------------------
 // Movies
@@ -235,7 +255,7 @@ async function syncSeasonFromTvdb(
 
       await prisma.episode.update({
         where: { id: existing.id },
-        data: { title: ep.name, airDate, status: newStatus },
+        data: episodeSyncData(existing, ep.name, airDate, newStatus),
       })
     }
   }
@@ -338,7 +358,7 @@ async function syncAllSeasonsFromTvdb(
               : 'missing'
         await prisma.episode.update({
           where: { id: existing.id },
-          data: { title: ep.name, airDate, status: newStatus },
+          data: episodeSyncData(existing, ep.name, airDate, newStatus),
         })
       }
     }
@@ -471,7 +491,7 @@ async function syncSeason(
 
       await prisma.episode.update({
         where: { id: existing.id },
-        data: { title: ep.name, airDate, status: newStatus },
+        data: episodeSyncData(existing, ep.name, airDate, newStatus),
       })
     }
   }
