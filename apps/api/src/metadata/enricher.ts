@@ -3,6 +3,7 @@ import type { EpisodeStatus, TitleSource } from '@mediadillo/db'
 import type { TmdbClient } from './tmdb-client.js'
 import { tmdbImageUrl } from './tmdb-client.js'
 import type { TvdbClient, TvdbEpisode } from './tvdb-client.js'
+import { recalculateShowCounts } from '../shows/counts.js'
 
 const RATE_LIMIT_MS = 150 // ~6 req/s — well within TMDB's 40/s limit
 
@@ -318,18 +319,7 @@ async function syncSeasonFromTvdb(
   const ownedCount = await prisma.episode.count({
     where: { season: { showId }, status: 'owned' },
   })
-  // totalEpisodes = sum of episodeCount across all seasons that TVDB has metadata for.
-  // Counting Episode rows directly inflates the total with locally-scanned files
-  // in e.g. a Specials season that TVDB doesn't know about.
-  const seasonCounts = await prisma.season.aggregate({
-    where: { showId },
-    _sum: { episodeCount: true },
-  })
-  const totalCount = seasonCounts._sum.episodeCount ?? 0
-  await prisma.tvShow.update({
-    where: { id: showId },
-    data: { ownedEpisodes: ownedCount, totalEpisodes: totalCount },
-  })
+  await recalculateShowCounts(showId)
 }
 
 // ---------------------------------------------------------------------------
@@ -411,17 +401,7 @@ async function syncAllSeasonsFromTvdb(
   }
 
   const ownedCount = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-  // totalEpisodes = sum of episodeCount across seasons (TVDB-reported targets only).
-  // Counting Episode rows inflates the total with locally-scanned unmatched files.
-  const seasonCounts2 = await prisma.season.aggregate({
-    where: { showId },
-    _sum: { episodeCount: true },
-  })
-  const totalCount = seasonCounts2._sum.episodeCount ?? 0
-  await prisma.tvShow.update({
-    where: { id: showId },
-    data: { ownedEpisodes: ownedCount, totalEpisodes: totalCount },
-  })
+  await recalculateShowCounts(showId)
 }
 
 async function syncAllSeasonsAbsolute(tvdbClient: TvdbClient, showId: string, tvdbId: number): Promise<void> {
@@ -538,17 +518,7 @@ async function syncSeason(
   const ownedCount = await prisma.episode.count({
     where: { season: { showId }, status: 'owned' },
   })
-  // totalEpisodes = sum of episodeCount across seasons (metadata-source targets only).
-  // Counting Episode rows inflates the total with locally-scanned unmatched files.
-  const seasonCounts3 = await prisma.season.aggregate({
-    where: { showId },
-    _sum: { episodeCount: true },
-  })
-  const totalCount = seasonCounts3._sum.episodeCount ?? 0
-  await prisma.tvShow.update({
-    where: { id: showId },
-    data: { ownedEpisodes: ownedCount, totalEpisodes: totalCount },
-  })
+  await recalculateShowCounts(showId)
 }
 
 // ---------------------------------------------------------------------------

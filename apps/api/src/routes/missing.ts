@@ -3,6 +3,7 @@ import { prisma, TitleSource } from '@mediadillo/db'
 import { TmdbClient } from '../metadata/tmdb-client.js'
 import { searchMovieCandidates } from '../metadata/matcher.js'
 import { getApiConfig } from '../api-config.js'
+import { recalculateShowCounts } from '../shows/counts.js'
 
 export async function missingRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/missing/shows — shows with at least one missing episode, sorted by missing count desc
@@ -165,14 +166,7 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
       data: { status },
     })
 
-    // Refresh ownedEpisodes counter on the show
-    const ownedCount = await prisma.episode.count({
-      where: { season: { showId: req.params.showId }, status: 'owned' },
-    })
-    await prisma.tvShow.update({
-      where: { id: req.params.showId },
-      data: { ownedEpisodes: ownedCount },
-    })
+    await recalculateShowCounts(req.params.showId)
 
     return reply.send(updated)
   })

@@ -1,3 +1,31 @@
+## 2026-11-28 — one owner for the show episode counters (#120)
+
+12 shows reported `ownedEpisodes > totalEpisodes`. The two fields described
+different universes: `ownedEpisodes` counted Season 0 specials, while
+`totalEpisodes` is the provider's `SUM(Season.episodeCount)` and deliberately
+excludes them. Sampei read 130/109, the excess being exactly its 21 owned
+specials.
+
+- New `apps/api/src/shows/counts.ts` — `recalculateShowCounts(showId, client?)`
+  is now the only writer of either counter. Both sides exclude Season 0, so
+  specials stay visible as their own season but sit outside the completeness
+  contract.
+- All 15 hand-rolled recounts replaced (routes/shows.ts ×4, routes/missing.ts,
+  routes/settings.ts ×2, scanner/index.ts ×3, scanner/db-sync.ts ×2,
+  metadata/enricher.ts ×3). Seven of them wrote `ownedEpisodes` only, which let
+  it drift — Snorky stored 110 against 109 actual, Mork & Mindy 95 against 94.
+- Replaces the helper added in #119, which computed the total as a row count:
+  the wrong definition. It had never run (both instances reported 0 merges).
+- New `POST /api/settings/recalculate-counts` to backfill existing rows.
+
+Effect on the Milan library: shows reporting `owned > total` drop from 12 to 2,
+and 103 shows reading complete become 108 (Sampei correctly becomes 109/109).
+The two survivors are separate defects — The Benny Hill Show (78 owned in real
+seasons against a provider total of 32, probably a `tvdbOrder` season mapping
+problem) and Snorky (off by one).
+
+Tests: `apps/api/src/shows/counts.test.ts` (9 cases).
+
 ## 2026-11-27 — the duration backfill now documents a command that works
 
 **Issue #115.** The usage comment added with #108 told the operator to run

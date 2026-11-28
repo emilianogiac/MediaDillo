@@ -10,6 +10,7 @@ import { syncMovieFolder, syncMovieFile, syncEpisodeFile, writeScanLog, pruneOrp
 import type { ScanCounts } from './db-sync.js'
 import type { ScanSummary } from './types.js'
 import { logActivity } from '../activity/log.js'
+import { recalculateShowCounts } from '../shows/counts.js'
 
 export interface SeasonScanResult extends ScanCounts {
   filesFound: number
@@ -276,10 +277,7 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
       if (season0 && season0._count.episodes === 0) {
         await prisma.episode.deleteMany({ where: { seasonId: season0.id } })
         await prisma.season.delete({ where: { id: season0.id } })
-        const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-        const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
-        const total = seasonAgg._sum.episodeCount ?? 0
-        await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+        await recalculateShowCounts(showId)
       }
     }
     return { added: 0, changed: 0, removed: 0, filesFound: 0, filesSkipped, folderFound: false }
@@ -359,11 +357,7 @@ export async function runSeasonScan(showId: string, seasonNumber: number): Promi
   }
 
   // Always recalculate show counts so the header reflects the current state.
-  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-  // Recalculate totalEpisodes too — deleting a ghost season must update the header count.
-  const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
-  const total = seasonAgg._sum.episodeCount ?? 0
-  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+  await recalculateShowCounts(showId)
 
   console.log(`[season-scan] done: found=${filesFound} added=${added} changed=${changed} removed=${removed} skipped=${filesSkipped.length}`)
   return { added, changed, removed, filesFound, filesSkipped, folderFound: true, _debug: { seasonFolderPath, scanRootPath } }
@@ -448,10 +442,7 @@ export async function runShowScan(showId: string): Promise<SeasonScanResult> {
 
   // Always recalculate show counts so the header reflects the current state after any
   // file pruning or ghost-season removal above.
-  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-  const seasonAgg = await prisma.season.aggregate({ where: { showId }, _sum: { episodeCount: true } })
-  const total = seasonAgg._sum.episodeCount ?? 0
-  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+  await recalculateShowCounts(showId)
 
   return { added, changed, removed, filesFound, filesSkipped, folderFound: true }
 }

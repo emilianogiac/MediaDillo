@@ -9,6 +9,7 @@ import { parseMovieNfo, parseShowNfo, parseEpisodeNfo } from './nfo-parser.js'
 import { parseMovieFolderName, parseFilename, detect3DFormat } from './filename-parser.js'
 import { extractTechSpecs } from './ffprobe.js'
 import { logActivity } from '../activity/log.js'
+import { recalculateShowCounts } from '../shows/counts.js'
 
 /**
  * True when a stored row predates duration persistence (issue #108) and the probe can
@@ -573,10 +574,7 @@ function hashName(name: string): number {
 }
 
 async function updateShowEpisodeCounts(showId: string): Promise<void> {
-  const owned = await prisma.episode.count({
-    where: { season: { showId }, status: 'owned' },
-  })
-  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+  await recalculateShowCounts(showId)
 }
 
 // Remove MovieFile / EpisodeFile records whose paths were not seen in the scan,
@@ -693,15 +691,7 @@ export async function pruneOrphanedFiles(
 
     // Recalculate show counts for all affected shows (orphaned-file shows + ghost-season shows).
     for (const showId of affectedShowIds) {
-      const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-      // totalEpisodes = sum of episodeCount across remaining seasons (metadata-source targets only).
-      // Recalculate here so that deleting a ghost Specials season removes its count from the total.
-      const seasonAgg = await prisma.season.aggregate({
-        where: { showId },
-        _sum: { episodeCount: true },
-      })
-      const total = seasonAgg._sum.episodeCount ?? 0
-      await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+      await recalculateShowCounts(showId)
       removed++
     }
   }
