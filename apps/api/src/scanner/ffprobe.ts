@@ -73,8 +73,10 @@ export function parseFfprobeOutput(data: FfprobeOutput): VideoTechSpecs {
 
   const videoCodec = normalizeVideoCodec(video?.codec_name ?? null)
   const height = video?.height ?? null
-  const videoResolution = height ? resolveResolutionLabel(height) : null
-  const videoQualityTier = height ? resolveQualityTier(height) : null
+  const width = video?.width ?? null
+  const tier = resolveTierIndex(width, height)
+  const videoResolution = tier === null ? null : RESOLUTION_LABELS[tier]!
+  const videoQualityTier = tier === null ? null : QUALITY_TIERS[tier]!
   const hdr = detectHdr(video)
 
   const audioCodec = normalizeAudioCodec(audio?.codec_name ?? null)
@@ -150,26 +152,54 @@ function normalizeAudioCodec(raw: string | null): string | null {
   return map[raw.toLowerCase()] ?? raw.toUpperCase()
 }
 
-function resolveResolutionLabel(height: number): string {
-  if (height >= 2160) return '4K (2160p)'
-  if (height >= 1440) return '1440p'
-  if (height >= 1080) return '1080p'
-  if (height >= 720) return '720p'
-  if (height >= 576) return '576p'
-  if (height >= 480) return '480p'
-  if (height >= 360) return '360p'
-  return 'SD'
+/** Index 0..7, shared by both vocabularies below. */
+const RESOLUTION_LABELS = ['SD', '360p', '480p', '576p', '720p', '1080p', '1440p', '4K (2160p)'] as const
+const QUALITY_TIERS = ['SD', '360p', '480p', '576p', '720p', '1080p', '1440p', '4K'] as const
+
+/** Minimum height per tier index, highest first. */
+const MIN_HEIGHT: readonly [number, number][] = [
+  [2160, 7], [1440, 6], [1080, 5], [720, 4], [576, 3], [480, 2], [360, 1],
+]
+
+/**
+ * Minimum width per tier index, for 720p and above only.
+ *
+ * Thresholds sit below each format's nominal width (3840 / 2560 / 1920 / 1280)
+ * because real encodes come in a few pixels short — both 1912 and 1918 occur in
+ * this library — so a strict `>= 1920` test would still miss them.
+ *
+ * Deliberately stops at 720p: below HD, width cannot identify a format. 640 is
+ * the width of both `640x480` (480p) and `640x360` (360p), so extending this
+ * table downwards would promote 360p content to 480p. Scope transfers, the
+ * reason width is consulted at all, only exist at HD and above — so height
+ * decides on its own below that.
+ */
+const MIN_WIDTH: readonly [number, number][] = [
+  [3400, 7], [2300, 6], [1700, 5], [1100, 4],
+]
+
+function indexFrom(value: number, table: readonly [number, number][]): number {
+  for (const [min, index] of table) {
+    if (value >= min) return index
+  }
+  return 0
 }
 
-function resolveQualityTier(height: number): string {
-  if (height >= 2160) return '4K'
-  if (height >= 1440) return '1440p'
-  if (height >= 1080) return '1080p'
-  if (height >= 720) return '720p'
-  if (height >= 576) return '576p'
-  if (height >= 480) return '480p'
-  if (height >= 360) return '360p'
-  return 'SD'
+/**
+ * Resolution tier from both dimensions, taking whichever is better (#126).
+ *
+ * Height alone misreads every scope transfer: 1920x800 is 1080p-class material
+ * but `800 >= 1080` is false, so it was labelled `720p` — on this library that
+ * affected 30 of 33 sampled files. Width alone is equally wrong, because a
+ * narrow 1080 transfer such as 1436x1080 would be demoted. Either dimension
+ * reaching a tier is sufficient evidence for it.
+ */
+function resolveTierIndex(width: number | null, height: number | null): number | null {
+  if (!width && !height) return null
+  return Math.max(
+    height ? indexFrom(height, MIN_HEIGHT) : 0,
+    width ? indexFrom(width, MIN_WIDTH) : 0,
+  )
 }
 
 function detectHdr(stream: FfprobeStream | undefined): boolean {

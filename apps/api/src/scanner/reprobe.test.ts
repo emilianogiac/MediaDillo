@@ -80,7 +80,7 @@ describe('reprobeStaleFiles', () => {
     vi.mocked(prisma.movieFile.findMany).mockResolvedValue([movieRow()] as never)
     vi.mocked(stat).mockResolvedValue({ size: 5344672117 } as never)
 
-    const r = await reprobeStaleFiles(true)
+    const r = await reprobeStaleFiles({ dryRun: true })
     expect(r).toMatchObject({ stale: 1, reprobed: 0 })
     expect(r.changes[0]).toMatchObject({ oldResolution: '720p', newResolution: '1080p' })
     expect(prisma.movieFile.update).not.toHaveBeenCalled()
@@ -99,5 +99,49 @@ describe('reprobeStaleFiles', () => {
 
   it('reports zero work on an empty library', async () => {
     expect(await reprobeStaleFiles()).toMatchObject({ checked: 0, stale: 0, reprobed: 0 })
+  })
+})
+
+/**
+ * Issue #126 — the tiering fix re-labels files whose size is unchanged, so the
+ * default size-based scope would skip every one of them.
+ */
+describe('reprobeStaleFiles with scope: all', () => {
+  it('re-probes a file whose size matches but whose resolution label changed', async () => {
+    vi.mocked(prisma.movieFile.findMany).mockResolvedValue([movieRow()] as never)
+    vi.mocked(stat).mockResolvedValue({ size: 2405535179 } as never)   // size matches
+
+    const r = await reprobeStaleFiles({ scope: 'all' })
+    expect(r).toMatchObject({ checked: 1, stale: 0, reprobed: 1 })
+    expect(r.changes[0]).toMatchObject({ oldResolution: '720p', newResolution: '1080p' })
+  })
+
+  it('leaves a file untouched when neither size nor resolution moved', async () => {
+    vi.mocked(prisma.movieFile.findMany).mockResolvedValue([movieRow({ videoResolution: '1080p' })] as never)
+    vi.mocked(stat).mockResolvedValue({ size: 2405535179 } as never)
+
+    const r = await reprobeStaleFiles({ scope: 'all' })
+    expect(r).toMatchObject({ checked: 1, stale: 0, reprobed: 0 })
+    expect(r.changes).toEqual([])
+    expect(prisma.movieFile.update).not.toHaveBeenCalled()
+  })
+
+  it('still skips size-matched files in the default scope', async () => {
+    vi.mocked(prisma.movieFile.findMany).mockResolvedValue([movieRow()] as never)
+    vi.mocked(stat).mockResolvedValue({ size: 2405535179 } as never)
+
+    const r = await reprobeStaleFiles()
+    expect(r).toMatchObject({ reprobed: 0 })
+    expect(extractTechSpecs).not.toHaveBeenCalled()
+  })
+
+  it('reports a scope-all relabel without writing in dryRun', async () => {
+    vi.mocked(prisma.movieFile.findMany).mockResolvedValue([movieRow()] as never)
+    vi.mocked(stat).mockResolvedValue({ size: 2405535179 } as never)
+
+    const r = await reprobeStaleFiles({ scope: 'all', dryRun: true })
+    expect(r).toMatchObject({ reprobed: 0 })
+    expect(r.changes).toHaveLength(1)
+    expect(prisma.movieFile.update).not.toHaveBeenCalled()
   })
 })
