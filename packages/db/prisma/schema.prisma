@@ -213,12 +213,19 @@ model TvShow {
   posterDownloaded      Boolean      @default(false)
   backdropDownloaded    Boolean      @default(false)
   dismissedAsDuplicate  Boolean      @default(false)
+  /// Collection intent (#122). The library's rule is "if I have it, it has to be
+  /// complete", so complete is the default and only the exception is recorded: a
+  /// show that was started and will not be finished. Abandoned shows are excluded
+  /// from the retrieval queue, which otherwise drowns in shows nobody will ever
+  /// complete — One Piece reports 61 of 2351 episodes.
+  abandoned             Boolean      @default(false)
   seasons               Season[]
   credits               Credit[]
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
 
   @@index([title])
+  @@index([abandoned])
 }
 
 enum TvShowStatus {

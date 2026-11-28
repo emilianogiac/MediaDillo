@@ -12,6 +12,10 @@ export interface ShowsFilter {
   addedSince?: string
   scanRootId?: string
   status?: 'continuing' | 'ended'
+  /** Collection intent (#122): `hide` is what a retrieval queue wants. */
+  abandoned?: 'only' | 'hide'
+  /** Owned vs the provider's episode count, comparable since #120. */
+  fill?: 'complete' | 'incomplete'
   tmdbId?: number
 }
 
@@ -26,6 +30,8 @@ export async function fetchShows(filter: ShowsFilter = {}): Promise<ShowSummary[
   if (filter.addedSince) params.set('addedSince', filter.addedSince)
   if (filter.scanRootId) params.set('scanRootId', filter.scanRootId)
   if (filter.status) params.set('status', filter.status)
+  if (filter.abandoned) params.set('abandoned', filter.abandoned)
+  if (filter.fill) params.set('fill', filter.fill)
   if (filter.tmdbId != null) params.set('tmdbId', String(filter.tmdbId))
   const qs = params.toString()
   return apiFetch<ShowSummary[]>(`/shows${qs ? `?${qs}` : ''}`)
@@ -37,6 +43,20 @@ export async function consolidateShow(targetId: string, siblingId: string): Prom
 
 export async function dismissShowDuplicate(id: string): Promise<void> {
   await apiFetch(`/shows/${id}/dismiss`, { method: 'POST' })
+}
+
+/**
+ * Record whether a show will be completed (#122). The library's rule is that
+ * anything held should be complete, so this marks the exception.
+ */
+export async function setShowAbandoned(
+  id: string,
+  abandoned: boolean,
+): Promise<{ id: string; title: string; abandoned: boolean }> {
+  return apiFetch(`/shows/${id}/abandoned`, {
+    method: 'PATCH',
+    body: JSON.stringify({ abandoned }),
+  })
 }
 
 export async function undismissShowDuplicate(id: string): Promise<void> {

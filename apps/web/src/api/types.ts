@@ -21,6 +21,8 @@ export interface MovieSummary {
   isDuplicate: boolean
   duplicateCount: number
   dismissedAsDuplicate: boolean
+  /** #122: recorded intent not to complete this show. */
+  abandoned: boolean
   isOrganized: boolean
   fileCount: number
   status: string
@@ -73,6 +75,8 @@ export interface ShowSummary {
   posterDownloaded: boolean
   backdropDownloaded: boolean
   dismissedAsDuplicate: boolean
+  /** #122: recorded intent not to complete this show. */
+  abandoned: boolean
   isDuplicate: boolean
   duplicateCount: number
   isOrganized: boolean

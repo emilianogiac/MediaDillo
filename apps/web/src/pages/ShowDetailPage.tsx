@@ -10,6 +10,7 @@ import { MatchModal } from '../components/MatchModal.js'
 import { OrganizePanel } from '../components/OrganizePanel.js'
 import { organizeDotsFrom, isFullyOrganized, type OrganizeDots } from './organizeDots.js'
 import { useToast } from '../context/ToastContext.js'
+import { ShowIntentToggle } from '../components/ShowIntentToggle.js'
 import { ConfirmModal } from '../components/ConfirmModal.js'
 import { TechBadge } from '../components/TechBadge.js'
 
@@ -386,6 +387,14 @@ export function ShowDetailPage() {
             >
               {show.status === 'continuing' ? 'Airing' : 'Ended'}
             </span>
+            <ShowIntentToggle
+              showId={show.id}
+              title={show.title}
+              abandoned={show.abandoned}
+              ownedEpisodes={show.ownedEpisodes}
+              totalEpisodes={show.totalEpisodes}
+              onChanged={() => void load()}
+            />
             {(() => {
               const targets = scanRoots.filter((r) => r.type === 'tv')
               if (targets.length === 0) return null

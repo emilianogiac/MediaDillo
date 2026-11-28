@@ -82,10 +82,12 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       addedSince?: string
       scanRootId?: string
       status?: string
+      abandoned?: string
+      fill?: string
       tmdbId?: string
     }
   }>('/shows', async (req, reply) => {
-    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince, scanRootId, status, tmdbId: tmdbIdFilter } = req.query
+    const { search, qualityTier, missingArtwork, unmatched, duplicates, organized, addedSince, scanRootId, status, abandoned, fill, tmdbId: tmdbIdFilter } = req.query
 
     // Always compute dup groups with count (dismissed shows excluded — they don't inflate counts)
     const dupGroups = await prisma.tvShow.groupBy({
@@ -129,6 +131,18 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         ...(addedSince ? { createdAt: { gte: new Date(addedSince) } } : {}),
         ...(scanRootPath ? { seasons: { some: { episodes: { some: { files: { some: { path: { startsWith: scanRootPath.endsWith('/') ? scanRootPath : scanRootPath + '/' } } } } } } } } : {}),
         ...(status === 'continuing' || status === 'ended' ? { status } : {}),
+        // Collection intent (#122). `hide` is what the retrieval queue wants: a
+        // show you have decided not to finish is not a gap.
+        ...(abandoned === 'only' ? { abandoned: true } : {}),
+        ...(abandoned === 'hide' ? { abandoned: false } : {}),
+        // Completeness compares the two counters #120 made comparable. A show with
+        // no provider data has no meaningful fill and is excluded from both sides.
+        ...(fill === 'complete'
+          ? { totalEpisodes: { gt: 0 }, ownedEpisodes: { gte: prisma.tvShow.fields.totalEpisodes } }
+          : {}),
+        ...(fill === 'incomplete'
+          ? { totalEpisodes: { gt: 0 }, ownedEpisodes: { lt: prisma.tvShow.fields.totalEpisodes } }
+          : {}),
         ...(tmdbIdFilter ? { tmdbId: parseInt(tmdbIdFilter) } : {}),
       },
       select: {
@@ -143,6 +157,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
         posterDownloaded: true,
         backdropDownloaded: true,
         dismissedAsDuplicate: true,
+        abandoned: true,
         status: true,
         ownedEpisodes: true,
         totalEpisodes: true,
@@ -235,6 +250,27 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     await prisma.tvShow.delete({ where: { id: req.params.id } })
     return reply.code(204).send()
   })
+
+  // PATCH /api/shows/:id/abandoned — record that a show will not be completed (#122).
+  // Intent cannot be derived: only the user knows whether 61 of 2351 One Piece
+  // episodes is a gap or a deliberate sample.
+  app.patch<{ Params: { id: string }; Body: { abandoned: boolean } }>(
+    '/shows/:id/abandoned',
+    async (req, reply) => {
+      if (typeof req.body?.abandoned !== 'boolean') {
+        return reply.code(400).send({ error: 'abandoned must be a boolean' })
+      }
+      const show = await prisma.tvShow.findUnique({ where: { id: req.params.id }, select: { id: true } })
+      if (!show) return reply.code(404).send({ error: 'Not found' })
+
+      const updated = await prisma.tvShow.update({
+        where: { id: req.params.id },
+        data: { abandoned: req.body.abandoned },
+        select: { id: true, title: true, abandoned: true },
+      })
+      return reply.send(updated)
+    },
+  )
 
   // GET /api/shows/:id — full detail with seasons + credits
   app.get<{ Params: { id: string } }>('/shows/:id', async (req, reply) => {
