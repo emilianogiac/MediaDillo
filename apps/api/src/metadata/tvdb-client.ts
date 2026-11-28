@@ -54,7 +54,17 @@ export class TvdbClient {
     this.lang = toTvdbLang(language)
   }
 
-  isConfigured(): boolean { return true }
+  /**
+   * True when this client has a key it could actually authenticate with (#117).
+   *
+   * Previously returned `true` unconditionally, a leftover from the stub era. It
+   * was harmless only because every call site happened to guard on the config
+   * value instead of asking the client — but a method named `isConfigured` that
+   * cannot report "no" is a trap for the next caller who trusts it.
+   */
+  isConfigured(): boolean {
+    return this.apiKey.trim() !== ''
+  }
 
   private async getToken(): Promise<string> {
     if (this.tokenCache && Date.now() < this.tokenCache.expiresAt) {
