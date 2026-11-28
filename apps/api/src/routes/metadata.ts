@@ -28,6 +28,9 @@ async function getTvdbClientOrNull(): Promise<TvdbClient | null> {
     return _tvdbClientCache.client
   }
   const client = new TvdbClient(cfg.tvdbApiKey, cfg.metadataLanguage)
+  // Ask the client rather than re-deriving the rule here (#117): a key of pure
+  // whitespace is truthy but cannot authenticate.
+  if (!client.isConfigured()) return null
   _tvdbClientCache = { apiKey: cfg.tvdbApiKey, language: cfg.metadataLanguage, client }
   return client
 }

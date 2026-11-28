@@ -83,3 +83,27 @@ describe('TvdbClient.getEpisodes — season scoping (issue #90)', () => {
     expect(got).toEqual([])
   })
 })
+
+/**
+ * Issue #117 — `isConfigured()` returned `true` unconditionally, a leftover from
+ * the stub era. It was harmless only because every call site guarded on the
+ * config value rather than asking the client, but a method that cannot report
+ * "no" misleads the next caller who trusts its name.
+ */
+describe('TvdbClient.isConfigured (issue #117)', () => {
+  it('is false for an empty key', () => {
+    expect(new TvdbClient('').isConfigured()).toBe(false)
+  })
+
+  it('is false for a whitespace-only key', () => {
+    expect(new TvdbClient('   ').isConfigured()).toBe(false)
+  })
+
+  it('is true for a real key', () => {
+    expect(new TvdbClient('abc123').isConfigured()).toBe(true)
+  })
+
+  it('does not trim away a key that merely has surrounding whitespace', () => {
+    expect(new TvdbClient('  abc123  ').isConfigured()).toBe(true)
+  })
+})
