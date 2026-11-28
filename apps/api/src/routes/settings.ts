@@ -5,6 +5,62 @@ import { getSchedule, setSchedule } from '../scheduler/index.js'
 import type { ScheduleInterval } from '../scheduler/index.js'
 import { getApiConfig, invalidateApiConfigCache, API_CONFIG_DB_KEYS } from '../api-config.js'
 import { testJellyfinConnection } from '../jellyfin/client.js'
+import { logActivity } from '../activity/log.js'
+import { planDedup, type PlannedMerge } from '../shows/dedup.js'
+
+/**
+ * Apply one planned show merge in a single transaction, then record it so the
+ * activity log's revert path covers it. The plan guarantees no episode row is
+ * deleted; the season and show rows removed here are empty by construction.
+ */
+async function applyShowMerge(merge: PlannedMerge): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    for (const seasonId of merge.seasonsToReparent) {
+      await tx.season.update({ where: { id: seasonId }, data: { showId: merge.canonicalId } })
+    }
+    for (const { episodeId, targetSeasonNumber } of merge.episodesToReparent) {
+      const target = await tx.season.findFirst({
+        where: { showId: merge.canonicalId, seasonNumber: targetSeasonNumber },
+        select: { id: true },
+      })
+      if (!target) {
+        throw new Error(
+          `dedup: canonical show ${merge.canonicalId} has no season ${targetSeasonNumber}`,
+        )
+      }
+      await tx.episode.update({ where: { id: episodeId }, data: { seasonId: target.id } })
+    }
+    for (const seasonId of merge.seasonsToDelete) {
+      await tx.season.delete({ where: { id: seasonId } })
+    }
+    await tx.tvShow.delete({ where: { id: merge.duplicateId } })
+  })
+
+  await logActivity({
+    action: 'episode_merge',
+    showId: merge.canonicalId,
+    detail: {
+      trigger: 'dedup-shows',
+      title: merge.title,
+      identityKey: merge.key,
+      mergedShowId: merge.duplicateId,
+      seasonsReparented: merge.seasonsToReparent.length,
+      episodesReparented: merge.episodesToReparent.length,
+      emptySeasonsRemoved: merge.seasonsToDelete.length,
+    },
+  })
+}
+
+/** Refresh owned/total counts for the shows a merge actually touched. */
+async function recalculateEpisodeCounts(showIds: string[]): Promise<void> {
+  for (const id of showIds) {
+    const owned = await prisma.episode.count({
+      where: { season: { showId: id }, status: 'owned' },
+    })
+    const total = await prisma.episode.count({ where: { season: { showId: id } } })
+    await prisma.tvShow.update({ where: { id }, data: { ownedEpisodes: owned, totalEpisodes: total } })
+  }
+}
 
 const VALID_INTERVALS = new Set<ScheduleInterval>(['disabled', '1h', '6h', '12h', '24h'])
 const AUTO_CLEANUP_KEY = 'match.autoCleanupFolder'
@@ -239,92 +295,54 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     return reply.send({ moviesRemoved, showsRemoved, episodesLost })
   })
 
-  // POST /api/settings/dedup-shows — merge duplicate TvShow records with the same title
-  // Caused by inconsistent year inclusion in episode filenames.
-  app.post('/settings/dedup-shows', async (_req, reply) => {
-    // Group all shows by title
-    const allShows = await prisma.tvShow.findMany({
+  // POST /api/settings/dedup-shows — merge TvShow records that are genuinely the
+  // same series. Grouping is by provider id, and any merge that would delete an
+  // episode row is reported as a conflict instead of applied (#118).
+  app.post<{ Body?: { dryRun?: boolean } }>('/settings/dedup-shows', async (req, reply) => {
+    const candidates = await prisma.tvShow.findMany({
       orderBy: { createdAt: 'asc' },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        year: true,
+        tmdbId: true,
+        tvdbId: true,
+        createdAt: true,
         seasons: {
-          include: { episodes: { include: { files: true } } },
+          select: {
+            id: true,
+            seasonNumber: true,
+            episodes: {
+              select: { id: true, episodeNumber: true, _count: { select: { files: true } } },
+            },
+          },
         },
       },
     })
 
-    const byTitle = new Map<string, typeof allShows>()
-    for (const show of allShows) {
-      const key = show.title.toLowerCase().trim()
-      const group = byTitle.get(key) ?? []
-      group.push(show)
-      byTitle.set(key, group)
+    const plan = planDedup(
+      candidates.map((s) => ({
+        ...s,
+        seasons: s.seasons.map((se) => ({
+          ...se,
+          episodes: se.episodes.map((e) => ({
+            id: e.id,
+            episodeNumber: e.episodeNumber,
+            fileCount: e._count.files,
+          })),
+        })),
+      })),
+    )
+
+    if (req.body?.dryRun === true) {
+      return reply.send({ dryRun: true, merged: 0, deleted: 0, ...plan })
     }
 
-    let merged = 0
-    let deleted = 0
+    for (const merge of plan.merges) await applyShowMerge(merge)
+    await recalculateEpisodeCounts([...new Set(plan.merges.map((m) => m.canonicalId))])
 
-    for (const group of byTitle.values()) {
-      if (group.length < 2) continue
-
-      // Pick the canonical record: prefer one with tmdbId, then most metadata, then oldest
-      const score = (s: typeof allShows[number]) =>
-        (s.tmdbId ? 10 : 0) + (s.year ? 2 : 0) + (s.overview ? 1 : 0) + (s.posterDownloaded ? 1 : 0)
-      const canonical = [...group].sort((a, b) => score(b) - score(a))[0]!
-
-      const duplicates = group.filter((s) => s.id !== canonical.id)
-
-      for (const dup of duplicates) {
-        for (const dupSeason of dup.seasons) {
-          const existingSeason = await prisma.season.findFirst({
-            where: { showId: canonical.id, seasonNumber: dupSeason.seasonNumber },
-          })
-
-          if (!existingSeason) {
-            // No conflict — just re-parent the season
-            await prisma.season.update({
-              where: { id: dupSeason.id },
-              data: { showId: canonical.id },
-            })
-          } else {
-            // Season already exists in canonical — move episodes over
-            for (const dupEp of dupSeason.episodes) {
-              const existingEp = await prisma.episode.findFirst({
-                where: { seasonId: existingSeason.id, episodeNumber: dupEp.episodeNumber },
-              })
-              if (!existingEp) {
-                await prisma.episode.update({
-                  where: { id: dupEp.id },
-                  data: { seasonId: existingSeason.id },
-                })
-              } else {
-                // Episode exists — move any files from the duplicate episode
-                for (const f of dupEp.files) {
-                  await prisma.episodeFile.update({
-                    where: { id: f.id },
-                    data: { episodeId: existingEp.id },
-                  })
-                }
-                await prisma.episode.delete({ where: { id: dupEp.id } })
-              }
-            }
-            await prisma.season.delete({ where: { id: dupSeason.id } })
-          }
-        }
-        await prisma.tvShow.delete({ where: { id: dup.id } })
-        deleted++
-        merged++
-      }
-    }
-
-    // Recalculate episode counts for all remaining shows
-    const shows = await prisma.tvShow.findMany({ select: { id: true } })
-    for (const s of shows) {
-      const owned = await prisma.episode.count({ where: { season: { showId: s.id }, status: 'owned' } })
-      const total = await prisma.episode.count({ where: { season: { showId: s.id } } })
-      await prisma.tvShow.update({ where: { id: s.id }, data: { ownedEpisodes: owned, totalEpisodes: total } })
-    }
-
-    return reply.send({ merged, deleted })
+    // `deleted` is kept for the existing client: one duplicate row per merge.
+    return reply.send({ merged: plan.merges.length, deleted: plan.merges.length, ...plan })
   })
 
   // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
