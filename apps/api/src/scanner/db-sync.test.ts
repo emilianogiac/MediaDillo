@@ -59,7 +59,9 @@ const mockEpisodeFile = prisma.episodeFile as unknown as {
 const FAKE_SHOW = { id: 'show-1', title: 'Breaking Bad', year: 2008, tmdbId: null, tvdbId: null, overview: null, rating: null, genres: [], posterDownloaded: false, backdropDownloaded: false, ownedEpisodes: 0 }
 const FAKE_SEASON = { id: 'season-1', showId: 'show-1', seasonNumber: 1 }
 const FAKE_EPISODE = { id: 'episode-1', seasonId: 'season-1', episodeNumber: 1, title: null, airDate: null, status: 'owned' }
-const FAKE_EPISODE_FILE = { id: 'ef-1', episodeId: 'episode-1', path: '/tv/Breaking Bad/Season 1/S01E01.mkv', scannedAt: new Date(0), sizeBytes: BigInt(1000), durationS: 1320 }
+// sizeBytes must match makeScannedFile()'s default: since #124 a size difference
+// is itself a re-probe trigger, so a mismatched fixture is a *changed* file.
+const FAKE_EPISODE_FILE = { id: 'ef-1', episodeId: 'episode-1', path: '/tv/Breaking Bad/Season 1/S01E01.mkv', scannedAt: new Date(0), sizeBytes: BigInt(1_000_000_000), durationS: 1320 }
 
 const FAKE_TECH_SPECS = {
   durationS: 1320,
@@ -319,5 +321,65 @@ describe('syncEpisodeFile — TvShow deduplication via folder anchor', () => {
 
     expect(await syncEpisodeFile(file, '/tv')).toBe('unchanged')
     expect(mockEpisodeFile.update).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Issue #124 — an in-place quality upgrade kept the old tech specs. A release that
+ * preserves the source timestamp has an mtime OLDER than the previous scan, so the
+ * mtime trigger is false and every other trigger matches an already-correct row.
+ * Byte size is the signal that is always present; before the fix it was written on
+ * update but never consulted, so `Mayday (2026)` stayed 720p forever.
+ */
+describe('syncEpisodeFile — re-probe triggers (issue #124)', () => {
+  const PATH = '/tv/Breaking Bad/Season 1/Breaking Bad - S01E01.mkv'
+
+  function existingFile(over: Record<string, unknown> = {}) {
+    return {
+      id: 'ef-1',
+      // must match the episode the sync resolves, or `wrongEpisode` fires and the
+      // test exercises the reparent branch instead of the re-probe triggers.
+      episodeId: 'episode-1',
+      path: PATH,
+      sizeBytes: BigInt(1_000_000_000),
+      multiEpisodeEnd: null,
+      threeD: null,
+      durationS: 2700,
+      videoCodec: FAKE_TECH_SPECS.videoCodec,
+      // one hour AFTER the file's mtime, so the mtime trigger cannot fire
+      scannedAt: new Date(Date.now() + 3_600_000),
+      ...over,
+    }
+  }
+
+  it('re-probes when the size changed even though the mtime is older than the last scan', async () => {
+    mockEpisodeFile.findUnique.mockResolvedValue(existingFile())
+    const file = makeScannedFile(PATH)
+    file.sizeBytes = BigInt(5_344_672_117) // the 1080p replacement
+
+    const outcome = await syncEpisodeFile(file, '/tv')
+
+    expect(outcome).toBe('changed')
+    expect(mockEpisodeFile.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ sizeBytes: BigInt(5_344_672_117) }),
+      }),
+    )
+  })
+
+  it('leaves an unchanged file alone when size and mtime both match', async () => {
+    mockEpisodeFile.findUnique.mockResolvedValue(existingFile())
+    const file = makeScannedFile(PATH)
+    file.sizeBytes = BigInt(1_000_000_000)
+
+    expect(await syncEpisodeFile(file, '/tv')).toBe('unchanged')
+    expect(mockEpisodeFile.update).not.toHaveBeenCalled()
+  })
+
+  it('re-probes when the stored size is null', async () => {
+    mockEpisodeFile.findUnique.mockResolvedValue(existingFile({ sizeBytes: null }))
+    const file = makeScannedFile(PATH)
+
+    expect(await syncEpisodeFile(file, '/tv')).toBe('changed')
   })
 })

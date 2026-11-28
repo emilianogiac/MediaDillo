@@ -21,6 +21,29 @@ function needsDurationBackfill(existing: { durationS: number | null }, specs: Vi
   return existing.durationS === null && specs.durationS !== null
 }
 
+/**
+ * True when a file replaced in place must be re-probed (issue #124).
+ *
+ * A quality upgrade at the same path changes the byte size essentially always,
+ * but a release that preserves the source timestamp can carry an mtime *older*
+ * than the previous scan — so `scannedAt < mtime` is false and every other
+ * trigger (codec, edition, duration) matches the already-correct row. `Mayday
+ * (2026)` sat at a stored 720p while the file on disk was 1080p and 2.9 GB
+ * larger, and no number of rescans would have corrected it.
+ *
+ * Size is the signal that is always present, and the walk already collects it.
+ * A null stored size also re-probes, which is what we want.
+ */
+function fileNeedsReprobe(
+  existing: { scannedAt: Date; sizeBytes: bigint | null; durationS: number | null },
+  file: { mtimeMs: number; sizeBytes: bigint },
+  specs: VideoTechSpecs,
+): boolean {
+  const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
+  const sizeChanged = existing.sizeBytes !== file.sizeBytes
+  return mtimeChanged || sizeChanged || needsDurationBackfill(existing, specs)
+}
+
 export interface ScanCounts {
   added: number
   changed: number
@@ -171,8 +194,11 @@ export async function syncMovieFile(
     return 'added'
   }
 
-  const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
-  if (mtimeChanged || existing.videoCodec !== specs.videoCodec || existing.edition !== edition || needsDurationBackfill(existing, specs)) {
+  if (
+    fileNeedsReprobe(existing, file, specs) ||
+    existing.videoCodec !== specs.videoCodec ||
+    existing.edition !== edition
+  ) {
     await prisma.movieFile.update({
       where: { path: file.path },
       data: {
@@ -322,7 +348,11 @@ export async function syncMovieFolder(
       added++
     } else {
       const needsReparent = existing.movieId !== movie.id
-      const needsUpdate = existing.scannedAt.getTime() < walkedFile.mtimeMs || existing.videoCodec !== specs.videoCodec || existing.edition !== fileEdition || existing.threeD !== fileThreeD || needsDurationBackfill(existing, specs)
+      const needsUpdate =
+        fileNeedsReprobe(existing, walkedFile, specs) ||
+        existing.videoCodec !== specs.videoCodec ||
+        existing.edition !== fileEdition ||
+        existing.threeD !== fileThreeD
       if (needsReparent || needsUpdate) {
         const oldMovieId = needsReparent ? existing.movieId : null
         await prisma.movieFile.update({
@@ -530,9 +560,8 @@ export async function syncEpisodeFile(
 
   const wrongEpisode = existing.episodeId !== episode.id
   const wrongMultiEnd = (existing.multiEpisodeEnd ?? null) !== multiEpisodeEnd
-  const mtimeChanged = existing.scannedAt.getTime() < file.mtimeMs
 
-  if (wrongEpisode || wrongMultiEnd || mtimeChanged || needsDurationBackfill(existing, specs)) {
+  if (wrongEpisode || wrongMultiEnd || fileNeedsReprobe(existing, file, specs)) {
     const oldEpisodeId = existing.episodeId
     await prisma.episodeFile.update({
       where: { path: file.path },

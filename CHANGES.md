@@ -1,3 +1,32 @@
+## 2026-11-28 — in-place file upgrades now re-probe (#124)
+
+Replacing a file at the same path with a better version left the stored tech
+specs stale forever. `Mayday (2026)` reported `720p` while the file on disk was
+1918x802 hevc and 2.9 GB larger, and no number of rescans corrected it.
+
+The scanner's change triggers were mtime, codec, edition and a duration
+backfill. A release that preserves the source timestamp carries an mtime *older*
+than the previous scan, so `scannedAt < mtime` is false; every other trigger
+matches an already-correct row. `sizeBytes` was written on update but never
+consulted — yet it is the one signal always present on a quality upgrade.
+
+- New `fileNeedsReprobe()` in `scanner/db-sync.ts` folds mtime, size and the
+  duration backfill into one predicate, replacing three divergent copies of the
+  condition in `syncMovieFile`, `syncEpisodeFile` and the folder-level movie sync.
+- New `POST /api/settings/reprobe-stale` (`scanner/reprobe.ts`) re-probes files
+  whose stored size disagrees with disk, repairing existing rows without a full
+  rescan. Supports `{"dryRun": true}`.
+- Three files on the Milan library were affected, all stored as 720p:
+  `Mayday (2026)`, `La mummia - Il ritorno (2001)` and
+  `Il padrino - Parte III (1990) {edition-Extended Edition}`.
+
+Also corrects a test fixture: `FAKE_EPISODE_FILE` carried `sizeBytes: 1000`
+against a scanned 1,000,000,000, so two "unchanged" tests were asserting on a
+file that is now correctly seen as changed.
+
+Tests: `apps/api/src/scanner/reprobe.test.ts` (7), plus 3 regression cases in
+`db-sync.test.ts` covering an older mtime with a changed size.
+
 ## 2026-11-28 — one owner for the show episode counters (#120)
 
 12 shows reported `ownedEpisodes > totalEpisodes`. The two fields described

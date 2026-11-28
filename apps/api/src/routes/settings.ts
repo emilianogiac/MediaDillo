@@ -7,6 +7,7 @@ import { getApiConfig, invalidateApiConfigCache, API_CONFIG_DB_KEYS } from '../a
 import { testJellyfinConnection } from '../jellyfin/client.js'
 import { logActivity } from '../activity/log.js'
 import { planDedup, type PlannedMerge } from '../shows/dedup.js'
+import { reprobeStaleFiles } from '../scanner/reprobe.js'
 import { recalculateShowCounts, recalculateManyShowCounts } from '../shows/counts.js'
 
 /**
@@ -343,6 +344,14 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       if (counts.owned !== show.ownedEpisodes || counts.total !== show.totalEpisodes) changed++
     }
     return reply.send({ shows: shows.length, changed })
+  })
+
+  // POST /api/settings/reprobe-stale — re-probe files whose stored size disagrees
+  // with disk. Repairs rows a rescan cannot: an in-place upgrade whose replacement
+  // carries an older mtime never trips the scanner's change triggers (#124).
+  app.post<{ Body?: { dryRun?: boolean } }>('/settings/reprobe-stale', async (req, reply) => {
+    const result = await reprobeStaleFiles(req.body?.dryRun === true)
+    return reply.send(result)
   })
 
   // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
