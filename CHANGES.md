@@ -1,3 +1,31 @@
+## 2026-11-28 — resolution tiering reads width as well as height (#126)
+
+Resolution came from height alone, so every scope (2.39:1) transfer was labelled
+`720p`: 1920x800 is 1080p-class material, but `800 >= 1080` is false. `width` was
+parsed from ffprobe and never used. This is why #124 alone did not fix
+`Mayday (2026)` — the file re-probed correctly and was still called 720p.
+
+A random sample of 45 movie files was probed for real dimensions; **34
+reclassified**, 32 of them `720p -> 1080p` and two `1440p -> 4K` (a scope 4K
+transfer is 3840x1600). Only one sampled file labelled 720p genuinely was.
+
+- `resolveTierIndex(width, height)` classifies each dimension independently and
+  takes the better. A single formula does not work: `max(h, w * 9/16)` fails on
+  1912x1032 (gives 1076, just under the threshold), while a width-only rule would
+  demote a narrow 1080 transfer such as 1436x1080.
+- Width thresholds sit below nominal (3400/2300/1700/1100 for 3840/2560/1920/1280)
+  because real encodes come in short — both 1912 and 1918 occur here.
+- The width table deliberately stops at 720p. Below HD, width cannot identify a
+  format: 640 is the width of both `640x480` (480p) and `640x360` (360p), so
+  extending it downwards promoted 360p content. Scope transfers only exist at HD
+  and above.
+- `POST /api/settings/reprobe-stale` gained `{"scope": "all"}`. The default
+  size-based scope would skip every file this fix affects, since their sizes are
+  already correct.
+
+Tests: 17 dimension cases in `ffprobe.test.ts` taken from real library files, plus
+4 scope-all cases in `reprobe.test.ts`.
+
 ## 2026-11-28 — in-place file upgrades now re-probe (#124)
 
 Replacing a file at the same path with a better version left the stored tech

@@ -349,10 +349,16 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/settings/reprobe-stale — re-probe files whose stored size disagrees
   // with disk. Repairs rows a rescan cannot: an in-place upgrade whose replacement
   // carries an older mtime never trips the scanner's change triggers (#124).
-  app.post<{ Body?: { dryRun?: boolean } }>('/settings/reprobe-stale', async (req, reply) => {
-    const result = await reprobeStaleFiles(req.body?.dryRun === true)
-    return reply.send(result)
-  })
+  app.post<{ Body?: { dryRun?: boolean; scope?: 'stale' | 'all' } }>(
+    '/settings/reprobe-stale',
+    async (req, reply) => {
+      const result = await reprobeStaleFiles({
+        dryRun: req.body?.dryRun === true,
+        scope: req.body?.scope === 'all' ? 'all' : 'stale',
+      })
+      return reply.send(result)
+    },
+  )
 
   // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
   app.get('/settings/api-keys', async (_req, reply) => {

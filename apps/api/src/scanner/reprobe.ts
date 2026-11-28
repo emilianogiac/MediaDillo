@@ -2,6 +2,19 @@ import { stat } from 'node:fs/promises'
 import { prisma } from '@mediadillo/db'
 import { extractTechSpecs } from './ffprobe.js'
 
+export type ReprobeScope = 'stale' | 'all'
+
+export interface ReprobeOptions {
+  dryRun?: boolean
+  /**
+   * `stale` (default) re-probes only files whose stored size disagrees with disk.
+   * `all` re-probes every file, which is what a tiering change needs: #126 fixed
+   * the resolution label, but the ~880 affected files have correct sizes, so a
+   * size-based pass would skip every one of them.
+   */
+  scope?: ReprobeScope
+}
+
 export interface ReprobeResult {
   checked: number
   stale: number
@@ -25,9 +38,12 @@ export interface ReprobeResult {
  * file, with ffprobe run only on the mismatches.
  *
  * `dryRun` reports what it would do without writing, so the blast radius is
- * visible before anything changes.
+ * visible before anything changes. `scope: 'all'` ignores size and re-probes
+ * everything, for when the probe's own interpretation has changed rather than
+ * the file.
  */
-export async function reprobeStaleFiles(dryRun = false): Promise<ReprobeResult> {
+export async function reprobeStaleFiles(options: ReprobeOptions = {}): Promise<ReprobeResult> {
+  const { dryRun = false, scope = 'stale' } = options
   const result: ReprobeResult = { checked: 0, stale: 0, reprobed: 0, unreadable: 0, changes: [] }
 
   const movieFiles = await prisma.movieFile.findMany({
@@ -47,18 +63,24 @@ export async function reprobeStaleFiles(dryRun = false): Promise<ReprobeResult> 
       continue
     }
     result.checked++
-    if (row.sizeBytes === onDisk) continue
-    result.stale++
+    const sizeDiffers = row.sizeBytes !== onDisk
+    if (sizeDiffers) result.stale++
+    if (scope === 'stale' && !sizeDiffers) continue
 
     const specs = await extractTechSpecs(row.path)
-    result.changes.push({
-      path: row.path,
-      oldSize: String(row.sizeBytes ?? 0),
-      newSize: String(onDisk),
-      oldResolution: row.videoResolution,
-      newResolution: specs.videoResolution,
-    })
+    // In `all` scope most files are already correct; only record the ones that move.
+    const resolutionDiffers = row.videoResolution !== specs.videoResolution
+    if (sizeDiffers || resolutionDiffers) {
+      result.changes.push({
+        path: row.path,
+        oldSize: String(row.sizeBytes ?? 0),
+        newSize: String(onDisk),
+        oldResolution: row.videoResolution,
+        newResolution: specs.videoResolution,
+      })
+    }
     if (dryRun) continue
+    if (scope === 'all' && !sizeDiffers && !resolutionDiffers) continue
 
     const data = {
       sizeBytes: onDisk,

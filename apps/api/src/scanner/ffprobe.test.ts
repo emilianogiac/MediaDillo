@@ -116,3 +116,75 @@ describe('parseFfprobeOutput — duration (issue #108)', () => {
     expect(r.durationS).toBeNull()
   })
 })
+
+/**
+ * Issue #126 — resolution came from height alone, so every scope (2.39:1)
+ * transfer was labelled 720p. All dimensions below are real files from the
+ * Milan library; 34 of 45 sampled files were misclassified before this.
+ */
+describe('resolution tiering uses both dimensions (issue #126)', () => {
+  function specsFor(width: number, height: number) {
+    return parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264', width, height }],
+    })
+  }
+
+  it.each([
+    // scope transfers: full width, short height — the bug
+    [1920, 800, '1080p', 'Animali fantastici / The Accountant / 14 others'],
+    [1920, 816, '1080p', 'La mummia - Il ritorno'],
+    [1920, 750, '1080p', 'Lilli e il vagabondo'],
+    [1920, 796, '1080p', "Harry Potter e l'ordine della fenice"],
+    [1918, 802, '1080p', 'Mayday (2026) — the reported case'],
+    // a few pixels short of 1920: strict >= 1920 would miss these
+    [1912, 1032, '1080p', 'Hammamet'],
+    [1918, 1036, '1080p', 'Assassinio a Venezia'],
+    // narrow 1080: height must carry it, width must not demote it
+    [1436, 1080, '1080p', 'Lupin III Walther P38'],
+    [1884, 1080, '1080p', 'Viaggi di nozze'],
+    // genuine formats must be unaffected
+    [1920, 1080, '1080p', 'standard 16:9 1080p'],
+    [1280, 720, '720p', 'Osmosis Jones — genuinely 720p'],
+    [720, 480, '480p', 'NTSC DVD'],
+    [1024, 576, '576p', 'PAL widescreen'],
+    // 4K, including the scope case one tier up
+    [3840, 2160, '4K (2160p)', 'standard 4K'],
+    [3840, 1606, '4K (2160p)', 'Sonic 2 - Il film (scope 4K)'],
+    [3840, 2076, '4K (2160p)', 'Ritorno al futuro'],
+  ])('%ix%i -> %s (%s)', (width, height, expected) => {
+    expect(specsFor(width, height).videoResolution).toBe(expected)
+  })
+
+  it('maps the 4K label to the shorter quality tier', () => {
+    const specs = specsFor(3840, 1606)
+    expect(specs.videoResolution).toBe('4K (2160p)')
+    expect(specs.videoQualityTier).toBe('4K')
+  })
+
+  it('falls back to height when width is absent', () => {
+    const specs = parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264', height: 1080 }],
+    })
+    expect(specs.videoResolution).toBe('1080p')
+  })
+
+  it('falls back to width when height is absent', () => {
+    const specs = parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264', width: 1920 }],
+    })
+    expect(specs.videoResolution).toBe('1080p')
+  })
+
+  it('returns null when neither dimension is reported', () => {
+    const specs = parseFfprobeOutput({
+      streams: [{ codec_type: 'video', codec_name: 'h264' }],
+    })
+    expect(specs.videoResolution).toBeNull()
+    expect(specs.videoQualityTier).toBeNull()
+  })
+
+  it('does not promote genuinely small content', () => {
+    expect(specsFor(640, 360).videoResolution).toBe('360p')
+    expect(specsFor(320, 240).videoResolution).toBe('SD')
+  })
+})
