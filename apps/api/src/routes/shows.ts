@@ -15,6 +15,7 @@ import { syncSeasonTitles } from '../metadata/enricher.js'
 import { getApiConfig } from '../api-config.js'
 import { triggerLibraryRefresh } from '../jellyfin/sync.js'
 import { moveFile } from '../files/move.js'
+import { recalculateShowCounts } from '../shows/counts.js'
 
 // Derive the show folder from a set of known episode file paths, bounded by TV scan roots.
 // Using path.dirname twice assumes showFolder/seasonFolder/file structure and goes too high
@@ -65,8 +66,7 @@ async function refreshEpisodeOwnership(showId: string, episodeIds: string[]): Pr
       data: { status: count > 0 ? EpisodeStatus.owned : EpisodeStatus.missing },
     })
   }
-  const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-  await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
+  await recalculateShowCounts(showId)
 }
 
 export async function showsRoutes(app: FastifyInstance): Promise<void> {
@@ -717,9 +717,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
     // Delete secondary episode (files already re-parented)
     await prisma.episode.delete({ where: { id: epB.id } })
 
-    // Recalculate show owned counts
-    const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
-    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
+    await recalculateShowCounts(req.params.id)
 
     return reply.send({ renamed, errors })
   })
@@ -776,9 +774,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       await prisma.episode.update({ where: { id: ep.id }, data: { episodeNumber: newEpNum } })
     }
 
-    // Recalculate show owned counts
-    const owned = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
-    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: owned } })
+    await recalculateShowCounts(req.params.id)
 
     // Refresh episode titles so they match the new numbering (TVDB if available, else TMDB)
     if (show.tmdbId) {
@@ -1185,9 +1181,7 @@ export async function showsRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
-    // Recalculate show totals
-    const ownedCount = await prisma.episode.count({ where: { season: { showId: req.params.id }, status: 'owned' } })
-    await prisma.tvShow.update({ where: { id: req.params.id }, data: { ownedEpisodes: ownedCount } })
+    await recalculateShowCounts(req.params.id)
 
     triggerLibraryRefresh(app.log).catch(() => {})
     return reply.send({ renamed, errors })

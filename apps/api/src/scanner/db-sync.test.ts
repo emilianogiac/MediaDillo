@@ -17,7 +17,7 @@ vi.mock('./ffprobe.js', () => ({ extractTechSpecs: vi.fn() }))
 vi.mock('@mediadillo/db', () => ({
   prisma: {
     tvShow: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    season: { findFirst: vi.fn(), create: vi.fn() },
+    season: { findFirst: vi.fn(), create: vi.fn(), aggregate: vi.fn() },
     episode: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
     episodeFile: { findFirst: vi.fn(), findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   },
@@ -41,6 +41,7 @@ const mockTvShow = prisma.tvShow as unknown as {
 const mockSeason = prisma.season as unknown as {
   findFirst: ReturnType<typeof vi.fn>
   create: ReturnType<typeof vi.fn>
+  aggregate: ReturnType<typeof vi.fn>
 }
 const mockEpisode = prisma.episode as unknown as {
   findFirst: ReturnType<typeof vi.fn>
@@ -90,6 +91,10 @@ function makeScannedFile(filePath: string, overrides: Partial<{ show: string; ye
 
 beforeEach(() => {
   vi.clearAllMocks()
+
+  // recalculateShowCounts() sums Season.episodeCount (#120); without a shape here
+  // every sync path throws on `_sum`.
+  mockSeason.aggregate.mockResolvedValue({ _sum: { episodeCount: 0 } })
 
   // Default artwork: nothing found
   vi.mocked(detectLocalArtwork).mockResolvedValue({ hasPoster: false, hasBackdrop: false })

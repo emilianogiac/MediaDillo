@@ -7,6 +7,7 @@ import { getApiConfig, invalidateApiConfigCache, API_CONFIG_DB_KEYS } from '../a
 import { testJellyfinConnection } from '../jellyfin/client.js'
 import { logActivity } from '../activity/log.js'
 import { planDedup, type PlannedMerge } from '../shows/dedup.js'
+import { recalculateShowCounts, recalculateManyShowCounts } from '../shows/counts.js'
 
 /**
  * Apply one planned show merge in a single transaction, then record it so the
@@ -51,16 +52,6 @@ async function applyShowMerge(merge: PlannedMerge): Promise<void> {
   })
 }
 
-/** Refresh owned/total counts for the shows a merge actually touched. */
-async function recalculateEpisodeCounts(showIds: string[]): Promise<void> {
-  for (const id of showIds) {
-    const owned = await prisma.episode.count({
-      where: { season: { showId: id }, status: 'owned' },
-    })
-    const total = await prisma.episode.count({ where: { season: { showId: id } } })
-    await prisma.tvShow.update({ where: { id }, data: { ownedEpisodes: owned, totalEpisodes: total } })
-  }
-}
 
 const VALID_INTERVALS = new Set<ScheduleInterval>(['disabled', '1h', '6h', '12h', '24h'])
 const AUTO_CLEANUP_KEY = 'match.autoCleanupFolder'
@@ -272,11 +263,7 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
         where: { id: { in: [...affectedEpisodeIds] } },
         select: { season: { select: { showId: true } } },
       })
-      const affectedShowIds = [...new Set(affectedEps.map((e) => e.season.showId))]
-      for (const showId of affectedShowIds) {
-        const owned = await prisma.episode.count({ where: { season: { showId }, status: 'owned' } })
-        await prisma.tvShow.update({ where: { id: showId }, data: { ownedEpisodes: owned } })
-      }
+      await recalculateManyShowCounts(affectedEps.map((e) => e.season.showId))
     }
 
     // Ghost shows — shows with no episode files at all (delete show + seasons + episodes cascade)
@@ -339,10 +326,23 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
     }
 
     for (const merge of plan.merges) await applyShowMerge(merge)
-    await recalculateEpisodeCounts([...new Set(plan.merges.map((m) => m.canonicalId))])
+    await recalculateManyShowCounts(plan.merges.map((m) => m.canonicalId))
 
     // `deleted` is kept for the existing client: one duplicate row per merge.
     return reply.send({ merged: plan.merges.length, deleted: plan.merges.length, ...plan })
+  })
+
+  // POST /api/settings/recalculate-counts — rebuild every show's episode counters.
+  // Needed as a one-off after #120: rows written before the fix compared owned
+  // episodes (which included specials) against a provider total that excluded them.
+  app.post('/settings/recalculate-counts', async (_req, reply) => {
+    const shows = await prisma.tvShow.findMany({ select: { id: true, ownedEpisodes: true, totalEpisodes: true } })
+    let changed = 0
+    for (const show of shows) {
+      const counts = await recalculateShowCounts(show.id)
+      if (counts.owned !== show.ownedEpisodes || counts.total !== show.totalEpisodes) changed++
+    }
+    return reply.send({ shows: shows.length, changed })
   })
 
   // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
