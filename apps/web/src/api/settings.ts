@@ -82,6 +82,22 @@ export async function dedupShows(): Promise<DedupResult> {
   return apiFetch<DedupResult>('/settings/dedup-shows', { method: 'POST' })
 }
 
+export interface KeyTestResult {
+  valid: boolean
+  error?: string
+}
+
+/**
+ * Check a TVDB key without saving it (#66), so the user can verify what they
+ * typed before committing to it.
+ */
+export async function testTvdbKey(apiKey: string): Promise<KeyTestResult> {
+  return apiFetch<KeyTestResult>('/settings/api-keys/test-tvdb', {
+    method: 'POST',
+    body: JSON.stringify({ apiKey }),
+  })
+}
+
 export async function verifyIntegrity(): Promise<{ moviesRemoved: number; showsRemoved: number; episodesLost: number }> {
   return apiFetch<{ moviesRemoved: number; showsRemoved: number; episodesLost: number }>('/settings/verify-integrity', { method: 'POST' })
 }

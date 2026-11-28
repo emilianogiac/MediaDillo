@@ -74,17 +74,39 @@ async function testTmdbKey(apiKey: string): Promise<boolean> {
   }
 }
 
-async function testTvdbKey(apiKey: string): Promise<boolean> {
+export interface KeyTestResult {
+  valid: boolean
+  error?: string
+}
+
+/**
+ * Probe a TVDB key by attempting the login it would use (#66).
+ *
+ * Returns a reason rather than a bare boolean: "invalid key" and "TVDB is
+ * unreachable from this host" are different problems for the user, and on this
+ * deployment the second genuinely happens.
+ */
+async function probeTvdbKey(apiKey: string): Promise<KeyTestResult> {
+  if (apiKey.trim() === '') return { valid: false, error: 'No API key provided' }
   try {
     const res = await fetch('https://api4.thetvdb.com/v4/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({ apikey: apiKey }),
     })
-    return res.ok
-  } catch {
-    return false
+    if (res.ok) return { valid: true }
+    if (res.status === 401) return { valid: false, error: 'TVDB rejected the key (401)' }
+    return { valid: false, error: `TVDB returned HTTP ${res.status}` }
+  } catch (err) {
+    return {
+      valid: false,
+      error: `Could not reach TVDB: ${err instanceof Error ? err.message : 'network error'}`,
+    }
   }
+}
+
+async function testTvdbKey(apiKey: string): Promise<boolean> {
+  return (await probeTvdbKey(apiKey)).valid
 }
 
 export async function getAutoCleanupSetting(): Promise<boolean> {
@@ -359,6 +381,17 @@ export async function settingsRoutes(app: FastifyInstance): Promise<void> {
       return reply.send(result)
     },
   )
+
+  // POST /api/settings/api-keys/test-tvdb — check a key without saving it (#66).
+  // Deliberately takes the key in the body rather than reading the stored one, so
+  // the user can verify what they just typed before committing to it.
+  app.post<{ Body?: { apiKey?: string } }>('/settings/api-keys/test-tvdb', async (req, reply) => {
+    const apiKey = req.body?.apiKey
+    if (typeof apiKey !== 'string') {
+      return reply.code(400).send({ error: 'apiKey must be a string' })
+    }
+    return reply.send(await probeTvdbKey(apiKey))
+  })
 
   // GET /api/settings/api-keys — returns all values masked (last 4 chars only)
   app.get('/settings/api-keys', async (_req, reply) => {
