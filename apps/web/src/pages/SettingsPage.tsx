@@ -3,11 +3,11 @@ import type { JellyfinStatus } from '../api/jellyfin.js'
 import { fetchJellyfinStatus, triggerJellyfinRefresh } from '../api/jellyfin.js'
 import { downloadJson, downloadMoviesCsv, downloadShowsCsv, writeBulkNfo } from '../api/export.js'
 import { cleanupTvContamination } from '../api/movies.js'
-import type { ScanRootRecord, ScanLogRecord, ScheduleInterval, ApiKeySettings } from '../api/settings.js'
+import type { ScanRootRecord, ScanLogRecord, ScheduleInterval, ApiKeySettings, KeyTestResult } from '../api/settings.js'
 import {
   fetchAllScanRoots, createScanRoot, updateScanRoot, deleteScanRoot,
   fetchScanLogs, fetchSchedule, updateSchedule, dedupShows, verifyIntegrity,
-  fetchAutoCleanup, updateAutoCleanup, fetchApiKeys, updateApiKeys,
+  fetchAutoCleanup, updateAutoCleanup, fetchApiKeys, updateApiKeys, testTvdbKey,
 } from '../api/settings.js'
 
 function StatusDot({ ok }: { ok: boolean }) {
@@ -167,6 +167,7 @@ function ApiKeysCard() {
               revealed={!!revealed['tvdb']}
               onToggleReveal={() => toggle('tvdb')}
               hint="From thetvdb.com — primary source for TV episode titles and numbering; falls back to TMDB if not set"
+              onTest={testTvdbKey}
             />
             <div className="space-y-1">
               <label className="block text-xs text-gray-400">Jellyfin URL</label>
@@ -229,9 +230,27 @@ interface ApiKeyFieldProps {
   revealed: boolean
   onToggleReveal: () => void
   hint?: string
+  /** When set, a Test button probes the key without saving it (#66). */
+  onTest?: (apiKey: string) => Promise<KeyTestResult>
 }
 
-function ApiKeyField({ label, placeholder, value, onChange, revealed, onToggleReveal, hint }: ApiKeyFieldProps) {
+function ApiKeyField({ label, placeholder, value, onChange, revealed, onToggleReveal, hint, onTest }: ApiKeyFieldProps) {
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState<KeyTestResult | null>(null)
+
+  async function runTest() {
+    if (!onTest) return
+    setTesting(true)
+    setResult(null)
+    try {
+      setResult(await onTest(value))
+    } catch (e) {
+      setResult({ valid: false, error: e instanceof Error ? e.message : 'Test failed' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
   return (
     <div className="space-y-1">
       <label className="block text-xs text-gray-400">{label}</label>
@@ -251,7 +270,28 @@ function ApiKeyField({ label, placeholder, value, onChange, revealed, onToggleRe
         >
           {revealed ? 'Hide' : 'Show'}
         </button>
+        {onTest && (
+          <button
+            type="button"
+            onClick={() => void runTest()}
+            disabled={testing || value.trim() === ''}
+            aria-label={`Test ${label}`}
+            title={value.trim() === '' ? 'Enter a key to test it' : 'Check this key against the provider without saving it'}
+            className="px-2 text-xs text-gray-500 hover:text-accent transition-colors disabled:opacity-40 disabled:hover:text-gray-500"
+          >
+            {testing ? 'Testing…' : 'Test'}
+          </button>
+        )}
       </div>
+      {result && (
+        <p
+          role="status"
+          className={`text-xs flex items-center gap-1.5 ${result.valid ? 'text-green-400' : 'text-red-400'}`}
+        >
+          <span aria-hidden="true">{result.valid ? '●' : '●'}</span>
+          {result.valid ? 'Valid' : (result.error ?? 'Invalid')}
+        </p>
+      )}
       {hint && <p className="text-xs text-gray-500">{hint}</p>}
     </div>
   )
