@@ -262,6 +262,8 @@ export function ShowsPage() {
 
   const rawDuplicates = searchParams.get('duplicates')
   const rawStatus = searchParams.get('status')
+  const rawAbandoned = searchParams.get('abandoned')
+  const rawFill = searchParams.get('fill')
   const filter = {
     scanRootId: searchParams.get('root') ?? '',
     search: searchParams.get('q') ?? '',
@@ -272,6 +274,8 @@ export function ShowsPage() {
     needsOrganizing: searchParams.has('unorganized'),
     duplicates: (rawDuplicates === 'only' || rawDuplicates === 'hide') ? rawDuplicates as 'only' | 'hide' : undefined,
     status: (rawStatus === 'continuing' || rawStatus === 'ended') ? rawStatus as 'continuing' | 'ended' : undefined,
+    abandoned: (rawAbandoned === 'only' || rawAbandoned === 'hide') ? rawAbandoned as 'only' | 'hide' : undefined,
+    fill: (rawFill === 'complete' || rawFill === 'incomplete') ? rawFill as 'complete' | 'incomplete' : undefined,
     newOnly: searchParams.has('new'),
     view: searchParams.get('view') === 'list' ? 'list' as const : 'grid' as const,
     sort: searchParams.get('sort') ?? 'title_asc',
@@ -287,6 +291,8 @@ export function ShowsPage() {
     needsOrganizing?: boolean
     duplicates?: 'only' | 'hide' | ''
     status?: 'continuing' | 'ended' | ''
+    abandoned?: 'only' | 'hide' | ''
+    fill?: 'complete' | 'incomplete' | ''
     newOnly?: boolean
     view?: 'grid' | 'list'
     sort?: string
@@ -303,6 +309,8 @@ export function ShowsPage() {
         if ('needsOrganizing' in partial) { partial.needsOrganizing ? next.set('unorganized', '1') : next.delete('unorganized') }
         if ('duplicates' in partial) { partial.duplicates ? next.set('duplicates', partial.duplicates) : next.delete('duplicates') }
         if ('status' in partial) { partial.status ? next.set('status', partial.status) : next.delete('status') }
+        if ('abandoned' in partial) { partial.abandoned ? next.set('abandoned', partial.abandoned) : next.delete('abandoned') }
+        if ('fill' in partial) { partial.fill ? next.set('fill', partial.fill) : next.delete('fill') }
         if ('newOnly' in partial) { partial.newOnly ? next.set('new', '1') : next.delete('new') }
         if ('view' in partial) { partial.view === 'list' ? next.set('view', 'list') : next.delete('view') }
         if ('sort' in partial) { partial.sort && partial.sort !== 'title_asc' ? next.set('sort', partial.sort) : next.delete('sort') }
@@ -330,6 +338,8 @@ export function ShowsPage() {
     if (filter.needsOrganizing) showFilter.organized = false
     if (filter.duplicates) showFilter.duplicates = filter.duplicates
     if (filter.status) showFilter.status = filter.status
+    if (filter.abandoned) showFilter.abandoned = filter.abandoned
+    if (filter.fill) showFilter.fill = filter.fill
     if (filter.newOnly && lastScanAt) showFilter.addedSince = lastScanAt
     fetchShows(showFilter)
       .then((data) => { setShows(data); setListNonce(Date.now()) })
@@ -425,7 +435,7 @@ export function ShowsPage() {
 
   const hasActiveFilter = !!(
     filter.search || filter.genre || filter.qualityTier || filter.missingArtwork ||
-    filter.unmatched || filter.needsOrganizing || filter.duplicates || filter.status || filter.scanRootId
+    filter.unmatched || filter.needsOrganizing || filter.duplicates || filter.status || filter.abandoned || filter.fill || filter.scanRootId
   )
 
   const allKeys = visibleShows.map((s) => s.listKey)
@@ -454,7 +464,7 @@ export function ShowsPage() {
   }
 
   function clearFilters() {
-    setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, needsOrganizing: false, duplicates: '', status: '', scanRootId: '' })
+    setPartial({ search: '', genre: '', qualityTier: '', missingArtwork: false, unmatched: false, needsOrganizing: false, duplicates: '', status: '', abandoned: '', fill: '', scanRootId: '' })
   }
 
   function handleBatchDelete() {
@@ -657,6 +667,36 @@ export function ShowsPage() {
           className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.status === 'ended' ? 'bg-gray-500/20 border-gray-500/60 text-gray-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
         >
           Ended
+        </button>
+
+        {/*
+          Collection intent (#122). "Incomplete" on its own is not a retrieval
+          queue: it mixes a show missing a handful of episodes with one held as a
+          deliberate sample. Combining fill with the abandoned marker separates
+          the two — `To get` is Ended + incomplete + not abandoned.
+        */}
+        <button
+          onClick={() => setPartial({ fill: filter.fill === 'incomplete' ? '' : 'incomplete' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.fill === 'incomplete' ? 'bg-amber-500/20 border-amber-500/60 text-amber-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+          title="Shows holding fewer episodes than the provider lists"
+        >
+          Incomplete
+        </button>
+
+        <button
+          onClick={() => setPartial({ fill: filter.fill === 'complete' ? '' : 'complete' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.fill === 'complete' ? 'bg-emerald-500/20 border-emerald-500/60 text-emerald-300' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+          title="Shows holding every episode the provider lists"
+        >
+          Complete
+        </button>
+
+        <button
+          onClick={() => setPartial({ abandoned: !filter.abandoned ? 'hide' : filter.abandoned === 'hide' ? 'only' : '' })}
+          className={['text-xs px-2.5 py-1 rounded border transition-colors', filter.abandoned === 'only' ? 'bg-rose-500/20 border-rose-500/60 text-rose-300' : filter.abandoned === 'hide' ? 'bg-gray-700/60 border-gray-600 text-gray-400' : 'border-gray-700 text-gray-500 hover:text-gray-300'].join(' ')}
+          title="Shows you have decided not to finish"
+        >
+          {filter.abandoned === 'only' ? 'Abandoned only' : filter.abandoned === 'hide' ? 'Hiding abandoned' : 'Abandoned'}
         </button>
 
         {hasActiveFilter && (

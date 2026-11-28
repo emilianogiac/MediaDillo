@@ -1,3 +1,28 @@
+## 2026-11-28 — collection intent, so "incomplete" means something (#122)
+
+"Incomplete" conflated two unrelated situations: a show missing a handful of
+episodes that should be chased, and a show held as a deliberate sample that never
+will be. One Piece reports 61 of 2351 episodes, I Simpson 22 of 816 — so the
+missing-episode queue was dominated by shows nobody will ever complete, and could
+not be used as a retrieval list.
+
+Completeness is derivable from the counters (comparable since #120); intent is
+not. The library's rule is that anything kept should be complete, so complete is
+the default and only the exception is recorded — one flag, not a taxonomy.
+
+- `TvShow.abandoned` (default false), indexed.
+- `PATCH /api/shows/:id/abandoned` records the decision.
+- `GET /api/shows` gained `abandoned=only|hide` and `fill=complete|incomplete`.
+  Combining them gives the retrieval queue: ended + incomplete + not abandoned.
+- `GET /api/missing/shows` excludes abandoned shows.
+- Shows page: Incomplete / Complete / Abandoned filter buttons, all URL-backed
+  and covered by Clear filters.
+- `ShowIntentToggle` on the show detail page states the size of the gap in its
+  tooltip, so the decision is informed. It renders nothing for a complete show or
+  one with no provider data — there is no gap to judge.
+
+Tests: `apps/web/src/components/ShowIntentToggle.test.tsx` (10 cases).
+
 ## 2026-11-28 — resolution tiering reads width as well as height (#126)
 
 Resolution came from height alone, so every scope (2.39:1) transfer was labelled

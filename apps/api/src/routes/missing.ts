@@ -10,6 +10,9 @@ export async function missingRoutes(app: FastifyInstance): Promise<void> {
   app.get('/missing/shows', async (_req, reply) => {
     const shows = await prisma.tvShow.findMany({
       where: {
+        // A show you have decided not to finish is not a gap (#122). Without this
+        // the queue is dominated by shows nobody will ever complete.
+        abandoned: false,
         seasons: {
           some: {
             seasonNumber: { not: 0 },
