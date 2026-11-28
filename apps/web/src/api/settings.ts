@@ -64,8 +64,22 @@ export async function fetchScanLogs(limit = 10): Promise<ScanLogRecord[]> {
   return apiFetch<ScanLogRecord[]>(`/settings/scan-logs?limit=${limit}`)
 }
 
-export async function dedupShows(): Promise<{ merged: number; deleted: number }> {
-  return apiFetch<{ merged: number; deleted: number }>('/settings/dedup-shows', { method: 'POST' })
+export interface DedupConflict {
+  title: string
+  canonicalId: string
+  duplicateId: string
+  reason: 'episode-collision'
+  collisions: { seasonNumber: number; episodeNumber: number }[]
+}
+
+export interface DedupResult {
+  merged: number
+  deleted: number
+  conflicts: DedupConflict[]
+}
+
+export async function dedupShows(): Promise<DedupResult> {
+  return apiFetch<DedupResult>('/settings/dedup-shows', { method: 'POST' })
 }
 
 export async function verifyIntegrity(): Promise<{ moviesRemoved: number; showsRemoved: number; episodesLost: number }> {

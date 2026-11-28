@@ -311,9 +311,16 @@ function DatabaseMaintenanceCard() {
     setDedupError(null)
     try {
       const r = await dedupShows()
-      setDedupResult(r.deleted === 0
-        ? 'No duplicate TV show records found.'
-        : `Merged ${r.merged} duplicate show${r.merged !== 1 ? 's' : ''} into their canonical records.`)
+      // Conflicts are the shows the merge deliberately refused to touch (#118).
+      // Reporting only `merged` would hide them and read as "nothing to do".
+      const blocked = r.conflicts.length > 0
+        ? ` ${r.conflicts.length} record${r.conflicts.length !== 1 ? 's' : ''} need review and were left alone: ${r.conflicts.map((c) => c.title).join(', ')}.`
+        : ''
+      setDedupResult(
+        (r.merged === 0
+          ? 'No duplicate TV show records could be merged safely.'
+          : `Merged ${r.merged} duplicate show${r.merged !== 1 ? 's' : ''} into their canonical records.`) + blocked,
+      )
     } catch (e) {
       setDedupError(e instanceof Error ? e.message : 'Failed')
     } finally {
